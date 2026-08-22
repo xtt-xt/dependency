@@ -148,7 +148,7 @@
             }
         ]
     },
-    "toast_underr": {
+    "toast_under": {
         "type": "screen",
         "$text": "halloworld",
         "controls": [
