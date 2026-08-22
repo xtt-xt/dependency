@@ -1,6 +1,6 @@
-# 设置界面框架（CardRegistry）
+# 通用模组前置（CardRegistry）
 
-网易我的世界（NetEase MC）Studio 附加包，提供一套**基于卡片的设置界面框架**（`CardRegistry`），供其他模组注册卡片使用。
+网易我的世界（NetEase MC）Studio 前置模组，为其他模组提供一套**基于卡片的设置界面框架**（`CardRegistry`）。
 
 ## 功能特性
 
