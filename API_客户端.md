@@ -1,120 +1,13 @@
-# CardRegistry API 说明
+# 客户端 API 详解
 
-> 本模组专为外部模组提供设置界面卡片注册能力。
-> **外部模组调用本 API 时务必遵循下方的「外部模组集成要求」**，否则可能因网易多 Addon 加载顺序导致 `ImportError`。
-
----
-
-## 外部模组集成要求
-
-### ⚠️ 禁止顶层 import
-
-```python
-# ❌ 错误：在脚本文件顶部直接 import
-from Script_NeteaseMod9sPMlz0K.CardRegistry import RegisterMainCard
-class MySystem(ClientSystem):
-    ...
-```
-
-**原因**：网易客户端的多 Addon 加载**不保证顺序**。你的模组脚本被加载时，本模组的脚本可能尚未注册，顶层 import 会抛出 `ImportError`。
-
-### ✅ 正确方式
-
-在 `UiInitFinished` / `LoadClientAddonScriptsAfter` 事件中**延迟导入**，并防御性地处理 `ImportError`：
-
-```python
-class MyClientSystem(ClientSystem):
-
-    def __init__(self, namespace, systemName):
-        ClientSystem.__init__(self, namespace, systemName)
-        self.ListenForEvent(
-            clientApi.GetEngineNamespace(),
-            clientApi.GetEngineSystemName(),
-            'UiInitFinished',
-            self,
-            self.onUiReady
-        )
-
-    def onUiReady(self, args):
-        # 延迟导入，防御对方模组未安装的情况
-        try:
-            from Script_NeteaseMod9sPMlz0K.CardRegistryApi import (
-                RegisterMainCard, RegisterMiddleCard,
-            )
-        except ImportError:
-            print "==== CardRegistryApi 模组未安装，跳过注册 ===="
-            return
-
-        # 注册主卡片 + 中间卡片（注册后自动刷新 UI，无需手动调用 RebuildMainCards）
-        RegisterMainCard("my_mod", "我的模组", "textures/ui/sidebar_icons/addon")
-        RegisterMiddleCard("my_mod", "server", "my_feat", "我的功能")
-```
-
-### 自动刷新机制
-
-`RegisterMainCard` 和 `UnregisterMainCard` 成功执行后，`MyClientSystem` 内部会自动调用 `SettingsScreenNode.RebuildMainCards()` 刷新左侧卡片列表。
-
-- **设置界面已打开时**：注册/注销主卡片后立即自动刷新，无需手动调用。
-- **设置界面未打开时**：注册/注销操作仍然生效，下次玩家打开设置界面时（`OnActive`）会自动从注册表重建左侧卡片列表。
-
-> 外部模组只需调用 `RegisterMainCard`/`UnregisterMainCard`，无需关心 UI 刷新逻辑。
+> 覆盖：主卡片、中间卡片、右侧内容项、弹窗、折叠菜单、Toast、锁定、设置项状态、导航。
+> 服务端 API 见 [API_服务端.md](API_服务端.md)，事件见 [API_事件.md](API_事件.md)，总览见 [API_列表.md](API_列表.md)。
 
 ---
 
-## 导入
+## 主卡片（左侧列表）
 
-### 推荐方式：组件工厂（统一入口）
-
-只需导入 `CardRegistryApi` 即可获得全部公开 API，无需分别从 `CardRegistry` 和 `Client` 导入。
-
-```python
-from CardRegistryApi import (
-    # 主卡片
-    RegisterMainCard, GetMainCard, GetAllMainCardIds, UnregisterMainCard,
-    # 中间卡片
-    RegisterMiddleCard, GetMiddleCardBindings, UnregisterMiddleCard,
-    ClearMiddleCardBindings,
-    # 整体重置
-    ClearAllCards,
-    # 右侧内容项
-    CreateContentInst, GetContentItems, GetContentItem, ClearContentItems,
-    RegisterContentItemType, GetContentItemFactory,
-    RegisterContentListener, UnregisterContentListener,
-    # 回调机制
-    SetCardChangedCallback,
-    # 事件常量
-    SettingsUIOpenEvent, SettingsUICloseEvent,
-    # UI 构建器注册
-    RegisterContentBuilder,
-    # 导航 API
-    OpenSettings,
-    # 锁定 API
-    SetLocked,
-    # 折叠菜单注册表
-    RegisterCollapsibleMenu, AddCollapsibleMenuCard,
-    GetCollapsibleMenu, GetCollapsibleMenuCards,
-    ShowCollapsibleMenu, CloseCollapsibleMenu,
-)
-```
-
-也支持 `from CardRegistryApi import *` 一键导入全部。
-
-### 分别导入（本包内部使用）
-
-本包内部仍可分别从 `CardRegistry` 和 `Client` 导入：
-
-```python
-from CardRegistry import (
-    RegisterMainCard, CreateContentInst, ...
-)
-from Client import RegisterContentBuilder
-```
-
----
-
-## 主卡片（左侧列表）<span style="float:right">`[客户端]`</span>
-
-### RegisterMainCard(unique_id, name, icon=None) <span style="float:right">`[客户端]`</span>
+### RegisterMainCard(unique_id, name, icon=None)
 
 注册一个左侧主卡片。
 
@@ -133,7 +26,7 @@ RegisterMainCard("my_mod", "我的模组", "textures/ui/sidebar_icons/realms")
 
 > 注册后自动刷新 UI（若设置界面已打开），无需手动调用 `RebuildMainCards`。
 
-### GetMainCard(unique_id) <span style="float:right">`[客户端]`</span>
+### GetMainCard(unique_id)
 
 获取已注册的主卡片信息。
 
@@ -144,7 +37,7 @@ info = GetMainCard("basic_settings")
 print info["name"], info["icon"]
 ```
 
-### GetAllMainCardIds() <span style="float:right">[客户端]</span>
+### GetAllMainCardIds()
 
 按注册顺序返回所有主卡片的 unique_id 列表。
 
@@ -154,7 +47,7 @@ for cardId in GetAllMainCardIds():
     print info["name"]
 ```
 
-### UnregisterMainCard(unique_id) <span style="float:right">[客户端]</span>
+### UnregisterMainCard(unique_id)
 
 移除主卡片注册，**同时自动清除**该主卡片关联的所有中间卡片绑定（client 和 server）。
 
@@ -164,7 +57,7 @@ for cardId in GetAllMainCardIds():
 UnregisterMainCard("volume")  # 注销后自动刷新 UI，无需手动调用 RebuildMainCards
 ```
 
-### ClearAllCards() <span style="float:right">[客户端]</span>
+### ClearAllCards()
 
 清空所有注册的卡片（主卡片 + 中间卡片 + 右侧内容项），用于重置注册表。
 
@@ -172,7 +65,7 @@ UnregisterMainCard("volume")  # 注销后自动刷新 UI，无需手动调用 Re
 ClearAllCards()
 ```
 
-### SetCardChangedCallback(callback) <span style="float:right">[客户端]</span>
+### SetCardChangedCallback(callback)
 
 设置主卡片注册变更回调。当 `RegisterMainCard` / `UnregisterMainCard` 成功执行后自动调用该回调。
 
@@ -183,8 +76,6 @@ ClearAllCards()
 | callback | function | 无参函数，主卡片注册/注销成功后被调用 |
 
 ```python
-from CardRegistry import SetCardChangedCallback
-
 def OnMainCardChanged():
     print "主卡片已变更，刷新 UI..."
     # 刷新逻辑...
@@ -194,9 +85,9 @@ SetCardChangedCallback(OnMainCardChanged)
 
 ---
 
-## 中间卡片（子卡片面板内的选项）<span style="float:right">`[客户端]`</span>
+## 中间卡片（子卡片面板内的选项）
 
-### RegisterMiddleCard(main_card_id, key, card_id, name, icon=None) <span style="float:right">`[客户端]`</span>
+### RegisterMiddleCard(main_card_id, key, card_id, name, icon=None)
 
 注册中间卡片并绑定到指定主卡片 + 子卡片（一步到位）。
 
@@ -218,7 +109,7 @@ RegisterMiddleCard("basic_settings", "client", "opt_b", "选项B")  # 默认图�
 
 > 中间卡片在用户点击子卡片（client/server）时动态渲染，注册后无需额外刷新操作。
 
-### GetMiddleCardBindings(main_card_id, key) <span style="float:right">`[客户端]`</span>
+### GetMiddleCardBindings(main_card_id, key)
 
 获取指定主卡片+子卡片的所有绑定中间卡片。
 
@@ -230,7 +121,7 @@ for card_id, name, icon in bindings:
     print card_id, name, icon
 ```
 
-### UnregisterMiddleCard(main_card_id, key, card_id) <span style="float:right">`[客户端]`</span>
+### UnregisterMiddleCard(main_card_id, key, card_id)
 
 取消单个中间卡片绑定。
 
@@ -240,7 +131,7 @@ for card_id, name, icon in bindings:
 UnregisterMiddleCard("basic_settings", "server", "ts_card")
 ```
 
-### ClearMiddleCardBindings(main_card_id, key) <span style="float:right">`[客户端]`</span>
+### ClearMiddleCardBindings(main_card_id, key)
 
 清空指定主卡片+子卡片的所有中间卡片绑定。
 
@@ -252,11 +143,11 @@ ClearMiddleCardBindings("basic_settings", "client")
 
 ---
 
-## 右侧内容项（面板内容区）<span style="float:right">`[客户端]`</span>
+## 右侧内容项（面板内容区）
 
 右侧面板的内容项按 `(母卡片id, 子卡片key, 中间卡片id)` 三元组分组注册。点击中间卡片时自动显示该分类下的内容。支持链式调用。
 
-### CreateContentInst(main_card_id, key, middle_card_id=None) <span style="float:right">`[客户端]`</span>
+### CreateContentInst(main_card_id, key, middle_card_id=None)
 
 创建一个链式注册实例。
 
@@ -269,8 +160,6 @@ ClearMiddleCardBindings("basic_settings", "client")
 返回 `ContentSettingInst` 实例。
 
 ```python
-from CardRegistry import CreateContentInst, GetContentItems, ClearContentItems
-
 # 方式1：创建时指定中间卡片
 CreateContentInst("basic_settings", "client", "client_opt_a")\
     .AddText("info", "功能说明", "这是功能的详细描述")\
@@ -287,7 +176,7 @@ CreateContentInst("basic_settings", "client")\
 
 所有方法返回 `self`，支持链式调用。
 
-#### ForMiddleCard(middle_card_id) <span style="float:right">`[客户端]`</span>
+#### ForMiddleCard(middle_card_id)
 
 指定当前链式操作归属的中间卡片。
 
@@ -299,7 +188,7 @@ CreateContentInst("basic_settings", "client")\
 inst.ForMiddleCard("client_opt_a").AddText("info", "标题", "说明文字")
 ```
 
-#### AddText(item_id, title="", text="") <span style="float:right">`[客户端]`</span>
+#### AddText(item_id, title="", text="")
 
 添加纯文本内容项，支持分标题和正文两部分显示。
 
@@ -320,7 +209,7 @@ inst.AddText("desc_1", "", "这是一段很长的说明文字")
 inst.AddText("info", "功能说明", "这是功能的详细描述，可以有多行文字")
 ```
 
-#### AddButton(item_id, desc, button_text, on_click=None, locked=False, litle="") <span style="float:right">`[客户端]`</span>
+#### AddButton(item_id, desc, button_text, on_click=None, locked=False, litle="")
 
 添加按钮内容项。按钮左侧显示描述文字，右侧显示按钮文字；点击后按钮文字隐藏并显示 `finish` 图标，切换到其他中间卡片后再切回会恢复为初始 `button_text`。
 
@@ -340,11 +229,11 @@ inst.AddButton("locked_feat", "未解锁的功能", "锁定", locked=True)
 inst.AddButton("with_title", "配置", "编辑", litle="功能设置")
 ```
 
-> **`on_click` 回调签名**：`on_click(screenNode, item_id) -> None`  
-> - `screenNode`: 当前 `SettingsScreenNode` 实例，可调用 `screenNode.SetLocked(id, locked)` 动态修改锁定状态  
+> **`on_click` 回调签名**：`on_click(screenNode, item_id) -> None`
+> - `screenNode`: 当前 `SettingsScreenNode` 实例，可调用 `screenNode.SetLocked(id, locked)` 动态修改锁定状态
 > - `item_id`: 被点击按钮的内容项 ID
 
-#### AddSwitch(item_id, desc, default_value=False, locked=False, on_toggle=None, litle="") <span style="float:right">`[客户端]`</span>
+#### AddSwitch(item_id, desc, default_value=False, locked=False, on_toggle=None, litle="")
 
 添加开关内容项。左侧显示描述文字，右侧显示开关控件。支持设置默认开关状态、锁定状态和切换回调。
 
@@ -365,7 +254,7 @@ inst.AddSwitch("ctrl_lock", "控制另一个开关锁定", default_value=True,
 inst.AddSwitch("with_title", "启用功能", litle="功能开关")
 ```
 
-#### AddEditBox(item_id, desc, default_value="", placeholder="请输入内容", locked=False, litle="") <span style="float:right">`[客户端]`</span>
+#### AddEditBox(item_id, desc, default_value="", placeholder="请输入内容", locked=False, litle="")
 
 添加编辑框内容项。左侧显示描述文字，右侧显示输入框（`edit_box`）。支持自定义提示文字（placeholder）与初始内容，支持锁定。
 
@@ -384,7 +273,7 @@ inst.AddEditBox("readonly", "只读配置", default_value="固定值", locked=Tr
 inst.AddEditBox("with_title", "开启提示", litle="功能设置")
 ```
 
-#### AddResetButton(item_id, popup_id=None, on_click=None) <span style="float:right">`[客户端]`</span>
+#### AddResetButton(item_id, popup_id=None, on_click=None)
 
 添加重置按钮内容项。仅显示一个占满整行的按钮（无左侧描述文字），按钮文字固定为"重置分页数据"；点击按钮后弹出 `popup_id` 关联的确认弹窗（须先通过 `RegisterPopUp` 注册）。
 
@@ -400,7 +289,7 @@ RegisterPopUp("reset_confirm", "确认重置", "确定要重置所有设置吗�
 inst.AddResetButton("reset_all", popup_id="reset_confirm")
 ```
 
-#### AddCustom(item_id, type_name, **kwargs) <span style="float:right">`[客户端]`</span>
+#### AddCustom(item_id, type_name, **kwargs)
 
 扩展接口：注册自定义类型内容项。使用前先通过 `RegisterContentItemType` 注册对应工厂。
 
@@ -409,7 +298,7 @@ RegisterContentItemType("slider", SliderContentFactory)
 inst.AddCustom("sensitivity", "slider", min=0, max=100, value=50)
 ```
 
-#### AddSlider(item_id, desc, min_val=0, max_val=100, value=50, steps=1, locked=False, litle="", on_value_change=None, slider_type="percent", value_formatter=None, value_labels=None) <span style="float:right">`[客户端]`</span>
+#### AddSlider(item_id, desc, min_val=0, max_val=100, value=50, steps=1, locked=False, litle="", on_value_change=None, slider_type="percent", value_formatter=None, value_labels=None)
 
 添加滑块内容项（上方 `litle` + `desc` 文字 + 右侧数值显示，下方滑块）。滑块背景/进度用 `textures/ui/slider/` 贴图，滑块按钮用 button 同款贴图（正方形）。
 
@@ -438,7 +327,7 @@ inst.AddSlider("custom", "自定义显示", value=30, steps=1,
 > 固定格类型（steps>1）采用"视觉连续滑动 + 取值量化"：滑块 UI 连续拖动，值自动吸附到最近档位。
 > 数值显示支持自定义：`value_formatter(value) -> str` 回调返回任意文本，或 `value_labels` 列表（固定格每档对应文字，长度 = steps+1）。无自定义时默认固定格显示整数档位、百分比显示 `xx%`。
 
-#### AddCollapsibleMenu(item_id, desc, menu_id, litle="", on_select=None, default_selected_id=None, locked=False) <span style="float:right">`[客户端]`</span>
+#### AddCollapsibleMenu(item_id, desc, menu_id, litle="", on_select=None, default_selected_id=None, locked=False)
 
 添加折叠菜单内容项：上方 `litle`（小标题）+ `desc`（描述文字），下方一个按钮（文字左对齐实时显示当前选中项，右侧带箭头图标）。点击按钮弹出关联的 `collapsible_menu` 弹窗，弹窗中间垂直排列可选卡片，卡片之间互斥，选中后自动关闭弹窗并更新按钮文字。
 
@@ -463,7 +352,7 @@ inst.AddCollapsibleMenu(
 
 > 按钮文字为左对齐，实时显示当前选中项名称；未选择时显示"请选择"。**选中状态自动持久化**：选择/切换卡片/退出设置界面时随 `SaveGroupSettings`/`SaveAllSettings` 保存到本地存储，下次打开自动恢复；`ResetGroupSettings`/`ResetAllSettings` 会恢复为 `default_selected_id`。锁定状态（`locked` 参数或运行时 `SetLocked`）同样随 `::locked` 键持久化。
 
-#### Clear() <span style="float:right">`[客户端]`</span>
+#### Clear()
 
 清除当前分组的所有内容项。
 
@@ -471,7 +360,7 @@ inst.AddCollapsibleMenu(
 inst.Clear()  # 等价于 ClearContentItems("basic_settings", "client", "client_opt_a")
 ```
 
-#### Remove(item_id) <span style="float:right">`[客户端]`</span>
+#### Remove(item_id)
 
 移除当前分组下的单个内容项。
 
@@ -479,7 +368,9 @@ inst.Clear()  # 等价于 ClearContentItems("basic_settings", "client", "client_
 inst.Remove("enable")
 ```
 
-### GetContentItems(main_card_id, key, middle_card_id="__default__") <span style="float:right">`[客户端]`</span>
+### 内容项查询
+
+#### GetContentItems(main_card_id, key, middle_card_id="__default__")
 
 获取指定分组的全部内容项列表。
 
@@ -489,7 +380,7 @@ for item in items:
     print item.item_id, item.type_name
 ```
 
-### GetContentItem(main_card_id, key, middle_card_id, item_id) <span style="float:right">`[客户端]`</span>
+#### GetContentItem(main_card_id, key, middle_card_id, item_id)
 
 获取指定分组中指定 ID 的单个内容项，未找到返回 `None`。
 
@@ -501,7 +392,7 @@ if item:
 
 > 常用于在 `on_click` 回调中读取按钮的当前锁定状态，配合 `SetLocked` 使用。
 
-### ClearContentItems(main_card_id=None, key=None, middle_card_id=None) <span style="float:right">`[客户端]`</span>
+#### ClearContentItems(main_card_id=None, key=None, middle_card_id=None)
 
 清空内容项。不传参清空全部；传参只清空指定分组。
 
@@ -511,7 +402,17 @@ ClearContentItems("basic_settings", "client", "client_opt_a")        # 清空指
 ClearContentItems("basic_settings", "client")                         # 清空指定子卡片下所有中间卡片
 ```
 
-### RegisterContentItemType(type_name, factory) <span style="float:right">`[客户端]`</span>
+#### GetAllContentGroups()
+
+返回所有已注册内容项分组 `[(main_card_id, key, middle_card_id), ...]`（供批量重置遍历）。
+
+#### NormalizeMiddleCardId(middle_card_id)
+
+将 `None` 归一化为默认中间卡片 ID（`__default__`），保证存储 key 与注册分组一致。
+
+### 内容项扩展
+
+#### RegisterContentItemType(type_name, factory)
 
 注册自定义内容项类型，用于扩展右侧面板可显示的内容类型。
 
@@ -541,7 +442,7 @@ class SliderContentFactory(object):
 RegisterContentItemType("slider", SliderContentFactory)
 ```
 
-### GetContentItemFactory(type_name) <span style="float:right">`[客户端]`</span>
+#### GetContentItemFactory(type_name)
 
 获取已注册的指定类型内容项工厂。
 
@@ -549,7 +450,7 @@ RegisterContentItemType("slider", SliderContentFactory)
 factory = GetContentItemFactory("slider")
 ```
 
-### RegisterContentBuilder(type_name, builder) <span style="float:right">`[客户端]`</span>
+#### RegisterContentBuilder(type_name, builder)
 
 注册内容项的 UI 构建器（在 `Client.py` 中）。Builder 负责在右侧面板中创建实际的 UI 控件。
 
@@ -559,8 +460,6 @@ factory = GetContentItemFactory("slider")
 | builder | function | 构建函数，签名 `builder(screenNode, parent, item) -> None` |
 
 ```python
-from Client import RegisterContentBuilder
-
 def BuildSliderContent(screenNode, parent, item):
     # 创建 UI 控件...
     pass
@@ -570,7 +469,7 @@ RegisterContentBuilder("slider", BuildSliderContent)
 
 > 内置类型 `"text"` 和 `"button"` 的 builder 已自动注册，无需手动调用。
 
-### RegisterContentListener(listener) <span style="float:right">`[客户端]`</span>
+#### RegisterContentListener(listener)
 
 注册内容项变更监听器。当右侧内容项被增删时，会通知所有监听器，可用于动态刷新 UI。
 
@@ -586,7 +485,7 @@ def OnContentChanged(group):
 RegisterContentListener(OnContentChanged)
 ```
 
-### UnregisterContentListener(listener) <span style="float:right">`[客户端]`</span>
+#### UnregisterContentListener(listener)
 
 注销之前注册的内容项变更监听器。
 
@@ -596,83 +495,210 @@ UnregisterContentListener(OnContentChanged)
 
 ---
 
-## 事件与导航 API <span style="float:right">`[客户端]`</span>
+## 弹窗 API
 
-### 事件常量 <span style="float:right">`[客户端]`</span>
+通用确认弹窗系统：`RegisterPopUp` 注册弹窗，`ShowPopUp` 打开，弹窗显示标题 + 正文（超长自动滚动，总高最多 80% 屏高）+ 底部按钮区（按钮间带间距）。
 
-当玩家打开或关闭设置 UI 时，`MyClientSystem` 会向引擎抛出事件，外部模块可通过 `ListenForEvent` 监听。
+### RegisterPopUp(popup_id, title, content, buttons=None)
 
-| 常量 | 事件名 | 抛出时机 | 事件数据 |
-|------|--------|----------|----------|
-| `SettingsUIOpenEvent` | `Script_NeteaseMod9sPMlz0K_SettingsUIOpen` | 玩家打开设置界面 | `{"playerId": str}` |
-| `SettingsUICloseEvent` | `Script_NeteaseMod9sPMlz0K_SettingsUIClose` | 玩家关闭设置界面 | `{"playerId": str}` |
-
-```python
-from CardRegistryApi import SettingsUIOpenEvent, SettingsUICloseEvent
-
-class MyExternalSystem(ClientSystem):
-    def __init__(self, namespace, systemName):
-        ClientSystem.__init__(self, namespace, systemName)
-        self.ListenForEvent(
-            "Script_NeteaseMod9sPMlz0K", "client",
-            SettingsUIOpenEvent, self, self.OnSettingsOpen
-        )
-        self.ListenForEvent(
-            "Script_NeteaseMod9sPMlz0K", "client",
-            SettingsUICloseEvent, self, self.OnSettingsClose
-        )
-
-    def OnSettingsOpen(self, args):
-        playerId = args.get("playerId", "")
-        print "==== Player %s opened settings UI ====" % playerId
-
-    def OnSettingsClose(self, args):
-        playerId = args.get("playerId", "")
-        print "==== Player %s closed settings UI ====" % playerId
-```
-
-> 监听时 `namespace` 和 `systemName` 固定填写 `"Script_NeteaseMod9sPMlz0K"` 和 `"client"`。
-
-### OpenSettings（导航 API） <span style="float:right">`[客户端]`</span>
-
-通过 `CardRegistryApi.OpenSettings` 打开设置 UI，并可选导航到指定卡片。
-
-```python
-from CardRegistryApi import OpenSettings
-
-# 仅打开设置（默认行为）
-OpenSettings()
-
-# 选中主卡片
-OpenSettings(main_card_id="basic_settings")
-
-# 选中主卡片 + 子卡片
-OpenSettings("basic_settings", "client")
-
-# 选中主卡片 + 子卡片 + 中间卡片（右侧内容自动显示）
-OpenSettings("basic_settings", "client", "client_opt_a")
-```
-
-#### 参数说明
+注册一个自定义弹窗。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| main_card_id | str | 否 | 主卡片 ID（如 `"basic_settings"`），传 `None` 则不导航 |
-| sub_key | str | 否 | 子卡片 key，可选 `"client"` 或 `"server"` |
-| middle_card_id | str | 否 | 中间卡片 ID（如 `"client_opt_a"`），需在 `sub_key` 指定后生效 |
+| popup_id | str | 是 | 弹窗唯一标识符（重复注册会覆盖旧数据） |
+| title | str | 是 | 弹窗标题文字 |
+| content | str | 是 | 弹窗正文内容（支持换行 `\n`，超长自动滚动） |
+| buttons | list | 否 | 底部按钮列表 `[(按钮文字, 点击回调\|None), ...]`，回调签名 `f() -> bool`，返回 `True` 时弹窗自动关闭；传 `None` 表示无底部按钮 |
 
-#### 行为说明
+返回 `True` 成功，`False` 参数无效。
 
-- **设置界面未打开时**：`PushScreen` 打开设置，UI 就绪后自动导航到指定卡片
-- **设置界面已打开时**：直接导航到新卡片，不会重复 `PushScreen`
-- **不传任何参数**：仅打开设置界面，保持当前卡片状态
-- **中间卡片导航**：由于中间卡片是异步懒加载的，选中操作会在卡片创建完成后自动执行
+```python
+def OnConfirmReset():
+    # 执行重置逻辑...
+    ResetAllSettings()
+    return True  # 返回 True 自动关闭弹窗
+
+RegisterPopUp(
+    "reset_confirm",
+    "确认重置",
+    "确定要重置所有设置吗？\n此操作不可撤销。",
+    [("取消", None), ("确认重置", OnConfirmReset)]
+)
+```
+
+### ShowPopUp(popup_id, force_scroll=None)
+
+打开指定 ID 的弹窗（须先 `RegisterPopUp` 注册）。若弹窗已在场景栈中，则复用现有弹窗界面刷新内容。
+
+- `force_scroll`：`True` 强制使用滚动版；`False` 强制普通版；`None`（默认）自动判断——当内容估算行数超过 4 行时使用滚动版（滚动区固定高度 100px，上下各留 10px 空隙）。
+
+返回 `True` 打开成功，`False` 弹窗未注册或系统未就绪。
+
+```python
+from CardRegistryApi import ShowPopUp
+ShowPopUp("reset_confirm")
+ShowPopUp("long_notice", force_scroll=True)   # 强制滚动版
+ShowPopUp("short_notice", force_scroll=False) # 强制普通版
+```
+
+### ClosePopUp()
+
+关闭当前弹窗（`PopScreen` 返回上一层，设置界面不受影响）。
+
+### UnregisterPopUp(popup_id)
+
+注销指定弹窗，返回 `True` 成功，`False` 弹窗不存在。
+
+### GetPopUp(popup_id)
+
+获取弹窗数据 `{"title": str, "content": str, "buttons": [(text, callback), ...]}` 或 `None`。
+
+### GetAllPopUpIds()
+
+返回所有已注册的弹窗 ID 列表。
+
+### 与 AddResetButton 配合
+
+设置界面右侧通过 `AddResetButton` 注册重置项，点击后自动打开关联弹窗：
+
+```python
+from CardRegistryApi import (
+    RegisterMainCard, RegisterMiddleCard, CreateContentInst,
+    RegisterPopUp,
+)
+
+RegisterMainCard("basic_settings", "基础设置")
+RegisterMiddleCard("basic_settings", "client", "opt_main", "主要选项")
+
+RegisterPopUp("reset_confirm", "确认重置", "确定要重置所有设置吗？",
+              [("取消", None), ("确认重置", lambda: True)])
+
+CreateContentInst("basic_settings", "client", "opt_main")\
+    .AddResetButton("reset_all", popup_id="reset_confirm")
+```
 
 ---
 
-## 锁定 API <span style="float:right">`[客户端]`</span>
+## 折叠菜单 API
 
-### SetLocked(item_id_or_path, locked) <span style="float:right">`[客户端]`</span>
+折叠菜单选择系统：先注册菜单（含标题与卡片列表），再通过 `AddCollapsibleMenu` 添加右侧内容项。点击内容项按钮弹出菜单弹窗，弹窗中间垂直排列可选卡片，卡片之间互斥（只能选一个），选中后触发 `on_select` 回调并自动关闭弹窗，按钮文字同步为选中项名称。
+
+### RegisterCollapsibleMenu(menu_id, title, cards=None)
+
+注册一个折叠菜单。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| menu_id | str | 是 | 折叠菜单唯一标识符 |
+| title | str | 是 | 弹窗标题文字 |
+| cards | list | 否 | 卡片列表 `[(card_id, name), ...]`，也可后续用 `AddCollapsibleMenuCard` 追加 |
+
+返回 `True` 成功，`False` 参数无效（menu_id 或 title 为空）。
+
+### AddCollapsibleMenuCard(menu_id, card_id, name)
+
+向已注册的折叠菜单追加一张卡片；菜单不存在时自动创建（此时标题为空串，需再调 `RegisterCollapsibleMenu` 设置标题）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| menu_id | str | 是 | 折叠菜单 ID |
+| card_id | str | 是 | 卡片唯一标识符（重复不追加） |
+| name | str | 是 | 卡片显示文字 |
+
+返回 `True` 成功，`False` 参数无效或卡片重复。
+
+### GetCollapsibleMenu(menu_id)
+
+获取折叠菜单数据 `{"title": str, "cards": [(card_id, name), ...]}` 或 `None`。
+
+### GetCollapsibleMenuCards(menu_id)
+
+获取卡片列表 `[(card_id, name), ...]`，菜单不存在返回 `[]`。
+
+### 完整示例
+
+```python
+from CardRegistryApi import RegisterCollapsibleMenu, CreateContentInst
+
+def OnSelect(sn, item_id, card_id):
+    print "选中:", item_id, card_id
+    # 可在此持久化：SetSettingValue("basic_settings", "client", "opt_main", item_id, card_id)
+
+# 1. 注册菜单（标题 + 卡片）
+RegisterCollapsibleMenu(
+    "resolution_menu", "选择分辨率",
+    [("r_720p", "720p"), ("r_1080p", "1080p"),
+     ("r_1440p", "1440p"), ("r_2160p", "2160p")]
+)
+
+# 2. 追加卡片（可选）
+AddCollapsibleMenuCard("resolution_menu", "r_4k", "4K")
+
+# 3. 注册右侧内容项，点击按钮弹出菜单
+CreateContentInst("basic_settings", "client", "opt_main")\
+    .AddCollapsibleMenu(
+        "resolution", "选择游戏分辨率",
+        "resolution_menu", litle="分辨率",
+        default_selected_id="r_1080p",
+        on_select=OnSelect
+    )
+```
+
+> 打开/关闭菜单由框架自动处理（`ShowCollapsibleMenu` / `CloseCollapsibleMenu` 为内部便捷封装，通常无需外部直接调用）。菜单弹窗打开时，设置界面的 ESC 行为自动调整为"先关菜单、再关弹窗、最后关设置界面"。
+
+---
+
+## Toast 提示 API
+
+轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。
+
+### ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0)
+
+显示一个 toast 提示。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| position | str | 是 | 位置常量：`ToastTop`（顶部居中）、`ToastTopRight`（右上角）、`ToastUnder`（底部居中） |
+| text | str | 否 | 显示文字内容 |
+| color | tuple | 否 | 文字颜色 `(r, g, b)`，0~1，默认白色 `(1, 1, 1)` |
+| icon | str | 否 | 图片路径（从 textures 开始，如 `"textures/ui/xxx"`），非空则显示图片层 |
+| item_name | str | 否 | 物品 identifier（如 `"minecraft:diamond"`），非空则显示物品层 |
+| item_aux | int | 否 | 物品附加值，默认 0 |
+| is_enchanted | bool | 否 | 是否显示附魔效果，默认 False |
+| duration | float | 否 | 停留时长（秒），默认 3 |
+
+#### 图层显隐规则
+
+- `item_name` 非空 → 显示物品层；为空 → 隐藏物品层。
+- `icon` 非空 → 显示图片层；为空 → 隐藏图片层。
+- 两者可同时显示；都为空则只显示文字。
+
+#### 动画时序
+
+1. **入场动画**：1 秒（位移到目标位置）。
+2. **停留**：`duration` 秒（默认 3）。
+3. **退场动画**：1 秒（位移出场外）。
+
+#### 排队规则
+
+同一位置的多个 toast 按调用顺序排队，一个播放完成后自动播放下一个。
+
+#### 外部模组使用示例（延迟导入）
+
+```python
+def OnUIInitFinished(self, args):
+    try:
+        from Script_NeteaseMod9sPMlz0K.CardRegistryApi import ShowToast, ToastTop
+        ShowToast(ToastTop, "自定义文字", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
+    except ImportError:
+        pass
+```
+
+---
+
+## 锁定 API
+
+### SetLocked(item_id_or_path, locked)
 
 统一设置指定内容项（按钮/开关/edit_box 内容项）或 `edit_box` 输入框的锁定状态。自动根据传入参数判断类型：
 
@@ -745,13 +771,14 @@ CreateContentInst("basic_settings", "client", "client_opt_a")\
 
 > `on_click` 回调可通过 `sn.SetLocked(...)` 或模块级 `SetLocked(...)` 动态修改任意按钮/开关/edit_box 的锁定状态。
 
-> **`on_toggle` 回调签名**：`on_toggle(screenNode, item_id, state) -> None`  
-> - `screenNode`: 当前 `SettingsScreenNode` 实例，可调用 `screenNode.SetLocked(id, locked)` 动态修改锁定状态  
-> - `item_id`: 被切换的开关内容项 ID  
+> **`on_toggle` 回调签名**：`on_toggle(screenNode, item_id, state) -> None`
+> - `screenNode`: 当前 `SettingsScreenNode` 实例，可调用 `screenNode.SetLocked(id, locked)` 动态修改锁定状态
+> - `item_id`: 被切换的开关内容项 ID
 > - `state`: 开关当前状态（`True` 开，`False` 关）
 
+---
 
-## 设置项状态系统 API <span style="float:right">`[客户端]`</span>
+## 设置项状态系统 API
 
 开关（switch）与输入框（edit_box）的设置值会自动持久化到本地存储，并在设置界面重开、重进世界后恢复。
 
@@ -771,11 +798,11 @@ CreateContentInst("basic_settings", "client", "opt_a")\
 - API 修改开关值**不会**触发 `on_toggle` 回调（仅用户操作触发）。
 - 所有设置项数据以整个 dict 存于一个配置名内，SDK 环境异常时自动降级为内存存储，不崩溃。
 
-### MakeSettingKey(main_card_id, key, middle_card_id, item_id) <span style="float:right">`[客户端]`</span>
+### MakeSettingKey(main_card_id, key, middle_card_id, item_id)
 
 生成存储 key（`主卡片id.子key.中间卡片id.item_id`）。
 
-### GetSettingValue(main_card_id, key, middle_card_id, item_id, default=None) <span style="float:right">`[客户端]`</span>
+### GetSettingValue(main_card_id, key, middle_card_id, item_id, default=None)
 
 读取设置值。
 
@@ -794,7 +821,11 @@ state = GetSettingValue("basic_settings", "client", "opt_a", "auto_save")
 text  = GetSettingValue("basic_settings", "client", "opt_a", "server_ip")
 ```
 
-### SetSettingValue(main_card_id, key, middle_card_id, item_id, value) <span style="float:right">`[客户端]`</span>
+### GetSettingLocked(main_card_id, key, middle_card_id, item_id, default=False)
+
+读取持久化的锁定状态；无存储值时回退 `item.locked`（或传入的 `default`）。供 Build 内容项时恢复动态锁定状态。
+
+### SetSettingValue(main_card_id, key, middle_card_id, item_id, value)
 
 修改设置值并写入本地存储。若设置界面已打开且正显示该分组，对应控件即时刷新。
 
@@ -803,7 +834,7 @@ SetSettingValue("basic_settings", "client", "opt_a", "auto_save", False)
 SetSettingValue("basic_settings", "client", "opt_a", "server_ip", "127.0.0.1")
 ```
 
-### ResetSettingValue(main_card_id, key, middle_card_id, item_id) <span style="float:right">`[客户端]`</span>
+### ResetSettingValue(main_card_id, key, middle_card_id, item_id)
 
 将单个设置项重置为默认值（`default_value`），并同步刷新 UI。
 
@@ -811,7 +842,7 @@ SetSettingValue("basic_settings", "client", "opt_a", "server_ip", "127.0.0.1")
 ResetSettingValue("basic_settings", "client", "opt_a", "auto_save")
 ```
 
-### ResetAllSettings() <span style="float:right">`[客户端]`</span>
+### ResetAllSettings()
 
 将注册表中所有开关与输入框重置为默认值，返回重置数量。
 
@@ -820,7 +851,7 @@ count = ResetAllSettings()
 print "已重置 %d 个设置项" % count
 ```
 
-### SaveGroupSettings(main_card_id, key, middle_card_id) <span style="float:right">`[客户端]`</span>
+### SaveGroupSettings(main_card_id, key, middle_card_id)
 
 批量保存指定分组（主卡片 + 子卡片 + 中间卡片）下所有开关/输入框的运行时值到本地存储，同时保存各内容项当前的**锁定状态**（`locked`）。整包写一次，不触发逐项 UI 刷新回调。返回实际写入数量。
 
@@ -830,7 +861,7 @@ count = SaveGroupSettings("basic_settings", "client", "opt_a")
 
 > 锁定状态说明：`AddButton`/`AddSwitch`/`AddEditBox` 的 `locked` 参数为注册默认值；运行时通过 `SetLocked` 动态修改后，保存时会持久化当前锁定状态，下次打开设置界面自动恢复。`ResetGroupSettings`/`ResetAllSettings` 会清除持久化锁定，恢复注册默认。
 
-### SaveAllSettings() <span style="float:right">`[客户端]`</span>
+### SaveAllSettings()
 
 批量保存注册表中所有开关/输入框的运行时值到本地存储。整包写一次，不触发逐项 UI 刷新回调。返回实际写入数量。
 
@@ -841,7 +872,7 @@ count = SaveAllSettings()
 print "已保存 %d 个设置项" % count
 ```
 
-### ResetGroupSettings(main_card_id, key, middle_card_id) <span style="float:right">`[客户端]`</span>
+### ResetGroupSettings(main_card_id, key, middle_card_id)
 
 重置指定分组（主卡片 + 子卡片 + 中间卡片）下所有开关与输入框为默认值，返回重置数量。用于"重置本页设置"场景。
 
@@ -850,6 +881,53 @@ print "已保存 %d 个设置项" % count
 count = ResetGroupSettings("basic_settings", "client", "opt_a")
 ```
 
+---
+
+## 导航 API
+
+### OpenSettings(main_card_id=None, sub_key=None, middle_card_id=None)
+
+通过 `CardRegistryApi.OpenSettings` 打开设置 UI，并可选导航到指定卡片。
+
+```python
+from CardRegistryApi import OpenSettings
+
+# 仅打开设置（默认行为）
+OpenSettings()
+
+# 选中主卡片
+OpenSettings(main_card_id="basic_settings")
+
+# 选中主卡片 + 子卡片
+OpenSettings("basic_settings", "client")
+
+# 选中主卡片 + 子卡片 + 中间卡片（右侧内容自动显示）
+OpenSettings("basic_settings", "client", "client_opt_a")
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| main_card_id | str | 否 | 主卡片 ID（如 `"basic_settings"`），传 `None` 则不导航 |
+| sub_key | str | 否 | 子卡片 key，可选 `"client"` 或 `"server"` |
+| middle_card_id | str | 否 | 中间卡片 ID（如 `"client_opt_a"`），需在 `sub_key` 指定后生效 |
+
+#### 行为说明
+
+- **设置界面未打开时**：`PushScreen` 打开设置，UI 就绪后自动导航到指定卡片
+- **设置界面已打开时**：直接导航到新卡片，不会重复 `PushScreen`
+- **不传任何参数**：仅打开设置界面，保持当前卡片状态
+- **中间卡片导航**：由于中间卡片是异步懒加载的，选中操作会在卡片创建完成后自动执行
+
+### 官方设置界面入口（本模组内置）
+
+本模组在 `OnUIInitFinished` 时通过网易官方**通用设置接口**（`CreateNeteaseWindow` + `RegisterSettingInst` + `AddButton`）向官方设置界面注册了一个"打开设置"按钮。
+
+- 入口位置：暂停菜单 → 模组 → 本模组（显示名"模组设置"）
+- 点击后：`CloseSettingUI()` 关闭官方设置界面 → 延迟 0.15s → `OpenSettings()` 打开本模组的 `setting.main`
+
+> 注意：`RegisterSettingInst` 第一个参数当前为模组命名空间 `Script_NeteaseMod9sPMlz0K`（开发环境预览用），正式上线需替换为开平平台上传模组后的 **ItemID**。
+
+---
 
 ## 完整使用示例
 
@@ -886,213 +964,3 @@ RegisterMiddleCard("new_mod", "server", "new_feature", "新功能")
 # 删除单个中间卡片（不清除主卡片）
 UnregisterMiddleCard("mod_main", "server", "srv_feature")
 ```
-
-
-## 弹窗 API <span style="float:right">`[客户端]`</span>
-
-通用确认弹窗系统：`RegisterPopUp` 注册弹窗，`ShowPopUp` 打开，弹窗显示标题 + 正文（超长自动滚动，总高最多 80% 屏高）+ 底部按钮区（按钮间带间距）。
-
-### RegisterPopUp(popup_id, title, content, buttons=None) <span style="float:right">`[客户端]`</span>
-
-注册一个自定义弹窗。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| popup_id | str | 是 | 弹窗唯一标识符（重复注册会覆盖旧数据） |
-| title | str | 是 | 弹窗标题文字 |
-| content | str | 是 | 弹窗正文内容（支持换行 `\n`，超长自动滚动） |
-| buttons | list | 否 | 底部按钮列表 `[(按钮文字, 点击回调\|None), ...]`，回调签名 `f() -> bool`，返回 `True` 时弹窗自动关闭；传 `None` 表示无底部按钮 |
-
-返回 `True` 成功，`False` 参数无效。
-
-```python
-def OnConfirmReset():
-    # 执行重置逻辑...
-    ResetAllSettings()
-    return True  # 返回 True 自动关闭弹窗
-
-RegisterPopUp(
-    "reset_confirm",
-    "确认重置",
-    "确定要重置所有设置吗？\n此操作不可撤销。",
-    [("取消", None), ("确认重置", OnConfirmReset)]
-)
-```
-
-### ShowPopUp(popup_id, force_scroll=None) <span style="float:right">`[客户端]`</span>
-
-打开指定 ID 的弹窗（须先 `RegisterPopUp` 注册）。若弹窗已在场景栈中，则复用现有弹窗界面刷新内容。
-
-- `force_scroll`：`True` 强制使用滚动版；`False` 强制普通版；`None`（默认）自动判断——当内容估算行数超过 4 行时使用滚动版（滚动区固定高度 100px，上下各留 10px 空隙）。
-
-返回 `True` 打开成功，`False` 弹窗未注册或系统未就绪。
-
-```python
-from CardRegistryApi import ShowPopUp
-ShowPopUp("reset_confirm")
-ShowPopUp("long_notice", force_scroll=True)   # 强制滚动版
-ShowPopUp("short_notice", force_scroll=False) # 强制普通版
-```
-
-### ClosePopUp() <span style="float:right">`[客户端]`</span>
-
-关闭当前弹窗（`PopScreen` 返回上一层，设置界面不受影响）。
-
-### UnregisterPopUp(popup_id) <span style="float:right">`[客户端]`</span>
-
-注销指定弹窗，返回 `True` 成功，`False` 弹窗不存在。
-
-### GetPopUp(popup_id) <span style="float:right">`[客户端]`</span>
-
-获取弹窗数据 `{"title": str, "content": str, "buttons": [(text, callback), ...]}` 或 `None`。
-
-### GetAllPopUpIds() <span style="float:right">`[客户端]`</span>
-
-返回所有已注册的弹窗 ID 列表。
-
-### 弹窗事件常量 <span style="float:right">`[客户端]`</span>
-
-| 常量 | 触发时机 | 事件数据 |
-|------|----------|----------|
-| `PopUpOpenEvent` | 弹窗压栈打开时 | `{"playerId": str, "popupId": str, "useScroll": bool}` |
-| `PopUpCloseEvent` | 弹窗出栈关闭时 | `{"playerId": str}` |
-
-```python
-from CardRegistryApi import PopUpOpenEvent
-# 在 ClientSystem 中监听:
-# self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "client", PopUpOpenEvent, self, self.OnPopUpOpen)
-```
-
-### 与 AddResetButton 配合 <span style="float:right">`[客户端]`</span>
-
-设置界面右侧通过 `AddResetButton` 注册重置项，点击后自动打开关联弹窗：
-
-```python
-from CardRegistryApi import (
-    RegisterMainCard, RegisterMiddleCard, CreateContentInst,
-    RegisterPopUp,
-)
-
-RegisterMainCard("basic_settings", "基础设置")
-RegisterMiddleCard("basic_settings", "client", "opt_main", "主要选项")
-
-RegisterPopUp("reset_confirm", "确认重置", "确定要重置所有设置吗？",
-              [("取消", None), ("确认重置", lambda: True)])
-
-CreateContentInst("basic_settings", "client", "opt_main")\
-    .AddResetButton("reset_all", popup_id="reset_confirm")
-```
-
-## 折叠菜单 API <span style="float:right">`[客户端]`</span>
-
-折叠菜单选择系统：先注册菜单（含标题与卡片列表），再通过 `AddCollapsibleMenu` 添加右侧内容项。点击内容项按钮弹出菜单弹窗，弹窗中间垂直排列可选卡片，卡片之间互斥（只能选一个），选中后触发 `on_select` 回调并自动关闭弹窗，按钮文字同步为选中项名称。
-
-### RegisterCollapsibleMenu(menu_id, title, cards=None) <span style="float:right">`[客户端]`</span>
-
-注册一个折叠菜单。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| menu_id | str | 是 | 折叠菜单唯一标识符 |
-| title | str | 是 | 弹窗标题文字 |
-| cards | list | 否 | 卡片列表 `[(card_id, name), ...]`，也可后续用 `AddCollapsibleMenuCard` 追加 |
-
-返回 `True` 成功，`False` 参数无效（menu_id 或 title 为空）。
-
-### AddCollapsibleMenuCard(menu_id, card_id, name) <span style="float:right">`[客户端]`</span>
-
-向已注册的折叠菜单追加一张卡片；菜单不存在时自动创建（此时标题为空串，需再调 `RegisterCollapsibleMenu` 设置标题）。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| menu_id | str | 是 | 折叠菜单 ID |
-| card_id | str | 是 | 卡片唯一标识符（重复不追加） |
-| name | str | 是 | 卡片显示文字 |
-
-返回 `True` 成功，`False` 参数无效或卡片重复。
-
-### GetCollapsibleMenu(menu_id) <span style="float:right">`[客户端]`</span>
-
-获取折叠菜单数据 `{"title": str, "cards": [(card_id, name), ...]}` 或 `None`。
-
-### GetCollapsibleMenuCards(menu_id) <span style="float:right">`[客户端]`</span>
-
-获取卡片列表 `[(card_id, name), ...]`，菜单不存在返回 `[]`。
-
-### 完整示例 <span style="float:right">`[客户端]`</span>
-
-```python
-from CardRegistryApi import RegisterCollapsibleMenu, CreateContentInst
-
-def OnSelect(sn, item_id, card_id):
-    print "选中:", item_id, card_id
-    # 可在此持久化：SetSettingValue("basic_settings", "client", "opt_main", item_id, card_id)
-
-# 1. 注册菜单（标题 + 卡片）
-RegisterCollapsibleMenu(
-    "resolution_menu", "选择分辨率",
-    [("r_720p", "720p"), ("r_1080p", "1080p"),
-     ("r_1440p", "1440p"), ("r_2160p", "2160p")]
-)
-
-# 2. 追加卡片（可选）
-AddCollapsibleMenuCard("resolution_menu", "r_4k", "4K")
-
-# 3. 注册右侧内容项，点击按钮弹出菜单
-CreateContentInst("basic_settings", "client", "opt_main")\
-    .AddCollapsibleMenu(
-        "resolution", "选择游戏分辨率",
-        "resolution_menu", litle="分辨率",
-        default_selected_id="r_1080p",
-        on_select=OnSelect
-    )
-```
-
-> 打开/关闭菜单由框架自动处理（`ShowCollapsibleMenu` / `CloseCollapsibleMenu` 为内部便捷封装，通常无需外部直接调用）。菜单弹窗打开时，设置界面的 ESC 行为自动调整为"先关菜单、再关弹窗、最后关设置界面"。
-
-## Toast 提示 API <span style="float:right">`[客户端]`</span>
-
-轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。
-
-### ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0) <span style="float:right">`[客户端]`</span>
-
-显示一个 toast 提示。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| position | str | 是 | 位置常量：`ToastTop`（顶部居中）、`ToastTopRight`（右上角）、`ToastUnder`（底部居中） |
-| text | str | 否 | 显示文字内容 |
-| color | tuple | 否 | 文字颜色 `(r, g, b)`，0~1，默认白色 `(1, 1, 1)` |
-| icon | str | 否 | 图片路径（从 textures 开始，如 `"textures/ui/xxx"`），非空则显示图片层 |
-| item_name | str | 否 | 物品 identifier（如 `"minecraft:diamond"`），非空则显示物品层 |
-| item_aux | int | 否 | 物品附加值，默认 0 |
-| is_enchanted | bool | 否 | 是否显示附魔效果，默认 False |
-| duration | float | 否 | 停留时长（秒），默认 3 |
-
-#### 图层显隐规则
-
-- `item_name` 非空 → 显示物品层；为空 → 隐藏物品层。
-- `icon` 非空 → 显示图片层；为空 → 隐藏图片层。
-- 两者可同时显示；都为空则只显示文字。
-
-#### 动画时序
-
-1. **入场动画**：1 秒（位移到目标位置）。
-2. **停留**：`duration` 秒（默认 3）。
-3. **退场动画**：1 秒（位移出场外）。
-
-#### 排队规则
-
-同一位置的多个 toast 按调用顺序排队，一个播放完成后自动播放下一个。
-
-#### 外部模组使用示例（延迟导入）
-
-```python
-def OnUIInitFinished(self, args):
-    try:
-        from Script_NeteaseMod9sPMlz0K.CardRegistryApi import ShowToast, ToastTop
-        ShowToast(ToastTop, "自定义文字", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
-    except ImportError:
-        pass
-```
-
