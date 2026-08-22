@@ -262,6 +262,14 @@ class MyClientSystem(ClientSystem):
         )
         print "==== CollapsibleMenuUI registered ===="
 
+        # 注册 Toast 系统
+        try:
+            from Toast import RegisterToastScreens
+            RegisterToastScreens()
+            print "==== Toast screens registered ===="
+        except Exception as e:
+            print "==== Toast register error: %s ====" % str(e)
+
         self.InitKeyBindings()
 
     def InitKeyBindings(self):
@@ -1215,6 +1223,40 @@ class SettingsScreenNode(ScreenNode):
                     on_select=self._OnDemoCollapsibleSelect
                 )\
                 .AddSwitch("test_cm_lock_ctrl", "开启后锁定上方下拉菜单，锁定后无法打开选择", default_value=False, on_toggle=self._OnDemoCmLockToggle, litle="下拉菜单锁定控制")
+
+            # ---------- Toast 提示测试 ----------
+            from Toast import ShowToast, ToastTop, ToastTopRight, ToastUnder
+            RegisterMainCard("toast_test", "Toast 测试", "textures/ui/icon_setting")
+            RegisterMiddleCard("toast_test", "client", "toast_demo", "提示演示", "textures/ui/icon_setting")
+
+            def _ToastDemo(sn, iid):
+                """Toast 演示回调：根据按钮 item_id 展示不同效果。"""
+                if iid == "toast_top_item":
+                    ShowToast(ToastTop, "顶部提示 + 物品层", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
+                elif iid == "toast_top_icon":
+                    ShowToast(ToastTop, "顶部提示 + 图片层", color=(0.0, 0.5, 1.0), icon="textures/ui/icon_setting")
+                elif iid == "toast_top_text":
+                    ShowToast(ToastTop, "纯文字提示（无图层）")
+                elif iid == "toast_top_right":
+                    ShowToast(ToastTopRight, "右上双图层", color=(0.0, 1.0, 0.0),
+                              item_name="minecraft:apple", icon="textures/ui/icon_setting")
+                elif iid == "toast_under":
+                    ShowToast(ToastUnder, "底部文字提示", color=(1.0, 1.0, 0.0))
+                elif iid == "toast_under_long":
+                    ShowToast(ToastUnder, "停留 5 秒的提示", color=(1.0, 0.5, 0.0), duration=5.0)
+                elif iid == "toast_queue":
+                    ShowToast(ToastTop, "排队1", color=(1.0, 0.0, 0.0))
+                    ShowToast(ToastTop, "排队2", color=(0.0, 1.0, 0.0))
+                    ShowToast(ToastTop, "排队3", color=(0.0, 0.5, 1.0))
+
+            CreateContentInst("toast_test", "client", "toast_demo")\
+                .AddButton("toast_top_item", "顶部居中，红色文字 + 钻石物品图层", "顶部+物品", on_click=_ToastDemo, litle="位置：顶部")\
+                .AddButton("toast_top_icon", "顶部居中，蓝色文字 + 图片图层", "顶部+图片", on_click=_ToastDemo, litle="位置：顶部")\
+                .AddButton("toast_top_text", "顶部居中，仅白色文字，不显示图层", "顶部纯文字", on_click=_ToastDemo, litle="位置：顶部")\
+                .AddButton("toast_top_right", "右上角，绿色文字 + 苹果物品 + 图片双图层", "右上双图层", on_click=_ToastDemo, litle="位置：右上角")\
+                .AddButton("toast_under", "底部居中，黄色文字", "底部文字", on_click=_ToastDemo, litle="位置：底部")\
+                .AddButton("toast_under_long", "底部居中，橙色文字，停留 5 秒", "底部5秒", on_click=_ToastDemo, litle="位置：底部")\
+                .AddButton("toast_queue", "连发 3 个顶部提示，验证排队依次播放", "排队测试", on_click=_ToastDemo, litle="排队规则")
 
             print "==== all sample content items registered ===="
 

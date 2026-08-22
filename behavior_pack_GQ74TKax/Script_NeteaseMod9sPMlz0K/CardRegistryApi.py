@@ -83,6 +83,15 @@ from SettingState import (
     SaveAllSettings,
 )
 
+# ────────────────── Toast 提示系统 ──────────────────
+
+from Toast import (
+    ShowToast,
+    ToastTop,
+    ToastTopRight,
+    ToastUnder,
+)
+
 
 def OpenSettings(main_card_id=None, sub_key=None, middle_card_id=None):
     """

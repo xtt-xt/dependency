@@ -1049,3 +1049,50 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 ```
 
 > 打开/关闭菜单由框架自动处理（`ShowCollapsibleMenu` / `CloseCollapsibleMenu` 为内部便捷封装，通常无需外部直接调用）。菜单弹窗打开时，设置界面的 ESC 行为自动调整为"先关菜单、再关弹窗、最后关设置界面"。
+
+## Toast 提示 API <span style="float:right">`[客户端]`</span>
+
+轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。
+
+### ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0) <span style="float:right">`[客户端]`</span>
+
+显示一个 toast 提示。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| position | str | 是 | 位置常量：`ToastTop`（顶部居中）、`ToastTopRight`（右上角）、`ToastUnder`（底部居中） |
+| text | str | 否 | 显示文字内容 |
+| color | tuple | 否 | 文字颜色 `(r, g, b)`，0~1，默认白色 `(1, 1, 1)` |
+| icon | str | 否 | 图片路径（从 textures 开始，如 `"textures/ui/xxx"`），非空则显示图片层 |
+| item_name | str | 否 | 物品 identifier（如 `"minecraft:diamond"`），非空则显示物品层 |
+| item_aux | int | 否 | 物品附加值，默认 0 |
+| is_enchanted | bool | 否 | 是否显示附魔效果，默认 False |
+| duration | float | 否 | 停留时长（秒），默认 3 |
+
+#### 图层显隐规则
+
+- `item_name` 非空 → 显示物品层；为空 → 隐藏物品层。
+- `icon` 非空 → 显示图片层；为空 → 隐藏图片层。
+- 两者可同时显示；都为空则只显示文字。
+
+#### 动画时序
+
+1. **入场动画**：1 秒（位移到目标位置）。
+2. **停留**：`duration` 秒（默认 3）。
+3. **退场动画**：1 秒（位移出场外）。
+
+#### 排队规则
+
+同一位置的多个 toast 按调用顺序排队，一个播放完成后自动播放下一个。
+
+#### 外部模组使用示例（延迟导入）
+
+```python
+def OnUIInitFinished(self, args):
+    try:
+        from Script_NeteaseMod9sPMlz0K.CardRegistryApi import ShowToast, ToastTop
+        ShowToast(ToastTop, "自定义文字", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
+    except ImportError:
+        pass
+```
+

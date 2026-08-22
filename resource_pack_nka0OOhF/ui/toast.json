@@ -1,7 +1,115 @@
 {
     "namespace": "toast",
+    "toast_top_enter": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+0px",
+            "-60%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "-45%+0px"
+        ]
+    },
+    "toast_top_exit": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "-60%+0px"
+        ]
+    },
+    "toast_top_right_enter": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "70%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "35%+0px",
+            "-45%+0px"
+        ]
+    },
+    "toast_top_right_exit": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "35%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "35%+0px",
+            "-60%+0px"
+        ]
+    },
+    "toast_under_enter": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+0px",
+            "60%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "40%+0px"
+        ]
+    },
+    "toast_under_exit": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+0px",
+            "40%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "60%+0px"
+        ]
+    },
+    "toast_under_shadow_enter": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+2px",
+            "60%+2px"
+        ],
+        "next": "",
+        "to": [
+            "0%+2px",
+            "40%+2px"
+        ]
+    },
+    "toast_under_shadow_exit": {
+        "anim_type": "offset",
+        "duration": 1.0,
+        "from": [
+            "0%+2px",
+            "40%+2px"
+        ],
+        "next": "",
+        "to": [
+            "0%+2px",
+            "60%+2px"
+        ]
+    },
     "toast_top": {
-        "type": "screen",
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
         "controls": [
             {
                 "backdrop": {
@@ -23,7 +131,7 @@
                                 "renderer": "inventory_item_renderer",
                                 "offset": [
                                     "-45%+0px",
-                                    0.0
+                                    -2.0
                                 ],
                                 "size": [
                                     "0%+20px",
@@ -74,7 +182,11 @@
         ]
     },
     "toast_top_right": {
-        "type": "screen",
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
         "$icon": "",
         "$text": "halloworld",
         "controls": [
@@ -98,7 +210,7 @@
                                 "renderer": "inventory_item_renderer",
                                 "offset": [
                                     "-35%+0px",
-                                    0.0
+                                    -2.0
                                 ],
                                 "size": [
                                     "0%+20px",
@@ -136,8 +248,8 @@
                                     0.0
                                 ],
                                 "size": [
-                                    "2%+0px",
-                                    "0%+15px"
+                                    "0%+20px",
+                                    "60%+0px"
                                 ],
                                 "layer": 3,
                                 "texture": "$icon"
@@ -149,19 +261,23 @@
         ]
     },
     "toast_under": {
-        "type": "screen",
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
         "$text": "halloworld",
         "controls": [
             {
                 "image": {
                     "type": "image",
                     "offset": [
-                        0.0,
+                        "0%+0px",
                         "40%+0px"
                     ],
                     "size": [
                         "100%c+7px",
-                        12.0
+                        14.0
                     ],
                     "layer": 2,
                     "keep_ratio": false,
@@ -171,6 +287,15 @@
                             "label": {
                                 "type": "label",
                                 "$text|default": "",
+                                "offset": [
+                                    0.0,
+                                    1.0
+                                ],
+                                "size": [
+                                    "default",
+                                    "100%+0px"
+                                ],
+                                "layer": 3,
                                 "font_type": "default",
                                 "text": "$text",
                                 "text_alignment": "center"
@@ -188,7 +313,7 @@
                     ],
                     "size": [
                         "100%sm+0px",
-                        12.0
+                        14.0
                     ],
                     "layer": 1,
                     "alpha": 0.5,
