@@ -1,0 +1,11 @@
+.mcs
+.mcs/
+.trae
+.trae/
+AGENTS.md
+.mcdev.json
+studio.json
+world_behavior_packs.json
+world_resource_packs.json
+world_icon.jpeg
+work.mcscfg

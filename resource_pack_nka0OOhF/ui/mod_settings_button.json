@@ -1,0 +1,130 @@
+{
+    "fold_menu_panel_template": {
+        "type": "panel",
+        "anchor_from": "top_middle",
+        "anchor_to": "top_middle",
+        "size": [
+            "100%",
+            32
+        ]
+    },
+    "fold_menu_settings_button@common.button": {
+        "$default_texture": "textures/netease/voice_trans/btn01@3x",
+        "$hover_texture": "textures/netease/voice_trans/btn01_click@3x",
+        "$pressed_texture": "textures/netease/voice_trans/btn01_click@3x",
+        "button_mappings": [
+            {
+                "from_button_id": "button.menu_select",
+                "to_button_id": "button.menu_ok",
+                "mapping_type": "pressed"
+            }
+        ],
+        "controls": [
+            {
+                "default": {
+                    "type": "image",
+                    "layer": 1,
+                    "is_new_nine_slice": true,
+                    "nine_slice_buttom": 0,
+                    "nine_slice_left": 0,
+                    "nine_slice_right": 0,
+                    "nine_slice_top": 0,
+                    "texture": "$default_texture"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "layer": 1,
+                    "is_new_nine_slice": true,
+                    "nine_slice_buttom": 0,
+                    "nine_slice_left": 0,
+                    "nine_slice_right": 0,
+                    "nine_slice_top": 0,
+                    "texture": "$hover_texture"
+                }
+            },
+            {
+                "pressed": {
+                    "type": "image",
+                    "layer": 1,
+                    "is_new_nine_slice": true,
+                    "nine_slice_buttom": 0,
+                    "nine_slice_left": 0,
+                    "nine_slice_right": 0,
+                    "nine_slice_top": 0,
+                    "texture": "$pressed_texture"
+                }
+            },
+            {
+                "label": {
+                    "type": "label",
+                    "anchor_from": "top_left",
+                    "anchor_to": "top_left",
+                    "offset": [
+                        32,
+                        11
+                    ],
+                    "size": [
+                        64,
+                        64
+                    ],
+                    "layer": 3,
+                    "color": [
+                        0.298,
+                        0.298,
+                        0.298,
+                        1
+                    ],
+                    "font_size": "normal",
+                    "text": "模组设置",
+                    "text_alignment": "left"
+                }
+            },
+            {
+                "icon": {
+                    "type": "image",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "offset": [
+                        6,
+                        0
+                    ],
+                    "size": [
+                        20,
+                        20
+                    ],
+                    "layer": 3,
+                    "texture": "textures/ui/icon_setting"
+                }
+            }
+        ],
+        "layer": 1,
+        "size": [
+            "100%+0px",
+            "100%"
+        ]
+    },
+    "mod_settings_button@common_buttons.light_text_button": {
+        "$button_text": "模组设置",
+        "button_mappings": [
+            {
+                "from_button_id": "button.menu_select",
+                "to_button_id": "button.menu_ok",
+                "mapping_type": "pressed"
+            }
+        ],
+        "size": [
+            "100%",
+            28
+        ]
+    },
+    "mod_settings_spacer": {
+        "type": "panel",
+        "size": [
+            "100%",
+            2
+        ]
+    },
+    "namespace": "Script_NeteaseMod9sPMlz0K"
+}

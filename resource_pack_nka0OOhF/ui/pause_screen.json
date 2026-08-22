@@ -1,0 +1,15 @@
+{
+    "namespace": "pause",
+    "button_panel": {
+        "modifications": [
+            {
+                "array_name": "controls",
+                "operation": "insert_after",
+                "target": "settings_button",
+                "value": {
+                    "my_mod_settings_button@Script_NeteaseMod9sPMlz0K.mod_settings_button": {}
+                }
+            }
+        ]
+    }
+}

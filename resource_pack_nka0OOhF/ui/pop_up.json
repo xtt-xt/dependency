@@ -1,0 +1,769 @@
+{
+    "collapsible_menu": {
+        "type": "screen",
+        "force_render_below": true,
+        "controls": [
+            {
+                "below": {
+                    "type": "image",
+                    "size": [
+                        "120%+0px",
+                        "120%+0px"
+                    ],
+                    "layer": 1,
+                    "alpha": 0.6,
+                    "keep_ratio": false,
+                    "texture": "textures/ui/black"
+                }
+            },
+            {
+                "backdrop": {
+                    "type": "image",
+                    "size": [
+                        "45%+2px",
+                        "100%c+2px"
+                    ],
+                    "layer": 2,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/pop_up/pop_up_backdrop",
+                    "controls": [
+                        {
+                            "stack_panel": {
+                                "type": "stack_panel",
+                                "offset": [
+                                    "0%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%+-2px",
+                                    "100%c+0px"
+                                ],
+                                "layer": 1,
+                                "controls": [
+                                    {
+                                        "top": {
+                                            "type": "image",
+                                            "size": [
+                                                "100%+0px",
+                                                25.0
+                                            ],
+                                            "layer": 1,
+                                            "nineslice_size": [
+                                                1.0,
+                                                1.0,
+                                                1.0,
+                                                1.0
+                                            ],
+                                            "texture": "textures/ui/pop_up/pop_up_top",
+                                            "controls": [
+                                                {
+                                                    "litle": {
+                                                        "type": "label",
+                                                        "$litle|default": "",
+                                                        "size": [
+                                                            "70%+0px",
+                                                            "default"
+                                                        ],
+                                                        "font_type": "default",
+                                                        "text": "$litle",
+                                                        "text_alignment": "center"
+                                                    }
+                                                },
+                                                {
+                                                    "back@common.button": {
+                                                        "type": "button",
+                                                        "$control_alpha": 1.0,
+                                                        "$default_texture": "textures/ui/pop_up/pop_up_back",
+                                                        "$hover_texture": "textures/ui/pop_up/pop_up_back_hover",
+                                                        "$is_new_nine_slice": false,
+                                                        "$label_layer": 3,
+                                                        "$nine_slice_buttom": 0,
+                                                        "$nine_slice_left": 0,
+                                                        "$nine_slice_right": 0,
+                                                        "$nine_slice_top": 0,
+                                                        "$nineslice_size": [
+                                                            0,
+                                                            0,
+                                                            0,
+                                                            0
+                                                        ],
+                                                        "$pressed_button_name": "%netease_editor_template_namespace.click",
+                                                        "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
+                                                        "$texture_layer": 2,
+                                                        "anchor_to": "left_middle",
+                                                        "offset": [
+                                                            "40%+0px",
+                                                            "0%+0px"
+                                                        ],
+                                                        "size": [
+                                                            "10%+0px",
+                                                            "80%+0px"
+                                                        ],
+                                                        "layer": 2,
+                                                        "button_mappings": [],
+                                                        "default_control": "default",
+                                                        "hover_control": "hover",
+                                                        "is_handle_button_move_event": true,
+                                                        "pressed_control": "pressed",
+                                                        "controls": [
+                                                            {
+                                                                "default@netease_editor_template_namespace.default": {}
+                                                            },
+                                                            {
+                                                                "hover@netease_editor_template_namespace.hover": {}
+                                                            },
+                                                            {
+                                                                "pressed@netease_editor_template_namespace.pressed": {}
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "middle": {
+                                            "type": "stack_panel",
+                                            "size": [
+                                                "100%+0px",
+                                                "100%c+0px"
+                                            ],
+                                            "layer": 1,
+                                            "orientation": "vertical"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "collapsible_menu_card@common.button": {
+        "type": "button",
+        "$control_alpha": 1.0,
+        "$default_texture": "textures/ui/collapsible_menu/collapsible_menu_card",
+        "$hover_texture": "textures/ui/collapsible_menu/collapsible_menu_card_hover",
+        "$is_new_nine_slice": false,
+        "$label_color": [
+            1,
+            1,
+            1
+        ],
+        "$label_font_scale_factor": 1.0,
+        "$label_font_size": "normal",
+        "$label_layer": 3,
+        "$label_offset": [
+            "-5%+0px",
+            0.0
+        ],
+        "$label_text": "Button",
+        "$nine_slice_buttom": 0,
+        "$nine_slice_left": 0,
+        "$nine_slice_right": 0,
+        "$nine_slice_top": 0,
+        "$nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "$pressed_button_name": "%netease_editor_template_namespace.click",
+        "$pressed_texture": "textures/ui/collapsible_menu/collapsible_menu_card_pressing",
+        "$texture_layer": 2,
+        "size": [
+            "100%+0px",
+            25.0
+        ],
+        "layer": 2,
+        "button_mappings": [],
+        "default_control": "default",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "pressed_control": "pressed",
+        "bindings": [
+            {
+                "binding_type": "collection_details",
+                "binding_collection_name": "",
+                "binding_condition": "always_when_visible"
+            }
+        ],
+        "controls": [
+            {
+                "default@netease_editor_template_namespace.default": {}
+            },
+            {
+                "hover@netease_editor_template_namespace.hover": {}
+            },
+            {
+                "pressed@netease_editor_template_namespace.pressed": {}
+            },
+            {
+                "button_label@netease_editor_template_namespace.button_label": {
+                    "max_size": [
+                        "default",
+                        "default"
+                    ],
+                    "size": [
+                        "80%+0px",
+                        10
+                    ],
+                    "text_alignment": "left"
+                }
+            },
+            {
+                "selected": {
+                    "type": "image",
+                    "offset": [
+                        "45%+0px",
+                        0.0
+                    ],
+                    "size": [
+                        "5%+0px",
+                        "70%+0px"
+                    ],
+                    "layer": 5,
+                    "visible": false,
+                    "texture": "textures/ui/icon/tick"
+                }
+            }
+        ]
+    },
+    "main": {
+        "type": "screen",
+        "$litle": "标题",
+        "$text": "这是内容\nhalloworld",
+        "force_render_below": true,
+        "controls": [
+            {
+                "below": {
+                    "type": "image",
+                    "size": [
+                        "120%+0px",
+                        "120%+0px"
+                    ],
+                    "layer": 1,
+                    "alpha": 0.6,
+                    "keep_ratio": false,
+                    "texture": "textures/ui/black"
+                }
+            },
+            {
+                "backdrop": {
+                    "type": "image",
+                    "size": [
+                        "45%+2px",
+                        "100%c+2px"
+                    ],
+                    "layer": 2,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/pop_up/pop_up_backdrop",
+                    "controls": [
+                        {
+                            "stack_panel": {
+                                "type": "stack_panel",
+                                "offset": [
+                                    "0%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%+-2px",
+                                    "100%c+0px"
+                                ],
+                                "layer": 1,
+                                "controls": [
+                                    {
+                                        "top": {
+                                            "type": "image",
+                                            "size": [
+                                                "100%+0px",
+                                                25.0
+                                            ],
+                                            "layer": 1,
+                                            "nineslice_size": [
+                                                1.0,
+                                                1.0,
+                                                1.0,
+                                                1.0
+                                            ],
+                                            "texture": "textures/ui/pop_up/pop_up_top",
+                                            "controls": [
+                                                {
+                                                    "litle": {
+                                                        "type": "label",
+                                                        "$litle|default": "",
+                                                        "size": [
+                                                            "70%+0px",
+                                                            "default"
+                                                        ],
+                                                        "font_type": "default",
+                                                        "text": "$litle",
+                                                        "text_alignment": "center"
+                                                    }
+                                                },
+                                                {
+                                                    "back@common.button": {
+                                                        "type": "button",
+                                                        "$control_alpha": 1.0,
+                                                        "$default_texture": "textures/ui/pop_up/pop_up_back",
+                                                        "$hover_texture": "textures/ui/pop_up/pop_up_back_hover",
+                                                        "$is_new_nine_slice": false,
+                                                        "$label_layer": 3,
+                                                        "$nine_slice_buttom": 0,
+                                                        "$nine_slice_left": 0,
+                                                        "$nine_slice_right": 0,
+                                                        "$nine_slice_top": 0,
+                                                        "$nineslice_size": [
+                                                            0,
+                                                            0,
+                                                            0,
+                                                            0
+                                                        ],
+                                                        "$pressed_button_name": "%netease_editor_template_namespace.click",
+                                                        "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
+                                                        "$texture_layer": 2,
+                                                        "anchor_to": "left_middle",
+                                                        "offset": [
+                                                            "40%+0px",
+                                                            "0%+0px"
+                                                        ],
+                                                        "size": [
+                                                            "10%+0px",
+                                                            "80%+0px"
+                                                        ],
+                                                        "layer": 2,
+                                                        "button_mappings": [],
+                                                        "default_control": "default",
+                                                        "hover_control": "hover",
+                                                        "is_handle_button_move_event": true,
+                                                        "pressed_control": "pressed",
+                                                        "controls": [
+                                                            {
+                                                                "default@netease_editor_template_namespace.default": {}
+                                                            },
+                                                            {
+                                                                "hover@netease_editor_template_namespace.hover": {}
+                                                            },
+                                                            {
+                                                                "pressed@netease_editor_template_namespace.pressed": {}
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "middle": {
+                                            "type": "panel",
+                                            "offset": [
+                                                "0%+0px",
+                                                0.0
+                                            ],
+                                            "size": [
+                                                "default",
+                                                "100%c+20px"
+                                            ],
+                                            "layer": 1,
+                                            "controls": [
+                                                {
+                                                    "text": {
+                                                        "type": "label",
+                                                        "$text|default": "",
+                                                        "size": [
+                                                            "90%+0px",
+                                                            "default"
+                                                        ],
+                                                        "font_type": "default",
+                                                        "text": "$text"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "under": {
+                                            "type": "image",
+                                            "size": [
+                                                "default",
+                                                "100%c+20px"
+                                            ],
+                                            "layer": 1,
+                                            "nineslice_size": [
+                                                1.0,
+                                                1.0,
+                                                1.0,
+                                                1.0
+                                            ],
+                                            "texture": "textures/ui/pop_up/pop_up_under",
+                                            "controls": [
+                                                {
+                                                    "stack_panel": {
+                                                        "type": "stack_panel",
+                                                        "size": [
+                                                            "80%+0px",
+                                                            "default"
+                                                        ],
+                                                        "layer": 1,
+                                                        "orientation": "vertical"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "main_scroll": {
+        "type": "screen",
+        "$litle": "标题",
+        "$text": "这是内容\nhalloworld",
+        "force_render_below": true,
+        "controls": [
+            {
+                "below": {
+                    "type": "image",
+                    "size": [
+                        "120%+0px",
+                        "120%+0px"
+                    ],
+                    "layer": 1,
+                    "alpha": 0.6,
+                    "keep_ratio": false,
+                    "texture": "textures/ui/black"
+                }
+            },
+            {
+                "backdrop": {
+                    "type": "image",
+                    "size": [
+                        "45%+2px",
+                        "100%c+2px"
+                    ],
+                    "layer": 2,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/pop_up/pop_up_backdrop",
+                    "controls": [
+                        {
+                            "stack_panel": {
+                                "type": "stack_panel",
+                                "offset": [
+                                    "0%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%+-2px",
+                                    "100%c+0px"
+                                ],
+                                "layer": 1,
+                                "controls": [
+                                    {
+                                        "top": {
+                                            "type": "image",
+                                            "size": [
+                                                "100%+0px",
+                                                25.0
+                                            ],
+                                            "layer": 1,
+                                            "nineslice_size": [
+                                                1.0,
+                                                1.0,
+                                                1.0,
+                                                1.0
+                                            ],
+                                            "texture": "textures/ui/pop_up/pop_up_top",
+                                            "controls": [
+                                                {
+                                                    "litle": {
+                                                        "type": "label",
+                                                        "$litle|default": "",
+                                                        "size": [
+                                                            "70%+0px",
+                                                            "default"
+                                                        ],
+                                                        "font_type": "default",
+                                                        "text": "$litle",
+                                                        "text_alignment": "center"
+                                                    }
+                                                },
+                                                {
+                                                    "back@common.button": {
+                                                        "type": "button",
+                                                        "$control_alpha": 1.0,
+                                                        "$default_texture": "textures/ui/pop_up/pop_up_back",
+                                                        "$hover_texture": "textures/ui/pop_up/pop_up_back_hover",
+                                                        "$is_new_nine_slice": false,
+                                                        "$label_layer": 3,
+                                                        "$nine_slice_buttom": 0,
+                                                        "$nine_slice_left": 0,
+                                                        "$nine_slice_right": 0,
+                                                        "$nine_slice_top": 0,
+                                                        "$nineslice_size": [
+                                                            0,
+                                                            0,
+                                                            0,
+                                                            0
+                                                        ],
+                                                        "$pressed_button_name": "%netease_editor_template_namespace.click",
+                                                        "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
+                                                        "$texture_layer": 2,
+                                                        "anchor_to": "left_middle",
+                                                        "offset": [
+                                                            "40%+0px",
+                                                            "0%+0px"
+                                                        ],
+                                                        "size": [
+                                                            "10%+0px",
+                                                            "80%+0px"
+                                                        ],
+                                                        "layer": 2,
+                                                        "button_mappings": [],
+                                                        "default_control": "default",
+                                                        "hover_control": "hover",
+                                                        "is_handle_button_move_event": true,
+                                                        "pressed_control": "pressed",
+                                                        "controls": [
+                                                            {
+                                                                "default@netease_editor_template_namespace.default": {}
+                                                            },
+                                                            {
+                                                                "hover@netease_editor_template_namespace.hover": {}
+                                                            },
+                                                            {
+                                                                "pressed@netease_editor_template_namespace.pressed": {}
+                                                            }
+                                                        ]
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "middle": {
+                                            "type": "panel",
+                                            "offset": [
+                                                "0%+0px",
+                                                0.0
+                                            ],
+                                            "size": [
+                                                "100%+0px",
+                                                "100%c+0px"
+                                            ],
+                                            "layer": 1,
+                                            "controls": [
+                                                {
+                                                    "scroll_view@common.scrolling_panel": {
+                                                        "$always_handle_scrolling": true,
+                                                        "$scroll_size": [
+                                                            2,
+                                                            "100%+0px"
+                                                        ],
+                                                        "$scrolling_content": "pop_up.scroll_panel",
+                                                        "$scrolling_pane_offset": [
+                                                            0,
+                                                            0
+                                                        ],
+                                                        "$scrolling_pane_size": [
+                                                            "100%+0px",
+                                                            "100%+0px"
+                                                        ],
+                                                        "$show_background": false,
+                                                        "$touch": true,
+                                                        "clips_children": true,
+                                                        "layer": 1,
+                                                        "offset": [
+                                                            0,
+                                                            0
+                                                        ],
+                                                        "size": [
+                                                            "100%+0px",
+                                                            140
+                                                        ]
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    {
+                                        "under": {
+                                            "type": "image",
+                                            "size": [
+                                                "default",
+                                                "100%c+20px"
+                                            ],
+                                            "layer": 1,
+                                            "nineslice_size": [
+                                                1.0,
+                                                1.0,
+                                                1.0,
+                                                1.0
+                                            ],
+                                            "texture": "textures/ui/pop_up/pop_up_under",
+                                            "controls": [
+                                                {
+                                                    "stack_panel": {
+                                                        "type": "stack_panel",
+                                                        "size": [
+                                                            "80%+0px",
+                                                            "default"
+                                                        ],
+                                                        "layer": 1,
+                                                        "orientation": "vertical"
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "namespace": "pop_up",
+    "pop_up_button@common.button": {
+        "type": "button",
+        "$button_text": "",
+        "size": [
+            "100%+0px",
+            28
+        ],
+        "layer": 1,
+        "button_mappings": [],
+        "default_control": "default",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "pressed_control": "pressing",
+        "controls": [
+            {
+                "default": {
+                    "type": "image",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "100%+0px",
+                        24
+                    ],
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_default"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "100%+0px",
+                        24
+                    ],
+                    "layer": 1,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_hovered"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "100%+0px",
+                        24
+                    ],
+                    "layer": 1,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_pressing_black"
+                }
+            },
+            {
+                "label": {
+                    "type": "label",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "100%+0px",
+                        "default"
+                    ],
+                    "layer": 2,
+                    "color": [
+                        0,
+                        0,
+                        0
+                    ],
+                    "font_size": "normal",
+                    "font_type": "normal",
+                    "text": "$button_text",
+                    "text_alignment": "center"
+                }
+            }
+        ]
+    },
+    "scroll_panel": {
+        "type": "panel",
+        "size": [
+            "100%+0px",
+            "100%c+10px"
+        ],
+        "layer": 1,
+        "controls": [
+            {
+                "text": {
+                    "type": "label",
+                    "$text|default": "",
+                    "size": [
+                        "90%+0px",
+                        "default"
+                    ],
+                    "layer": 1,
+                    "font_type": "default",
+                    "text": "$text"
+                }
+            }
+        ]
+    }
+}

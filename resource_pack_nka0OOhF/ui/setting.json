@@ -1,0 +1,2228 @@
+{
+    "below_bg": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 1,
+        "alpha": 0.6,
+        "clip_direction": "left",
+        "clip_ratio": 0.0,
+        "color": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "keep_ratio": false,
+        "texture": "textures/ui/black"
+    },
+    "button": {
+        "type": "button",
+        "$coler": [
+            0,
+            0,
+            0
+        ],
+        "$hover": "textures/ui/pressable_elevated_secondary_hovered",
+        "$icon": "textures/ui/icon_setting",
+        "$lock": "textures/ui/button_lock",
+        "$normal": "textures/ui/pressable_elevated_secondary_default",
+        "$offset": [
+            0.0,
+            0.0
+        ],
+        "$pressing": "textures/ui/pressable_elevated_secondary_pressing_black",
+        "$size": "normal",
+        "$text": "button",
+        "offset": [
+            "0%+0px",
+            0.0
+        ],
+        "size": [
+            "100%+0px",
+            24.0
+        ],
+        "layer": 1,
+        "button_mappings": [
+            {
+                "to_button_id": "button.menu_ok",
+                "from_button_id": "button.menu_select",
+                "mapping_type": "pressed"
+            }
+        ],
+        "default_control": "normal",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "pressed_control": "pressing",
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$normal"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "layer": 2,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "layer": 3,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "lock": {
+                    "type": "image",
+                    "$lock|default": "",
+                    "layer": 4,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$lock"
+                }
+            },
+            {
+                "finish": {
+                    "type": "image",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "size": [
+                        "100%+0px",
+                        8.0
+                    ],
+                    "layer": 5,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "texture": "textures/ui/icon/finish"
+                }
+            },
+            {
+                "text": {
+                    "type": "label",
+                    "offset": "$offset",
+                    "size": [
+                        "80%+0px",
+                        "default"
+                    ],
+                    "layer": 6,
+                    "color": "$coler",
+                    "font_size": "$size",
+                    "font_type": "normal",
+                    "text": "$text",
+                    "text_alignment": "center"
+                }
+            }
+        ]
+    },
+    "button_content": {
+        "type": "image",
+        "$desc_text": "你好\n114514\nhalloworld\nLoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong",
+        "$litle": "测试",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "button@setting.button": {
+                    "$coler": [
+                        0,
+                        0,
+                        0
+                    ],
+                    "offset": [
+                        "32%+0px",
+                        0
+                    ],
+                    "size": [
+                        "18%+0px",
+                        22
+                    ]
+                }
+            },
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        "-15%+0px",
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "60%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "card": {
+        "type": "button",
+        "$coler": [
+            1,
+            1,
+            1
+        ],
+        "$hover": "textures/ui/card_hover",
+        "$icon": "textures/ui/icon_setting",
+        "$normal": "textures/ui/card",
+        "$offset": [
+            "10%+0px",
+            0.0
+        ],
+        "$press": "textures/ui/card_press",
+        "$pressing": "textures/ui/card_pressing",
+        "$size": "normal",
+        "$text": "card",
+        "offset": [
+            "1%+0px",
+            0.0
+        ],
+        "size": [
+            "100%+0px",
+            25.0
+        ],
+        "layer": 1,
+        "button_mappings": [
+            {
+                "to_button_id": "button.menu_ok",
+                "from_button_id": "button.menu_select",
+                "mapping_type": "pressed"
+            }
+        ],
+        "default_control": "normal",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "texture": "$normal"
+                }
+            },
+            {
+                "press": {
+                    "type": "image",
+                    "layer": 2,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "$press"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "layer": 3,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "name": {
+                    "type": "label",
+                    "offset": "$offset",
+                    "size": [
+                        "80%+0px",
+                        "50%+0px"
+                    ],
+                    "layer": 5,
+                    "color": "$coler",
+                    "font_size": "$size",
+                    "font_type": "normal",
+                    "text": "$text"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "$hover|default": "textures/ui/card_hover",
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "icon_backdrop": {
+                    "type": "image",
+                    "offset": [
+                        "-40%+0px",
+                        0.0
+                    ],
+                    "size": [
+                        "100%y+0px",
+                        "60%+0px"
+                    ],
+                    "layer": 4,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "fill": true,
+                    "texture": "textures/ui/icon_backdrop",
+                    "controls": [
+                        {
+                            "icon": {
+                                "type": "image",
+                                "anchor_from": "left_middle",
+                                "anchor_to": "left_middle",
+                                "offset": [
+                                    "0%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "default",
+                                    "80%+0px"
+                                ],
+                                "layer": 4,
+                                "clip_direction": "left",
+                                "clip_ratio": 0.0,
+                                "texture": "$icon"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "card_group": {
+        "type": "stack_panel",
+        "size": [
+            "100%",
+            "100%c"
+        ],
+        "orientation": "vertical",
+        "controls": [
+            {
+                "card_btn@setting.card": {}
+            },
+            {
+                "sub_panel": {
+                    "type": "stack_panel",
+                    "size": [
+                        "100%",
+                        "100%c"
+                    ],
+                    "use_child_anchors": true,
+                    "orientation": "vertical"
+                }
+            }
+        ]
+    },
+    "edit_box": {
+        "type": "panel",
+        "size": [
+            300,
+            27
+        ],
+        "layer": 1,
+        "controls": [
+            {
+                "input@common.text_edit_box": {
+                    "$edit_box_default_texture": "textures/ui/edit_box/edit_box",
+                    "$edit_box_hover_texture": "textures/ui/edit_box/edit_box",
+                    "$font_scale_factor": 1,
+                    "$font_size": "normal",
+                    "$place_holder_text": "请输入内容",
+                    "$place_holder_text_color": [
+                        0.5,
+                        0.5,
+                        0.5
+                    ],
+                    "$text_background_default": "setting.edit_box_bg_default",
+                    "$text_background_hover": "setting.edit_box_bg_hover",
+                    "$text_box_text_color": [
+                        1,
+                        1,
+                        1
+                    ],
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "layer": 1,
+                    "max_length": 512,
+                    "size": [
+                        "100%-6px",
+                        "100%-4px"
+                    ]
+                }
+            },
+            {
+                "lock": {
+                    "type": "image",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "100%-6px",
+                        "100%-4px"
+                    ],
+                    "layer": 10,
+                    "clips_children": true,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        3.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/edit_box/edit_box_lock",
+                    "controls": [
+                        {
+                            "lock_text": {
+                                "type": "label",
+                                "anchor_from": "left_middle",
+                                "anchor_to": "left_middle",
+                                "offset": [
+                                    "2px",
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%-8px",
+                                    "10px"
+                                ],
+                                "layer": 11,
+                                "color": [
+                                    0.45,
+                                    0.45,
+                                    0.45,
+                                    1.0
+                                ],
+                                "font_scale_factor": 1.0,
+                                "font_size": "normal",
+                                "font_type": "default",
+                                "text": "",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "edit_box_bg_default": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            3.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/edit_box/edit_box"
+    },
+    "edit_box_bg_hover": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            3.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/edit_box/edit_box"
+    },
+    "edit_box_content": {
+        "type": "image",
+        "$desc_text": "",
+        "$litle": "",
+        "$place_holder_text": "请输入内容",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "edit_box@setting.edit_box": {
+                    "offset": [
+                        "32%+0px",
+                        0
+                    ],
+                    "size": [
+                        "18%+5px",
+                        24
+                    ]
+                }
+            },
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        "-15%+0px",
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "60%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "main@common.base_screen": {
+        "$screen_bg_content": "setting.below_bg",
+        "$screen_content": "setting.main_content",
+        "render_only_when_topmost": true
+    },
+    "main_content": {
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "controls": [
+            {
+                "background": {
+                    "type": "image",
+                    "anchor_from": "top_middle",
+                    "anchor_to": "top_middle",
+                    "offset": [
+                        0.0,
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "110%+0px",
+                        "10%+0px"
+                    ],
+                    "layer": 100,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        3.0
+                    ],
+                    "texture": "textures/ui/top_bar",
+                    "controls": [
+                        {
+                            "text": {
+                                "type": "label",
+                                "anchor_from": "top_middle",
+                                "anchor_to": "top_middle",
+                                "offset": [
+                                    0.0,
+                                    "30%+0px"
+                                ],
+                                "layer": 101,
+                                "color": [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                "font_type": "default",
+                                "text": "模组设置",
+                                "text_alignment": "center"
+                            }
+                        },
+                        {
+                            "back@common.button": {
+                                "type": "button",
+                                "$control_alpha": 1.0,
+                                "$default_texture": "textures/ui/bar_back",
+                                "$hover_texture": "textures/ui/bar_back_hover",
+                                "$is_new_nine_slice": false,
+                                "$label_layer": 3,
+                                "$nine_slice_buttom": 0,
+                                "$nine_slice_left": 0,
+                                "$nine_slice_right": 0,
+                                "$nine_slice_top": 0,
+                                "$nineslice_size": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                "$pressed_button_name": "%netease_editor_template_namespace.click",
+                                "$pressed_texture": "textures/ui/bar_back_pressed",
+                                "$texture_layer": 2,
+                                "anchor_from": "left_middle",
+                                "anchor_to": "left_middle",
+                                "offset": [
+                                    "5%+0px",
+                                    "-5%+0px"
+                                ],
+                                "size": [
+                                    "10%+0px",
+                                    "80%+0px"
+                                ],
+                                "layer": 2,
+                                "button_mappings": [
+                                    {
+                                        "to_button_id": "button.menu_ok",
+                                        "from_button_id": "button.menu_select",
+                                        "mapping_type": "pressed"
+                                    }
+                                ],
+                                "default_control": "default",
+                                "hover_control": "hover",
+                                "is_handle_button_move_event": true,
+                                "pressed_control": "pressed",
+                                "controls": [
+                                    {
+                                        "default@netease_editor_template_namespace.default": {}
+                                    },
+                                    {
+                                        "hover@netease_editor_template_namespace.hover": {}
+                                    },
+                                    {
+                                        "pressed@netease_editor_template_namespace.pressed": {}
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "left": {
+                    "type": "image",
+                    "offset": [
+                        "-33.35%+0px",
+                        "5%+0px"
+                    ],
+                    "size": [
+                        "33.3%+0px",
+                        "90%+0px"
+                    ],
+                    "layer": 10,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/backdrop",
+                    "controls": [
+                        {
+                            "mods@common.scrolling_panel": {
+                                "$background_nine_slice_buttom": 0,
+                                "$background_nine_slice_left": 0,
+                                "$background_nine_slice_right": 0,
+                                "$background_nine_slice_top": 0,
+                                "$background_nineslice_size": [
+                                    3,
+                                    3,
+                                    3,
+                                    3
+                                ],
+                                "$box_nine_slice_buttom": 0,
+                                "$box_nine_slice_left": 0,
+                                "$box_nine_slice_right": 0,
+                                "$box_nine_slice_top": 0,
+                                "$box_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "$is_background_nine_slice": false,
+                                "$is_box_nine_slice": false,
+                                "$is_track_nine_slice": false,
+                                "$scroll_background_image_control": "netease_editor_template_namespace.scroll_background_image",
+                                "$scroll_background_texture": "textures/ui/sidebar_icons/button_panel",
+                                "$scroll_box_mouse_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_box_texture": "textures/ui/newTouchScrollBox",
+                                "$scroll_box_touch_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_track_image_control": "netease_editor_template_namespace.scroll_track_image",
+                                "$scroll_track_texture": "textures/ui/ScrollRail",
+                                "$scrolling_content": "setting.scroll_content",
+                                "$show_background": false,
+                                "$touch": true,
+                                "$track_nine_slice_buttom": 0,
+                                "$track_nine_slice_left": 0,
+                                "$track_nine_slice_right": 0,
+                                "$track_nine_slice_top": 0,
+                                "$track_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "layer": 5,
+                                "offset": [
+                                    "0%+0px",
+                                    "20%+0px"
+                                ],
+                                "size": [
+                                    "99%+0px",
+                                    "60%+0px"
+                                ]
+                            }
+                        },
+                        {
+                            "icon_under": {
+                                "type": "panel",
+                                "offset": [
+                                    "0%+0px",
+                                    "-30%+0px"
+                                ],
+                                "size": [
+                                    "default",
+                                    "40%+0px"
+                                ],
+                                "layer": 3,
+                                "controls": [
+                                    {
+                                        "image": {
+                                            "type": "image",
+                                            "size": [
+                                                "80%+0px",
+                                                "70%+0px"
+                                            ],
+                                            "layer": 4,
+                                            "clip_direction": "left",
+                                            "clip_ratio": 0.0,
+                                            "texture": "textures/netease/common/image/default"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "middle": {
+                    "type": "image",
+                    "offset": [
+                        "-24%+0px",
+                        "5%+0px"
+                    ],
+                    "size": [
+                        "14.7%+0px",
+                        "90%+0px"
+                    ],
+                    "layer": 5,
+                    "visible": false,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/backdrop",
+                    "controls": [
+                        {
+                            "mods@common.scrolling_panel": {
+                                "$background_nine_slice_buttom": 0,
+                                "$background_nine_slice_left": 0,
+                                "$background_nine_slice_right": 0,
+                                "$background_nine_slice_top": 0,
+                                "$background_nineslice_size": [
+                                    3,
+                                    3,
+                                    3,
+                                    3
+                                ],
+                                "$box_nine_slice_buttom": 0,
+                                "$box_nine_slice_left": 0,
+                                "$box_nine_slice_right": 0,
+                                "$box_nine_slice_top": 0,
+                                "$box_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "$is_background_nine_slice": false,
+                                "$is_box_nine_slice": false,
+                                "$is_track_nine_slice": false,
+                                "$scroll_background_image_control": "netease_editor_template_namespace.scroll_background_image",
+                                "$scroll_background_texture": "textures/ui/sidebar_icons/button_panel",
+                                "$scroll_box_mouse_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_box_texture": "textures/ui/newTouchScrollBox",
+                                "$scroll_box_touch_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_track_image_control": "netease_editor_template_namespace.scroll_track_image",
+                                "$scroll_track_texture": "textures/ui/ScrollRail",
+                                "$scrolling_content": "setting.middle_scroll_content",
+                                "$show_background": false,
+                                "$touch": true,
+                                "$track_nine_slice_buttom": 0,
+                                "$track_nine_slice_left": 0,
+                                "$track_nine_slice_right": 0,
+                                "$track_nine_slice_top": 0,
+                                "$track_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "layer": 1,
+                                "offset": [
+                                    "0%+0px",
+                                    "0%+0px"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "right": {
+                    "type": "image",
+                    "offset": [
+                        "7%+0px",
+                        "5%+0px"
+                    ],
+                    "size": [
+                        "52%+0px",
+                        "90%+0px"
+                    ],
+                    "layer": 5,
+                    "visible": false,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/backdrop",
+                    "controls": [
+                        {
+                            "mods@common.scrolling_panel": {
+                                "$background_nine_slice_buttom": 0,
+                                "$background_nine_slice_left": 0,
+                                "$background_nine_slice_right": 0,
+                                "$background_nine_slice_top": 0,
+                                "$background_nineslice_size": [
+                                    3,
+                                    3,
+                                    3,
+                                    3
+                                ],
+                                "$box_nine_slice_buttom": 0,
+                                "$box_nine_slice_left": 0,
+                                "$box_nine_slice_right": 0,
+                                "$box_nine_slice_top": 0,
+                                "$box_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "$is_background_nine_slice": false,
+                                "$is_box_nine_slice": false,
+                                "$is_track_nine_slice": false,
+                                "$scroll_background_image_control": "netease_editor_template_namespace.scroll_background_image",
+                                "$scroll_background_texture": "textures/ui/sidebar_icons/button_panel",
+                                "$scroll_box_mouse_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_box_texture": "textures/ui/newTouchScrollBox",
+                                "$scroll_box_touch_image_control": "netease_editor_template_namespace.scroll_box_image",
+                                "$scroll_track_image_control": "netease_editor_template_namespace.scroll_track_image",
+                                "$scroll_track_texture": "textures/ui/ScrollRail",
+                                "$scrolling_content": "setting.right_scroll_content",
+                                "$show_background": false,
+                                "$touch": true,
+                                "$track_nine_slice_buttom": 0,
+                                "$track_nine_slice_left": 0,
+                                "$track_nine_slice_right": 0,
+                                "$track_nine_slice_top": 0,
+                                "$track_nineslice_size": [
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                "layer": 1,
+                                "offset": [
+                                    "0%+0px",
+                                    "0%+0px"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "middle_card": {
+        "type": "button",
+        "$coler": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "$hover": "textures/ui/pressable_elevated_secondary_hovered",
+        "$icon": "textures/ui/icon_setting",
+        "$normal": "textures/ui/pressable_elevated_secondary_default",
+        "$offset": [
+            "15%+0px",
+            "0%+0px"
+        ],
+        "$press": "textures/ui/pressable_primary_pressed",
+        "$pressing": "textures/ui/pressable_elevated_secondary_pressing",
+        "$size": "normal",
+        "$text": "card",
+        "offset": [
+            "1%+0px",
+            0.0
+        ],
+        "size": [
+            "100%+0px",
+            30.0
+        ],
+        "layer": 1,
+        "button_mappings": [
+            {
+                "to_button_id": "button.menu_ok",
+                "from_button_id": "button.menu_select",
+                "mapping_type": "pressed"
+            }
+        ],
+        "default_control": "normal",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "layer": 1,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$normal"
+                }
+            },
+            {
+                "press": {
+                    "type": "image",
+                    "layer": 10,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        3.0,
+                        4.0,
+                        3.0,
+                        2.0
+                    ],
+                    "texture": "$press"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "layer": 5,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "name": {
+                    "type": "label",
+                    "offset": "$offset",
+                    "size": [
+                        "65%+0px",
+                        "40%+0px"
+                    ],
+                    "layer": 12,
+                    "color": "$coler",
+                    "font_size": "$size",
+                    "font_type": "normal",
+                    "text": "$text"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "$hover|default": "textures/ui/card_hover",
+                    "layer": 1,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "icon_backdrop": {
+                    "type": "image",
+                    "offset": [
+                        "-35%+0px",
+                        0.0
+                    ],
+                    "size": [
+                        "100%y+0px",
+                        "50%+0px"
+                    ],
+                    "layer": 11,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "fill": true,
+                    "texture": "textures/ui/icon_backdrop",
+                    "controls": [
+                        {
+                            "icon": {
+                                "type": "image",
+                                "anchor_from": "left_middle",
+                                "anchor_to": "left_middle",
+                                "offset": [
+                                    0.0,
+                                    "0%+0px"
+                                ],
+                                "size": [
+                                    "default",
+                                    "80%+0px"
+                                ],
+                                "layer": 11,
+                                "clip_direction": "left",
+                                "clip_ratio": 0.0,
+                                "texture": "$icon"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "middle_card_enter": {
+        "anim_type": "alpha",
+        "duration": 0.5,
+        "from": 0,
+        "next": "",
+        "to": 1
+    },
+    "middle_card_exit": {
+        "anim_type": "alpha",
+        "duration": 0.2,
+        "from": 1,
+        "next": "",
+        "to": 0
+    },
+    "middle_enter": {
+        "anim_type": "offset",
+        "duration": 0.06,
+        "from": [
+            "-24%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.middle_enter_fast",
+        "to": [
+            "-20.44%+0px",
+            "5%+0px"
+        ]
+    },
+    "middle_enter_fast": {
+        "anim_type": "offset",
+        "duration": 0.08,
+        "from": [
+            "-20.44%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.middle_enter_slow",
+        "to": [
+            "-13.44%+0px",
+            "5%+0px"
+        ]
+    },
+    "middle_enter_slow": {
+        "anim_type": "offset",
+        "duration": 0.06,
+        "from": [
+            "-13.44%+0px",
+            "5%+0px"
+        ],
+        "next": "",
+        "to": [
+            "-9.35%+0px",
+            "5%+0px"
+        ]
+    },
+    "middle_exit": {
+        "anim_type": "offset",
+        "duration": 0.08,
+        "from": [
+            "-9.35%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.middle_exit_slow",
+        "to": [
+            "-16.68%+0px",
+            "5%+0px"
+        ]
+    },
+    "middle_exit_slow": {
+        "anim_type": "offset",
+        "duration": 0.12,
+        "from": [
+            "-16.68%+0px",
+            "5%+0px"
+        ],
+        "next": "",
+        "to": [
+            "-24%+0px",
+            "5%+0px"
+        ]
+    },
+    "middle_scroll_content": {
+        "type": "stack_panel",
+        "offset": [
+            "0.5%+0px",
+            "0%+0px"
+        ],
+        "size": [
+            "99%",
+            "100%c"
+        ],
+        "orientation": "vertical"
+    },
+    "namespace": "setting",
+    "reset_content": {
+        "type": "image",
+        "$text": "重置分页数据",
+        "size": [
+            "100%+0px",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "button@setting.button": {
+                    "$coler": [
+                        0,
+                        0,
+                        0
+                    ],
+                    "$text": "重置分页数据",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "offset": [
+                        0,
+                        0
+                    ],
+                    "size": [
+                        "80%+0px",
+                        24
+                    ]
+                }
+            }
+        ]
+    },
+    "collapsible_menu_button@setting.button": {
+        "$coler": [
+            0,
+            0,
+            0
+        ],
+        "$text": "",
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$normal"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "layer": 2,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "layer": 3,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "lock": {
+                    "type": "image",
+                    "$lock|default": "",
+                    "layer": 4,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$lock"
+                }
+            },
+            {
+                "text": {
+                    "type": "label",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "offset": [
+                        "5px",
+                        0
+                    ],
+                    "size": [
+                        "65%+0px",
+                        "default"
+                    ],
+                    "layer": 6,
+                    "color": "$coler",
+                    "font_size": "$size",
+                    "font_type": "normal",
+                    "text": "$text",
+                    "text_alignment": "left"
+                }
+            },
+            {
+                "arrow": {
+                    "type": "image",
+                    "anchor_from": "right_middle",
+                    "anchor_to": "right_middle",
+                    "offset": [
+                        "-5px",
+                        0
+                    ],
+                    "size": [
+                        "10px",
+                        "10px"
+                    ],
+                    "layer": 6,
+                    "texture": "textures/ui/icon/arrow"
+                }
+            }
+        ]
+    },
+    "collapsible_menu_content": {
+        "type": "image",
+        "$desc_text": "",
+        "$litle": "",
+        "$text": "",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        0.0,
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "90%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "$desc_text|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "font_type": "default",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        },
+                        {
+                            "button_wrap": {
+                                "type": "panel",
+                                "size": [
+                                    "100%+0px",
+                                    24
+                                ],
+                                "controls": [
+                                    {
+                                        "button@setting.collapsible_menu_button": {
+                                            "anchor_from": "center",
+                                            "anchor_to": "center",
+                                            "offset": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                "80%+0px",
+                                                24
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "right_enter": {
+        "anim_type": "offset",
+        "duration": 0.06,
+        "from": [
+            "75%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.right_enter_fast",
+        "to": [
+            "60.3%+0px",
+            "5%+0px"
+        ]
+    },
+    "right_enter_fast": {
+        "anim_type": "offset",
+        "duration": 0.08,
+        "from": [
+            "60.3%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.right_enter_slow",
+        "to": [
+            "42%+0px",
+            "5%+0px"
+        ]
+    },
+    "right_enter_slow": {
+        "anim_type": "offset",
+        "duration": 0.06,
+        "from": [
+            "42%+0px",
+            "5%+0px"
+        ],
+        "next": "",
+        "to": [
+            "24%+0px",
+            "5%+0px"
+        ]
+    },
+    "right_exit": {
+        "anim_type": "offset",
+        "duration": 0.08,
+        "from": [
+            "24%+0px",
+            "5%+0px"
+        ],
+        "next": "@setting.right_exit_slow",
+        "to": [
+            "43.2%+0px",
+            "5%+0px"
+        ]
+    },
+    "right_exit_slow": {
+        "anim_type": "offset",
+        "duration": 0.12,
+        "from": [
+            "43.2%+0px",
+            "5%+0px"
+        ],
+        "next": "",
+        "to": [
+            "75%+0px",
+            "5%+0px"
+        ]
+    },
+    "right_scroll_content": {
+        "type": "stack_panel",
+        "offset": [
+            "0.5%+0px",
+            "0%+0px"
+        ],
+        "size": [
+            "99%",
+            "100%c"
+        ],
+        "orientation": "vertical"
+    },
+    "screen": {
+        "type": "screen"
+    },
+    "scroll_content": {
+        "type": "stack_panel",
+        "size": [
+            "100%",
+            "100%c"
+        ],
+        "orientation": "vertical"
+    },
+    "slider@common.slider": {
+        "$background_default_control": "setting.slider_background",
+        "$background_hover_control": "setting.slider_background_hover",
+        "$progress_default_clip_direction": "left",
+        "$progress_default_control": "setting.slider_progress",
+        "$progress_hover_clip_direction": "left",
+        "$progress_hover_control": "setting.slider_progress_hover",
+        "$slider_box_hover_layout": "setting.slider_box_hover",
+        "$slider_box_indent_layout": "setting.slider_box_indent",
+        "$slider_box_layout": "setting.slider_box_default",
+        "$slider_box_locked_layout": "setting.slider_box_locked",
+        "$slider_box_size": [
+            16,
+            16
+        ],
+        "$slider_direction": "horizontal",
+        "$slider_enabled_binding_condition": "visible",
+        "$slider_enabled_binding_name": "#settings_slider_enabled",
+        "$slider_enabled_binding_type": "global",
+        "$slider_name": "#settings_slider",
+        "$slider_step_factory_control_ids": {},
+        "$slider_steps_binding_name": "#settings_slider_steps",
+        "$slider_tts_text_value": "#netease_tts_text_value",
+        "$slider_value_binding_name": "#settings_slider_value",
+        "size": [
+            "100%+0px",
+            10
+        ]
+    },
+    "slider_background": {
+        "type": "image",
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            2
+        ],
+        "texture": "textures/ui/slider/slider_backdrop"
+    },
+    "slider_background_hover": {
+        "type": "image",
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            2
+        ],
+        "texture": "textures/ui/slider/slider_backdrop_hover"
+    },
+    "slider_box_default": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            4
+        ],
+        "texture": "textures/ui/pressable_elevated_secondary_default"
+    },
+    "slider_box_hover": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            4
+        ],
+        "texture": "textures/ui/pressable_elevated_secondary_hovered"
+    },
+    "slider_box_indent": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            4
+        ],
+        "texture": "textures/ui/pressable_elevated_secondary_pressing_black"
+    },
+    "slider_box_locked": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 5,
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            4
+        ],
+        "texture": "textures/ui/button_lock"
+    },
+    "slider_lock_bg": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 3,
+        "keep_ratio": false,
+        "texture": "textures/ui/slider/slider_lock_bg"
+    },
+    "slider_lock_overlay": {
+        "type": "input_panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 6,
+        "is_swallow": true
+    },
+    "slider_content": {
+        "type": "image",
+        "$desc_text": "",
+        "$litle": "",
+        "$value_text": "",
+        "size": [
+            "default",
+            "100%c+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        "-15%+0px",
+                        "-15%+0px"
+                    ],
+                    "size": [
+                        "60%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "value": {
+                    "type": "label",
+                    "$value_text|default": "",
+                    "anchor_from": "right_middle",
+                    "anchor_to": "right_middle",
+                    "offset": [
+                        "-12%+0px",
+                        "-15%+0px"
+                    ],
+                    "size": [
+                        "20%+0px",
+                        "default"
+                    ],
+                    "layer": 5,
+                    "color": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "font_scale_factor": 1.1,
+                    "font_type": "default",
+                    "text": "$value_text",
+                    "text_alignment": "right"
+                }
+            },
+            {
+                "slider@setting.slider": {
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "offset": [
+                        "0%+0px",
+                        "30%+0px"
+                    ],
+                    "size": [
+                        "80%+0px",
+                        10
+                    ]
+                }
+            }
+        ]
+    },
+    "slider_progress": {
+        "type": "image",
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            2
+        ],
+        "texture": "textures/ui/slider/slider_progress"
+    },
+    "slider_progress_hover": {
+        "type": "image",
+        "keep_ratio": false,
+        "nineslice_size": [
+            2,
+            2,
+            2,
+            2
+        ],
+        "texture": "textures/ui/slider/slider_progress_hover"
+    },
+    "sub_card": {
+        "type": "button",
+        "$hover": "textures/ui/card_hover",
+        "$icon": "",
+        "$pressing": "textures/ui/card_pressing",
+        "$text": "sub",
+        "anchor_from": "right_middle",
+        "anchor_to": "right_middle",
+        "offset": [
+            "-1%+0px",
+            0
+        ],
+        "size": [
+            "90%+0px",
+            25.0
+        ],
+        "layer": 1,
+        "button_mappings": [
+            {
+                "to_button_id": "button.menu_ok",
+                "from_button_id": "button.menu_select",
+                "mapping_type": "pressed"
+            }
+        ],
+        "default_control": "normal_bg",
+        "hover_control": "hover_bg",
+        "is_handle_button_move_event": true,
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
+        "controls": [
+            {
+                "normal_bg": {
+                    "type": "image",
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/card"
+                }
+            },
+            {
+                "press_bg": {
+                    "type": "image",
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "textures/ui/card_press"
+                }
+            },
+            {
+                "pressing_bg": {
+                    "type": "image",
+                    "layer": 1,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "hover_bg": {
+                    "type": "image",
+                    "$hover|default": "textures/ui/card_hover",
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "sub_label": {
+                    "type": "label",
+                    "offset": [
+                        "10%+0px",
+                        0.0
+                    ],
+                    "size": [
+                        "80%+0px",
+                        "50%+0px"
+                    ],
+                    "layer": 3,
+                    "color": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "font_size": "normal",
+                    "text": "$text"
+                }
+            },
+            {
+                "icon_backdrop": {
+                    "type": "image",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "offset": [
+                        "5%+0px",
+                        0.0
+                    ],
+                    "size": [
+                        "100%y+0px",
+                        "60%+0px"
+                    ],
+                    "layer": 6,
+                    "fill": true,
+                    "texture": "textures/ui/icon_backdrop",
+                    "controls": [
+                        {
+                            "icon": {
+                                "type": "image",
+                                "anchor_from": "center",
+                                "anchor_to": "center",
+                                "offset": [
+                                    0.0,
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%",
+                                    "80%+0px"
+                                ],
+                                "layer": 3,
+                                "texture": "$icon"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "switch@common_toggles.switch_toggle_collection": {
+        "type": "panel",
+        "$checked_locked_texture": "textures/ui/switch/switch_on_lock",
+        "$default_texture": "textures/ui/switch/switch_off",
+        "$hover_texture": "textures/ui/switch/switch_on",
+        "$pressed_no_hover_texture": "textures/ui/switch/switch_on_hover",
+        "$pressed_texture": "textures/ui/switch/switch_off_hover",
+        "$toggle_name": "#netease_editor_template_namespace.toggle_name",
+        "$toggle_state_binding_name": "#netease_editor_template_namespace.toggle_state",
+        "$unchecked_locked_texture": "textures/ui/switch/switch_off_lock",
+        "size": [
+            100,
+            100
+        ],
+        "layer": 1,
+        "bindings": [
+            {
+                "binding_type": "collection_details",
+                "binding_collection_name": "",
+                "binding_condition": "always_when_visible"
+            }
+        ]
+    },
+    "switch_content": {
+        "type": "image",
+        "$desc_text": "你好\n114514\nhalloworld\nLoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong",
+        "$litle": "",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "switch@setting.switch": {
+                    "offset": [
+                        "32%+0px",
+                        0
+                    ],
+                    "size": [
+                        "18%+0px",
+                        18
+                    ]
+                }
+            },
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        "-15%+0px",
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "60%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "text_content": {
+        "type": "image",
+        "$litle": "1ccs测试",
+        "$text": "菜市场\n测试\n111\n111\n1\n1\n1\n1\n1\n",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        0.0,
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "90%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "label": {
+                                "type": "label",
+                                "$text|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "font_type": "default",
+                                "text": "$text",
+                                "text_alignment": "left"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+}
