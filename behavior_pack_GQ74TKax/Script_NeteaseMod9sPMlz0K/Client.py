@@ -271,6 +271,7 @@ class MyClientSystem(ClientSystem):
             print "==== Toast register error: %s ====" % str(e)
 
         self.InitKeyBindings()
+        self._RegisterOfficialSettingsEntry()
 
     def InitKeyBindings(self):
         # 注册自定义按键映射：玩家可在游戏设置中修改该按键
@@ -280,6 +281,47 @@ class MyClientSystem(ClientSystem):
             print "==== RegisterCustomKeyMapping open_settings: %s ====" % str(success)
         except Exception as e:
             print "==== RegisterCustomKeyMapping error: %s ====" % str(e)
+
+    def _RegisterOfficialSettingsEntry(self):
+        """
+        在官方"暂停菜单 -> 模组"的通用设置界面注册一个按钮。
+        点击该按钮会关闭官方通用设置界面并打开本模组的设置界面。
+        """
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateNeteaseWindow(clientApi.GetLevelId())
+            # 参数1：开发环境为唯一命名空间；正式服需改为开平上传模组后的 ItemID
+            setting_inst = comp.RegisterSettingInst(
+                "Script_NeteaseMod9sPMlz0K", "模组设置", "textures/ui/icon_setting"
+            )
+            if setting_inst:
+                setting_inst.AddButton(
+                    "open_my_settings",
+                    "打开本模组的自定义设置界面",
+                    "打开设置",
+                    self._OnOfficialSettingButtonClick,
+                    1
+                )
+                print "==== official settings button registered ===="
+            else:
+                print "==== RegisterSettingInst returned None ===="
+        except Exception as e:
+            print "==== Register official settings entry error: %s ====" % str(e)
+
+    def _OnOfficialSettingButtonClick(self, key, value=None):
+        """官方通用设置按钮回调：关闭官方设置界面，稍后打开本模组设置界面。"""
+        print "==== official setting button click: %s ====" % str(key)
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateNeteaseWindow(clientApi.GetLevelId())
+            comp.CloseSettingUI()
+        except Exception as e:
+            print "==== CloseSettingUI error: %s ====" % str(e)
+        # 等官方界面关闭完成后再打开本模组设置界面，避免压栈冲突
+        game_comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+        game_comp.AddTimer(0.15, self._OpenMySettings)
+
+    def _OpenMySettings(self):
+        """官方通用设置界面关闭后，打开本模组设置界面。"""
+        self.OpenSettings()
 
     def OpenSettings(self, main_card_id=None, sub_key=None, middle_card_id=None):
         """
