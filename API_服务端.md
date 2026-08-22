@@ -3,6 +3,8 @@
 > 覆盖：`/setting_open` 自定义指令。服务端系统在 `Server.py`（`MyServerSystem`）中实现。
 > 客户端 API 见 [API_客户端.md](API_客户端.md)，事件见 [API_事件.md](API_事件.md)，总览见 [API_列表.md](API_列表.md)。
 
+> **提示**：本指令仅用于游戏内/管理侧触发。外部模组若需打开/导航本设置界面，应**直接调用 `OpenSettings` API**（见 [客户端 API](API_客户端.md#导航-api)），无需依赖本指令。
+
 ## 指令定义
 
 指令定义文件：`behavior_pack_GQ74TKax/netease_commands/craftStudio_Script_NeteaseMod9sPMlz0K_setting_open.json`

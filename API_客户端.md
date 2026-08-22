@@ -889,6 +889,8 @@ count = ResetGroupSettings("basic_settings", "client", "opt_a")
 
 通过 `CardRegistryApi.OpenSettings` 打开设置 UI，并可选导航到指定卡片。
 
+> 外部模组如需打开/导航本设置界面，**直接调用本 API 即可**，无需在游戏内输入 `/setting_open` 指令。`/setting_open` 指令仅用于游戏内/管理侧触发（由服务端处理后同样转发到 `OpenSettings`），详见[服务端 API](API_服务端.md)。
+
 ```python
 from CardRegistryApi import OpenSettings
 
