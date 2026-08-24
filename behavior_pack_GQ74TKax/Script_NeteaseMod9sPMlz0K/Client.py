@@ -918,8 +918,10 @@ class SettingsScreenNode(ScreenNode):
         self.mCurrentSubKey = None      # 当前选中的子卡片 key（client/server）
         # 服务端全局日志开关同步状态
         self.mServerLogSwitchItem = None  # 服务端调试开关 item_id，None 表示当前分组无需同步
+        self.mServerLockItems = []        # 服务端调试分类需按 OP 状态锁定/解锁的项 id（复制数量/复制日志）
         self.mNeedServerLogRequest = False  # 服务端调试开关渲染完成后是否请求全局值
         self.mServerLogPending = None       # 尚未应用的 (enabled, is_op) 待处理状态
+        self.mServerLockState = None        # 服务端锁项已应用的锁定状态（None=尚未收到 OP 信息）
         self.mRightPendingItems = []  # 等待延迟创建的右侧内容项数据队列
         self.mRightContentDelayTimer = 0
         self.mRightContentDelayInterval = 2  # 每2帧创建一项，避免瞬间加载过多卡顿
@@ -959,6 +961,15 @@ class SettingsScreenNode(ScreenNode):
         self.mMainCardSnapshot = None  # 主卡片注册表快照，用于打开时跳过无变化的重建
         self.mMainCardFadingIn = []  # [(wrapper, current_alpha), ...] 主卡片淡入队列
         self.mMainCardFadeInSpeed = 0.3  # 主卡片快速淡入速度
+        # "优化"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
+        self.mEnableFadeAnim = True
+        try:
+            from setting import OPTIMIZE_CATEGORY_ID, SWITCH_FADE_ANIM
+            self.mEnableFadeAnim = bool(GetSettingValue(
+                "settings_config", "client", OPTIMIZE_CATEGORY_ID, SWITCH_FADE_ANIM,
+                default=True))
+        except Exception:
+            self.mEnableFadeAnim = True
         self.mMiddleCardSeq = 0    # 中间卡片控件名序列号
         self.mPendingNavigation = None      # (main_card_id, sub_key, middle_card_id)
         self.mPendingMiddleCardId = None    # 待选中的中间卡片 ID
@@ -2113,9 +2124,12 @@ class SettingsScreenNode(ScreenNode):
                 btn.SetButtonTouchUpCallback(self.OnMiddleCardTouchUp)
                 btn.SetButtonTouchCancelCallback(self.OnMiddleCardTouchCancel)
             self.SetCardVisualState(ctrl, "normal")
-            # 初始透明，交给 OnTick 手动淡入
-            self.SetMiddleCardAlpha(ctrl, 0.0)
-            self.mMiddleFadingInCtrls.append([ctrl, 0.0])
+            # 初始透明，交给 OnTick 手动淡入（动画关闭时直接显示）
+            if self.mEnableFadeAnim:
+                self.SetMiddleCardAlpha(ctrl, 0.0)
+                self.mMiddleFadingInCtrls.append([ctrl, 0.0])
+            else:
+                self.SetMiddleCardAlpha(ctrl, 1.0)
             self.mMiddleOptionCtrls.append(ctrl)
             self.mMiddleCardIds.append(cardId)
             self.mMiddleCardNames.append(ctrlName)
@@ -2288,6 +2302,13 @@ class SettingsScreenNode(ScreenNode):
             switchCtrl.SetTouchEnable(bool(is_op))
         except Exception as e:
             dlog.client_print("==== ApplyServerLogSwitch lock error: %s ====" % str(e))
+        # 服务端调试分类下的其他控件（复制数量/复制日志）按 OP 状态统一锁定/解锁
+        self.mServerLockState = not bool(is_op)
+        for lock_item_id in self.mServerLockItems:
+            try:
+                self.SetLocked(lock_item_id, self.mServerLockState)
+            except Exception as e:
+                dlog.client_print("==== ApplyServerLogSwitch lock item %s error: %s ====" % (lock_item_id, str(e)))
 
     def OnTick(self):
         # 处理主卡片状态渐隐
@@ -2305,6 +2326,18 @@ class SettingsScreenNode(ScreenNode):
                 self.mNeedServerLogRequest = False
                 if _g_ClientSystem:
                     _g_ClientSystem.SendServerLogRequest()
+
+        # 服务端锁项（复制数量/复制日志）若尚未渲染完成，逐帧补应用 OP 锁定状态
+        if self.mServerLockState is not None and self.mServerLockItems:
+            pending_lock_ids = [iid for iid in self.mServerLockItems
+                                if iid not in self.mRightCollapsibleMenuCtrlMap
+                                and iid not in self.mRightBtnCtrlMap]
+            if pending_lock_ids:
+                for iid in self.mServerLockItems:
+                    if iid in self.mRightCollapsibleMenuCtrlMap or iid in self.mRightBtnCtrlMap:
+                        self.SetLocked(iid, self.mServerLockState)
+            else:
+                self.mServerLockState = None
 
         # 主卡片懒加载：逐帧创建剩余卡片
         if self.mMainCardPending:
@@ -2593,9 +2626,12 @@ class SettingsScreenNode(ScreenNode):
         # 清空中间卡片 backdrop 动画状态
         self.mMiddleCardBackdropCtrls = []
         self.mMiddleCardAnimStates = {}
-        # 清空正在淡入的卡片，改为淡出
+        # 清空正在淡入的卡片，改为淡出（动画关闭时直接移除）
         for item in self.mMiddleFadingInCtrls:
-            self.mMiddleFadingOutCtrls.append(item)
+            if self.mEnableFadeAnim:
+                self.mMiddleFadingOutCtrls.append(item)
+            else:
+                self.SafeRemoveMiddleCard(item[0])
         self.mMiddleFadingInCtrls = []
         exitingCtrls = list(self.mMiddleOptionCtrls)
         self.mMiddleOptionCtrls = []
@@ -2604,8 +2640,11 @@ class SettingsScreenNode(ScreenNode):
         self.mMiddleSelectedIndex = -1
         for ctrl in exitingCtrls:
             try:
-                self.SetMiddleCardAlpha(ctrl, 1.0)
-                self.mMiddleFadingOutCtrls.append([ctrl, 1.0])
+                if self.mEnableFadeAnim:
+                    self.SetMiddleCardAlpha(ctrl, 1.0)
+                    self.mMiddleFadingOutCtrls.append([ctrl, 1.0])
+                else:
+                    self.SafeRemoveMiddleCard(ctrl)
             except Exception:
                 self.SafeRemoveMiddleCard(ctrl)
 
@@ -2842,11 +2881,14 @@ class SettingsScreenNode(ScreenNode):
         self.mRightContentDelayTimer = 0
         self.mRightShowPending = None
         self.mRightShowDelayTimer = 0
-        # 清空正在淡入的，改为淡出
+        # 清空正在淡入的，改为淡出（动画关闭时直接移除）
         for item in self.mRightFadingInCtrls:
-            self.mRightFadingOutCtrls.append(item)
+            if self.mEnableFadeAnim:
+                self.mRightFadingOutCtrls.append(item)
+            else:
+                self.SafeRemoveRightContent(item[0])
         self.mRightFadingInCtrls = []
-        # 现有控件改淡出
+        # 现有控件改淡出（动画关闭时直接移除）
         exitingCtrls = list(self.mRightContentCtrls)
         self.mRightContentCtrls = []
         self.mRightBtnCtrlMap.clear()
@@ -2866,8 +2908,11 @@ class SettingsScreenNode(ScreenNode):
         self.mRightCollapsibleMenuCtrlMap.clear()
         for ctrl in exitingCtrls:
             try:
-                self.SetRightContentAlpha(ctrl, 1.0)
-                self.mRightFadingOutCtrls.append([ctrl, 1.0])
+                if self.mEnableFadeAnim:
+                    self.SetRightContentAlpha(ctrl, 1.0)
+                    self.mRightFadingOutCtrls.append([ctrl, 1.0])
+                else:
+                    self.SafeRemoveRightContent(ctrl)
             except Exception:
                 self.SafeRemoveRightContent(ctrl)
 
@@ -2882,12 +2927,15 @@ class SettingsScreenNode(ScreenNode):
         self.mRightFinishedStates[self.mCurrentRightGroup].clear()
         # 服务端"调试"分类：标记需要向服务端请求全局日志开关状态（由 OnTick 同步）
         self.mServerLogSwitchItem = None
+        self.mServerLockItems = []
         self.mNeedServerLogRequest = False
         if sub_key == "server":
             try:
-                from setting import DEBUG_CATEGORY_ID, SWITCH_SERVER_LOG_OUTPUT
+                from setting import (DEBUG_CATEGORY_ID, SWITCH_SERVER_LOG_OUTPUT,
+                                     SERVER_COPY_COUNT, SERVER_COPY_BTN)
                 if NormalizeMiddleCardId(middle_card_id) == DEBUG_CATEGORY_ID:
                     self.mServerLogSwitchItem = SWITCH_SERVER_LOG_OUTPUT
+                    self.mServerLockItems = [SERVER_COPY_COUNT, SERVER_COPY_BTN]
                     self.mNeedServerLogRequest = True
             except ImportError:
                 pass
@@ -2911,13 +2959,51 @@ class SettingsScreenNode(ScreenNode):
             return
         try:
             builder(self, self.mRightScrollContent, item)
-            # 找到刚创建的控件（最后一个），设置初始透明
+            # 找到刚创建的控件（最后一个），设置初始透明（动画关闭时直接显示）
             if self.mRightContentCtrls:
                 ctrl = self.mRightContentCtrls[-1]
-                self.SetRightContentAlpha(ctrl, 0.0)
-                self.mRightFadingInCtrls.append([ctrl, 0.0])
+                if self.mEnableFadeAnim:
+                    self.SetRightContentAlpha(ctrl, 0.0)
+                    self.mRightFadingInCtrls.append([ctrl, 0.0])
+                else:
+                    self.SetRightContentAlpha(ctrl, 1.0)
         except Exception as e:
             dlog.client_print("==== CreateNextRightContent item '%s' error: %s ====" % (item.item_id, str(e)))
+
+    def SetFadeAnimEnabled(self, enabled):
+        """开启/禁用设置项与中间卡片的缓入/缓出动画（"优化"分类开关回调）。"""
+        enabled = bool(enabled)
+        self.mEnableFadeAnim = enabled
+        if enabled:
+            return
+        # 关闭动画时立即完成所有进行中的淡入/淡出，避免残留透明控件
+        # 右侧内容：淡入项直接置为不透明，淡出项直接移除
+        for ctrl, _ in self.mRightFadingInCtrls:
+            try:
+                self.SetRightContentAlpha(ctrl, 1.0)
+            except Exception:
+                pass
+        self.mRightFadingInCtrls = []
+        for ctrl, _ in self.mRightFadingOutCtrls:
+            try:
+                self.SafeRemoveRightContent(ctrl)
+            except Exception:
+                pass
+        self.mRightFadingOutCtrls = []
+        # 中间卡片：淡入项直接置为不透明，淡出项直接移除
+        for ctrl, _ in self.mMiddleFadingInCtrls:
+            try:
+                self.SetMiddleCardAlpha(ctrl, 1.0)
+            except Exception:
+                pass
+        self.mMiddleFadingInCtrls = []
+        for ctrl, _ in self.mMiddleFadingOutCtrls:
+            try:
+                self.SafeRemoveMiddleCard(ctrl)
+            except Exception:
+                pass
+        self.mMiddleFadingOutCtrls = []
+        dlog.client_print("==== 设置项与中间卡片缓入/缓出动画已禁用 ====")
 
     def SetRightContentAlpha(self, ctrl, alpha):
         """设置右侧内容项内部所有 image/label 子控件的透明度（使用缓存引用，避免每帧递归查找）"""
