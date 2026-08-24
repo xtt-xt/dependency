@@ -16,6 +16,8 @@ Toast 提示系统
 
 import mod.client.extraClientApi as clientApi
 
+from DebugLog import dlog
+
 ScreenNode = clientApi.GetScreenNodeCls()
 
 # ────────────────── 位置常量（对外） ──────────────────
@@ -57,6 +59,25 @@ _playing = {               # 位置 -> 是否正在播放
     ToastUnder: False,
 }
 
+# 设置界面内嵌底部提示宿主（ScreenNode 或 None）。
+# 当设置界面打开时由 SettingsScreenNode 注册自身，底部 toast 改为路由到
+# 设置界面内部的高层级面板显示（天然盖在设置 UI 之上），
+# 否则（宿主为 None）走原来的 CreateUI 叠加层逻辑。
+_settings_under_host = None
+
+
+def register_settings_under_host(host):
+    """设置在设置界面内显示底部提示的宿主 ScreenNode（设置界面 Create 时调用）。"""
+    global _settings_under_host
+    _settings_under_host = host
+
+
+def unregister_settings_under_host(host):
+    """注销内嵌底部提示宿主（设置界面 Destroy 时调用）。"""
+    global _settings_under_host
+    if _settings_under_host is host:
+        _settings_under_host = None
+
 
 def RegisterToastScreens():
     """注册 Toast UI，需在 UiInitFinished 时调用一次（幂等）。"""
@@ -71,7 +92,7 @@ def RegisterToastScreens():
             screen_path
         )
     _registered = True
-    print "==== Toast UI registered ===="
+    dlog.client_print("==== Toast UI registered ====")
 
 
 class ToastScreenNode(ScreenNode):
@@ -97,46 +118,46 @@ class ToastScreenNode(ScreenNode):
         # 兼容热重载下旧实例没有该属性（__init__ 只在新实例上执行）
         self._anim_set = getattr(self, "_anim_set", False)
         if self.position not in _POSITION_MAP:
-            print "==== ToastScreenNode: invalid position %s ====" % self.position
+            dlog.client_print("==== ToastScreenNode: invalid position %s ====" % self.position)
             return
         _, _, self.enter_anim, self.exit_anim, anim_path, shadow_path, \
             self.shadow_enter_anim, self.shadow_exit_anim = _POSITION_MAP[self.position]
 
         self.target_ctrl = self.GetBaseUIControl(anim_path)
         if not self.target_ctrl:
-            print "==== ToastScreenNode: target control %s not found ====" % anim_path
+            dlog.client_print("==== ToastScreenNode: target control %s not found ====" % anim_path)
             return
 
         if shadow_path:
             self.shadow_ctrl = self.GetBaseUIControl(shadow_path)
             if not self.shadow_ctrl:
-                print "==== ToastScreenNode: shadow control %s not found ====" % shadow_path
+                dlog.client_print("==== ToastScreenNode: shadow control %s not found ====" % shadow_path)
 
         self.label_ctrl = self.GetBaseUIControl("%s/label" % anim_path)
         if self.label_ctrl:
             self.label_ctrl = self.label_ctrl.asLabel()
         else:
-            print "==== ToastScreenNode: label control not found ===="
+            dlog.client_print("==== ToastScreenNode: label control not found ====")
 
         if self.position in (ToastTop, ToastTopRight):
             self.item_ctrl = self.GetBaseUIControl("%s/item_renderer" % anim_path)
             if self.item_ctrl:
                 self.item_ctrl = self.item_ctrl.asItemRenderer()
             else:
-                print "==== ToastScreenNode: item_renderer not found ===="
+                dlog.client_print("==== ToastScreenNode: item_renderer not found ====")
 
             self.image_ctrl = self.GetBaseUIControl("%s/image" % anim_path)
             if self.image_ctrl:
                 self.image_ctrl = self.image_ctrl.asImage()
             else:
-                print "==== ToastScreenNode: image control not found ===="
+                dlog.client_print("==== ToastScreenNode: image control not found ====")
 
         self.SetScreenVisible(False)
 
     def Play(self, cfg):
         """播放一个 toast（内部调用）。"""
         if not self.target_ctrl:
-            print "==== ToastScreenNode.Play: target control missing ===="
+            dlog.client_print("==== ToastScreenNode.Play: target control missing ====")
             return
         self.duration = cfg.get("duration", 3.0)
         self._ApplyContent(cfg)
@@ -265,7 +286,7 @@ def ShowToast(position, text="", color=None, icon=None, item_name=None,
     :param nine_slice:   背景九宫格剪裁 (左,右,上,下)；None 不启用
     """
     if position not in _POSITION_MAP:
-        print "==== ShowToast: invalid position %s ====" % position
+        dlog.client_print("==== ShowToast: invalid position %s ====" % position)
         return
     cfg = {
         "text": text,
@@ -280,6 +301,16 @@ def ShowToast(position, text="", color=None, icon=None, item_name=None,
         "background": background,
         "nine_slice": nine_slice,
     }
+    # 设置界面打开时，底部提示路由到设置界面内部的高层级面板（盖在其上）；
+    # 否则走原 CreateUI 叠加层逻辑。
+    if position == ToastUnder and _settings_under_host is not None:
+        host = _settings_under_host
+        if hasattr(host, "ShowEmbeddedUnderToast"):
+            try:
+                host.ShowEmbeddedUnderToast(cfg)
+                return
+            except Exception as e:
+                dlog.client_print("==== ShowToast: embedded under host error: %s ====" % str(e))
     _queue[position].append(cfg)
     if not _playing[position]:
         _PlayNext(position)
@@ -311,16 +342,15 @@ def _PlayNext(position):
     screen_node = clientApi.CreateUI("Script_NeteaseMod9sPMlz0K", ui_key,
                                      {"position": position})
     if not screen_node:
-        print "==== _PlayNext: create UI %s failed ====" % ui_key
+        dlog.client_print("==== _PlayNext: create UI %s failed ====" % ui_key)
         _playing[position] = False
         return
     # SetIsHud(1) 只解除操作屏蔽，不影响层级（层级在创建时已锁定为高位）
     screen_node.SetIsHud(1)
-    # 用 SetLayer 把整个界面基础层级抬到最大值，尽量压过原生 hud 的头部按键。
-    # 文档注明 SetLayer 可调整"整个 JSON 的基础层级"。
-    root_ctrl = screen_node.GetBaseUIControl("/")
-    if root_ctrl:
-        root_ctrl.SetLayer(1000)
+    # 这里不再调用 SetLayer：CreateUI 不传 isHud(默认0) 时，层级已被自动锁定为
+    # "当前 UI + 1000"（即 isHud=0 的官方行为），天然盖过当前打开的任何界面
+    # （如本框架的设置界面）。若再用 SetLayer 覆盖为固定值，一旦当前界面的最终
+    # 渲染层级 >= 该固定值，toast 反而会被其盖住，故保留自动高位、不手动覆盖。
     _screens[position] = screen_node
 
     screen_node.Play(cfg)

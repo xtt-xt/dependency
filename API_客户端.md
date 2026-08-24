@@ -932,6 +932,73 @@ OpenSettings("basic_settings", "client", "client_opt_a")
 | sub_key | str | 否 | 子卡片 key，可选 `"client"` 或 `"server"` |
 | middle_card_id | str | 否 | 中间卡片 ID（如 `"client_opt_a"`），需在 `sub_key` 指定后生效 |
 
+#### 跳转拦截 API
+
+`/setting_open` 指令触发的跳转在生效前会先抛出 `SettingsNavigateEvent`，外部模组可以监听该事件做自定义处理，也可注册拦截回调来阻止本次跳转。
+
+> 注意：`OpenSettings()` 直接调用 **不触发** 跳转拦截流程；仅 `/setting_open` 命令路径会经过拦截。
+
+##### SettingsNavigateEvent（事件常量）
+
+触发时机：客户端收到 `/setting_open` 指令、执行跳转前。
+
+事件数据：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| playerId | str | 发起跳转的玩家 ID |
+| main_card_id | str/None | 目标主卡片 ID |
+| sub_key | str/None | 目标子卡片 key |
+| middle_card_id | str/None | 目标中间卡片 ID |
+
+```python
+from CardRegistryApi import SettingsNavigateEvent
+import mod.client.extraClientApi as clientApi
+
+def OnNavigate(args):
+    print "准备跳转:", args.get("main_card_id")
+
+# 监听跳转前置事件（用模组的 System 监听即可）
+self.ListenForEvent(clientApi.GetEngineNamespace(),
+                    clientApi.GetEngineSystemName(),
+                    SettingsNavigateEvent,
+                    self, OnNavigate)
+```
+
+##### RegNavigateBlockCallback(callback)
+
+注册一个跳转拦截回调。回调返回 `True` 表示拦截本次跳转，返回 `False`/`None` 放行。被拦截时，客户端弹提示"跳转已被拦截"，不再打开设置。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| callback | function | 签名 `callback(playerId, main_card_id, sub_key, middle_card_id) -> bool` |
+
+返回 `True` 注册成功；回调已注册或为空则不重复注册。
+
+```python
+from CardRegistryApi import RegNavigateBlockCallback, UnregNavigateBlockCallback
+
+def OnNavigateShouldBlock(playerId, main_card_id, sub_key, middle_card_id):
+    # 例如：禁止跳转到某个配置页
+    if main_card_id == "basic_settings":
+        return True  # 拦截，玩家会看到"跳转已被拦截"
+    return False
+
+RegNavigateBlockCallback(OnNavigateShouldBlock)
+```
+
+##### UnregNavigateBlockCallback(callback)
+
+取消已注册的跳转拦截回调。
+
+```python
+UnregNavigateBlockCallback(OnNavigateShouldBlock)
+```
+
+##### IsNavigateBlocked(playerId, main_card_id, sub_key, middle_card_id)
+
+内部判定接口：依次调用所有拦截回调，任一返回 `True` 即判定为拦截。外部一般无需调用，仅供高级场景。
+
 #### 行为说明
 
 - **设置界面未打开时**：`PushScreen` 打开设置，UI 就绪后自动导航到指定卡片
@@ -947,6 +1014,31 @@ OpenSettings("basic_settings", "client", "client_opt_a")
 - 点击后：`CloseSettingUI()` 关闭官方设置界面 → 延迟 0.15s → `OpenSettings()` 打开本模组的 `setting.main`
 
 > 注意：`RegisterSettingInst` 第一个参数当前为模组命名空间 `Script_NeteaseMod9sPMlz0K`（开发环境预览用），正式上线需替换为开平平台上传模组后的 **ItemID**。
+
+---
+
+## 客户端调试日志开关
+
+> 对应设置界面「设置配置 > 调试 > 日志输出」开关，**每个玩家各自独立**（本地存储）。
+> 服务端侧还有一个**全局共享**的 `日志输出` 开关（仅 OP 可改），见 [API_服务端.md](API_服务端.md#服务端全局调试日志开关)。
+
+本框架的调试日志（客户端所有 `==== ... ====` 输出）均通过 `dlog.client_print` 输出，受该开关控制。开关关闭时吞掉这些日志，减少控制台刷屏、便于安静运行。
+
+外部模组若需直接控制框架日志，可延迟导入 `DebugLog` 单例 `dlog`：
+
+```python
+from Script_NeteaseMod9sPMlz0K.DebugLog import dlog
+dlog.set_client_enabled(False)   # 关闭框架客户端日志
+dlog.set_server_enabled(False)   # 关闭框架服务端日志
+```
+
+| 方法 | 说明 |
+|------|------|
+| `dlog.set_client_enabled(bool)` | 设置客户端日志开关，返回设置后状态 |
+| `dlog.set_server_enabled(bool)` | 设置服务端日志开关，返回设置后状态 |
+| `dlog.get_client_enabled()` / `dlog.get_server_enabled()` | 读取当前开关 |
+| `dlog.client_print(*args)` | 打印客户端日志（受客户端开关控制） |
+| `dlog.server_print(*args)` | 打印服务端日志（受服务端开关控制） |
 
 ---
 

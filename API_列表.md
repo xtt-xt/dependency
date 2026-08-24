@@ -11,7 +11,9 @@
 | `CardRegistryApi.py` | 对外门面：再导出全部公开 API + 导航/锁定/弹窗/折叠菜单便捷封装 | [API_客户端.md](API_客户端.md) |
 | `SettingState.py` | 设置项持久化（`ConfigCompClient` 本地存储） | [API_客户端.md](API_客户端.md#设置项状态系统-api) |
 | `Toast.py` | Toast 提示系统（叠加层显示、排队播放） | [API_客户端.md](API_客户端.md#toast-提示-api) |
-| `Server.py` | 服务端系统：处理 `/setting_open` 自定义指令 | [API_服务端.md](API_服务端.md) |
+| `DebugLog.py` | 调试日志开关（客户端/服务端独立控制，单例 `dlog`） | [API_客户端.md](API_客户端.md#客户端调试日志开关) |
+| `setting.py` | 框架自带"设置配置"卡片注册（含客户端/服务端"调试>日志输出"开关） | [API_服务端.md](API_服务端.md#服务端全局调试日志开关) |
+| `Server.py` | 服务端系统：处理 `/setting_open` 自定义指令 + 全局日志开关（OP 鉴权/同步） | [API_服务端.md](API_服务端.md) |
 
 ## 导入方式
 
@@ -45,6 +47,9 @@ from CardRegistryApi import (
     ShowCollapsibleMenu, CloseCollapsibleMenu,
     # 弹窗事件常量
     PopUpOpenEvent, PopUpCloseEvent,
+    # 跳转事件常量 + 跳转拦截 API
+    SettingsNavigateEvent,
+    RegNavigateBlockCallback, UnregNavigateBlockCallback, IsNavigateBlocked,
     # UI 构建器注册
     RegisterContentBuilder,
     # 导航 API
@@ -78,6 +83,7 @@ from CardRegistryApi import (
 | 锁定 | `SetLocked` |
 | 设置项状态 | `MakeSettingKey` `GetSettingValue` `GetSettingLocked` `SetSettingValue` `ResetSettingValue` `ResetAllSettings` `ResetGroupSettings` `SaveGroupSettings` `SaveAllSettings` |
 | 导航 | `OpenSettings` |
+| 跳转拦截 | `SettingsNavigateEvent` `RegNavigateBlockCallback` `UnregNavigateBlockCallback` `IsNavigateBlocked` |
 | Toast | `ShowToast` `ToastTop` `ToastTopRight` `ToastUnder` |
 
 ### 服务端 API（详见 [API_服务端.md](API_服务端.md)）
@@ -92,6 +98,7 @@ from CardRegistryApi import (
 |------|----------|
 | 设置界面 | `SettingsUIOpenEvent` `SettingsUICloseEvent` |
 | 弹窗 | `PopUpOpenEvent` `PopUpCloseEvent` |
+| 跳转 | `SettingsNavigateEvent`（`/setting_open` 跳转前） |
 | 服务端→客户端 | `Script_NeteaseMod9sPMlz0K_OpenSettingsFromCommand`（指令打开设置） |
 
 ## 外部模组集成要求

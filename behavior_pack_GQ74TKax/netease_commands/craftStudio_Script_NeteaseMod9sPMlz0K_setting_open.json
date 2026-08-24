@@ -2,7 +2,7 @@
 	"format_version": "0.0.1",
 	"name": "setting_open",
 	"description": "打开模组设置界面，可选导航到指定卡片",
-	"permission_level": "game_directors",
+	"permission_level": "any",
 	"args": [
 		{"name": "目标", "type": "target", "default": "@s"},
 		{"name": "主卡片id", "type": "str", "default": ""},

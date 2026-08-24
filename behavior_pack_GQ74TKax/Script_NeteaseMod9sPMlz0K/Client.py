@@ -14,6 +14,7 @@ from SettingState import (
     ResetGroupSettings,
     SetSettingChangedCallback, MakeSettingKey, LoadSettingData
 )
+from DebugLog import dlog
 
 # 右侧内容项 UI 构建器注册表：type_name -> build function
 # build function 签名：Build(screenNode, parent, item)
@@ -100,6 +101,22 @@ class MyClientSystem(ClientSystem):
             self,
             self.OnOpenSettingsFromCommand
         )
+        # 服务端全局日志开关同步（服务端->客户端）
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "server",
+            "Script_NeteaseMod9sPMlz0K_ServerLogSync",
+            self,
+            self.OnServerLogSync
+        )
+        # 服务端日志导出回执（服务端->客户端）
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "server",
+            "Script_NeteaseMod9sPMlz0K_ServerLogDumpResp",
+            self,
+            self.OnServerLogDumpResp
+        )
         NativeScreenManager.instance().RegisterScreenProxy(
             'pause.pause_screen',
             'Script_NeteaseMod9sPMlz0K.Client.PauseScreenProxy'
@@ -108,11 +125,11 @@ class MyClientSystem(ClientSystem):
             'fold_menu.fold_menu_dialog_screen',
             'Script_NeteaseMod9sPMlz0K.Client.FoldMenuProxy'
         )
-        print "==== MyClientSystem init, waiting for UiInitFinished ===="
+        dlog.client_print("==== MyClientSystem init, waiting for UiInitFinished ====")
 
     def OnPushScreen(self, args):
         screenDef = args.get('screenDef', 'unknown')
-        print "==== PushScreenEvent screenDef: %s ====" % screenDef
+        dlog.client_print("==== PushScreenEvent screenDef: %s ====" % screenDef)
         if screenDef == 'setting.main':
             self.mSettingsUIOpen = True
             # 新开设置界面，清除弹窗返回标志（防滞留）
@@ -124,7 +141,7 @@ class MyClientSystem(ClientSystem):
 
     def OnPopScreen(self, args):
         screenDef = args.get('screenDef', 'unknown')
-        print "==== PopScreenEvent screenDef: %s ====" % screenDef
+        dlog.client_print("==== PopScreenEvent screenDef: %s ====" % screenDef)
         if screenDef == 'setting.main':
             self.mSettingsUIOpen = False
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
@@ -132,9 +149,9 @@ class MyClientSystem(ClientSystem):
                 from SettingState import SaveAllSettings
                 count = SaveAllSettings()
                 if count:
-                    print "==== SettingsUI closed, saved %d settings ====" % count
+                    dlog.client_print("==== SettingsUI closed, saved %d settings ====" % count)
             except Exception as e:
-                print "==== SettingsUI close save error: %s ====" % str(e)
+                dlog.client_print("==== SettingsUI close save error: %s ====" % str(e))
             from CardRegistry import SettingsUICloseEvent
             eventData = self.CreateEventData()
             eventData["playerId"] = clientApi.GetLocalPlayerId()
@@ -156,17 +173,17 @@ class MyClientSystem(ClientSystem):
     def OnKeyPressInGame(self, args):
         keyValue = int(args.get('key', 0))
         isDown = int(args.get('isDown', 0))
-        print "==== OnKeyPressInGame key: %d isDown: %d settingsOpen: %s popUpOpen: %s ====" % (keyValue, isDown, self.mSettingsUIOpen, self.mPopUpOpen)
+        dlog.client_print("==== OnKeyPressInGame key: %d isDown: %d settingsOpen: %s popUpOpen: %s ====" % (keyValue, isDown, self.mSettingsUIOpen, self.mPopUpOpen))
         if isDown and keyValue == 27:
             # ESC：折叠菜单/弹窗打开时只关对应层；否则关闭设置界面
             if self.mCollapsibleMenuOpen:
-                print "==== ESC pressed, close CollapsibleMenu ===="
+                dlog.client_print("==== ESC pressed, close CollapsibleMenu ====")
                 self.CloseCollapsibleMenu()
             elif self.mPopUpOpen:
-                print "==== ESC pressed, close PopUp only ===="
+                dlog.client_print("==== ESC pressed, close PopUp only ====")
                 self.ClosePopUp()
             elif self.mSettingsUIOpen:
-                print "==== ESC pressed, close SettingsUI ===="
+                dlog.client_print("==== ESC pressed, close SettingsUI ====")
                 clientApi.PopScreen()
                 # 立即置 False 防重复 Pop（PopScreenEvent 异步到达）
                 self.mSettingsUIOpen = False
@@ -177,25 +194,121 @@ class MyClientSystem(ClientSystem):
         """
         name = args.get('name', '')
         isDown = args.get('isDown', '')
-        print "==== OnCustomKeyPressInGame name: %s isDown: %s settingsOpen: %s ====" % (
+        dlog.client_print("==== OnCustomKeyPressInGame name: %s isDown: %s settingsOpen: %s ====" % (
             name, isDown, self.mSettingsUIOpen
-        )
+        ))
         if name == '打开设置' and str(isDown) == '1' and not self.mSettingsUIOpen:
-            print "==== custom key pressed: open settings ===="
+            dlog.client_print("==== custom key pressed: open settings ====")
             self.OpenSettings()
 
     def OnOpenSettingsFromCommand(self, args):
         """
         服务端通过 /setting_open 命令通知客户端打开设置 UI。
+
+        跳转前会抛出 SettingsNavigateEvent 供外部模组监听/拦截：
+        - 若命中跳转拦截回调（RegNavigateBlockCallback 已注册且返回 True），
+          则弹提示"跳转已被拦截"，不再执行跳转。
         """
         # 空字符串转为 None，与 OpenSettings 函数行为一致
         main_card_id = args.get("main_card_id", "") or None
         middle_card_id = args.get("middle_card_id", "") or None
         sub_key = args.get("sub_key", "") or None
-        print "==== OnOpenSettingsFromCommand: main=%s sub=%s middle=%s ====" % (
+        playerId = clientApi.GetLocalPlayerId()
+        dlog.client_print("==== OnOpenSettingsFromCommand: main=%s sub=%s middle=%s ====" % (
             main_card_id, sub_key, middle_card_id
+        ))
+
+        # 1. 抛出跳转前置事件，外部模组可监听做自定义处理
+        from CardRegistry import SettingsNavigateEvent
+        navData = self.CreateEventData()
+        navData["playerId"] = playerId
+        navData["main_card_id"] = main_card_id
+        navData["sub_key"] = sub_key
+        navData["middle_card_id"] = middle_card_id
+        self.BroadcastEvent(SettingsNavigateEvent, navData)
+
+        # 2. 检查是否被外部模组拦截（返回 (是否拦截, 提示文案)）
+        from CardRegistry import IsNavigateBlocked
+        is_blocked, block_msg = IsNavigateBlocked(
+            playerId, main_card_id, sub_key, middle_card_id
         )
+        if is_blocked:
+            dlog.client_print("==== /setting_open: 跳转被拦截，忽略 ====")
+            try:
+                from CardRegistryApi import ShowToast, ToastUnder
+                ShowToast(ToastUnder, block_msg)
+            except Exception as e:
+                dlog.client_print("==== show block toast error: %s ====" % str(e))
+            return
+
         self.OpenSettings(main_card_id, sub_key, middle_card_id)
+
+    # ===== 服务端全局日志开关相关（由 setting.py 的服务端调试分类使用）=====
+    def SendServerLogRequest(self):
+        """请求服务端下发全局日志开关值 + 自身 OP 状态（用于同步开关值与锁定）。"""
+        try:
+            data = self.CreateEventData()
+            data['playerId'] = clientApi.GetLocalPlayerId()
+            self.NotifyToServer("Script_NeteaseMod9sPMlz0K_ReqServerLog", data)
+        except Exception as e:
+            dlog.client_print("==== SendServerLogRequest error: %s ====" % str(e))
+
+    def SendServerLogEnabled(self, enabled):
+        """通知服务端修改全局日志开关（服务端自行鉴权 OP，非 OP 会被忽略）。"""
+        try:
+            data = self.CreateEventData()
+            data['playerId'] = clientApi.GetLocalPlayerId()
+            data['enabled'] = bool(enabled)
+            self.NotifyToServer("Script_NeteaseMod9sPMlz0K_SetServerLog", data)
+        except Exception as e:
+            dlog.client_print("==== SendServerLogEnabled error: %s ====" % str(e))
+
+    def OnServerLogSync(self, args):
+        """服务端下发全局日志开关状态：同步到当前可见的服务端调试开关。"""
+        enabled = bool(args.get('enabled', False))
+        is_op = bool(args.get('is_op', False))
+        if self.mSettingsScreenNode:
+            self.mSettingsScreenNode.ApplyServerLogSwitch(enabled, is_op)
+
+    # ===== 调试日志导出（复制到剪贴板） =====
+    def CopyClientLogToClipboard(self, count):
+        """复制最近 count 条客户端调试日志到剪贴板，并给出提示。"""
+        try:
+            text = dlog.format_client_history(count or 200)
+            self._WriteClipboard(text, "客户端")
+        except Exception as e:
+            dlog.client_print("==== CopyClientLogToClipboard error: %s ====" % str(e))
+
+    def RequestServerLogDump(self, count):
+        """请求服务端返回最近 count 条服务端日志（回执由 OnServerLogDumpResp 复制）。"""
+        try:
+            data = self.CreateEventData()
+            data['playerId'] = clientApi.GetLocalPlayerId()
+            data['count'] = int(count or 200)
+            self.NotifyToServer("Script_NeteaseMod9sPMlz0K_ReqServerLogDump", data)
+        except Exception as e:
+            dlog.client_print("==== RequestServerLogDump error: %s ====" % str(e))
+
+    def OnServerLogDumpResp(self, args):
+        """服务端返回的服务端日志：复制到本机剪贴板 + 提示。"""
+        if args.get('playerId', '') != clientApi.GetLocalPlayerId():
+            return
+        self._WriteClipboard(args.get('lines', ''), "服务端")
+
+    def _WriteClipboard(self, text, side):
+        """把文本写入系统剪贴板（客户端 GameComponentClient），并弹底部 toast 提示。"""
+        content = text if isinstance(text, basestring) else ""
+        lines = content.split('\n') if content else []
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+            comp.SetClipboardContent(content)
+        except Exception as e:
+            dlog.client_print("==== set clipboard error: %s ====" % str(e))
+        try:
+            from CardRegistryApi import ShowToast, ToastUnder
+            ShowToast(ToastUnder, "已复制%s最近%d条日志到剪贴板" % (side, len(lines)))
+        except Exception as e:
+            dlog.client_print("==== toast copy result error: %s ====" % str(e))
 
     def RegisterSettingsScreenNode(self, screenNode):
         self.mSettingsScreenNode = screenNode
@@ -221,7 +334,7 @@ class MyClientSystem(ClientSystem):
         try:
             LoadSettingData()
         except Exception as e:
-            print "==== LoadSettingData error: %s ====" % str(e)
+            dlog.client_print("==== LoadSettingData error: %s ====" % str(e))
 
         clientApi.RegisterUI(
             'Script_NeteaseMod9sPMlz0K',
@@ -236,7 +349,7 @@ class MyClientSystem(ClientSystem):
             'Script_NeteaseMod9sPMlz0K.Client.SettingsScreenNode',
             'setting.main'
         )
-        print "==== SettingsUI registered ===="
+        dlog.client_print("==== SettingsUI registered ====")
 
         clientApi.RegisterUI(
             'Script_NeteaseMod9sPMlz0K',
@@ -244,7 +357,7 @@ class MyClientSystem(ClientSystem):
             'Script_NeteaseMod9sPMlz0K.Client.PopUpScreenNode',
             'pop_up.main'
         )
-        print "==== PopUpUI registered ===="
+        dlog.client_print("==== PopUpUI registered ====")
 
         clientApi.RegisterUI(
             'Script_NeteaseMod9sPMlz0K',
@@ -252,7 +365,7 @@ class MyClientSystem(ClientSystem):
             'Script_NeteaseMod9sPMlz0K.Client.PopUpScrollScreenNode',
             'pop_up.main_scroll'
         )
-        print "==== PopUpScrollUI registered ===="
+        dlog.client_print("==== PopUpScrollUI registered ====")
 
         clientApi.RegisterUI(
             'Script_NeteaseMod9sPMlz0K',
@@ -260,15 +373,23 @@ class MyClientSystem(ClientSystem):
             'Script_NeteaseMod9sPMlz0K.Client.CollapsibleMenuScreenNode',
             'pop_up.collapsible_menu'
         )
-        print "==== CollapsibleMenuUI registered ===="
+        dlog.client_print("==== CollapsibleMenuUI registered ====")
 
         # 注册 Toast 系统
         try:
             from Toast import RegisterToastScreens
             RegisterToastScreens()
-            print "==== Toast screens registered ===="
+            dlog.client_print("==== Toast screens registered ====")
         except Exception as e:
-            print "==== Toast register error: %s ====" % str(e)
+            dlog.client_print("==== Toast register error: %s ====" % str(e))
+
+        # 注册"设置配置"主卡片（延迟导入，允许新增/改名而不改本文件）
+        try:
+            from setting import RegisterSettingsConfig
+            RegisterSettingsConfig()
+            dlog.client_print("==== settings_config main card registered ====")
+        except Exception as e:
+            dlog.client_print("==== settings_config register error: %s ====" % str(e))
 
         self.InitKeyBindings()
         self._RegisterOfficialSettingsEntry()
@@ -278,9 +399,9 @@ class MyClientSystem(ClientSystem):
         try:
             comp = clientApi.GetEngineCompFactory().CreatePlayerView(clientApi.GetLevelId())
             success = comp.RegisterCustomKeyMapping("打开设置", 85, "模组设置")
-            print "==== RegisterCustomKeyMapping open_settings: %s ====" % str(success)
+            dlog.client_print("==== RegisterCustomKeyMapping open_settings: %s ====" % str(success))
         except Exception as e:
-            print "==== RegisterCustomKeyMapping error: %s ====" % str(e)
+            dlog.client_print("==== RegisterCustomKeyMapping error: %s ====" % str(e))
 
     def _RegisterOfficialSettingsEntry(self):
         """
@@ -301,20 +422,20 @@ class MyClientSystem(ClientSystem):
                     self._OnOfficialSettingButtonClick,
                     1
                 )
-                print "==== official settings button registered ===="
+                dlog.client_print("==== official settings button registered ====")
             else:
-                print "==== RegisterSettingInst returned None ===="
+                dlog.client_print("==== RegisterSettingInst returned None ====")
         except Exception as e:
-            print "==== Register official settings entry error: %s ====" % str(e)
+            dlog.client_print("==== Register official settings entry error: %s ====" % str(e))
 
     def _OnOfficialSettingButtonClick(self, key, value=None):
         """官方通用设置按钮回调：关闭官方设置界面，稍后打开本模组设置界面。"""
-        print "==== official setting button click: %s ====" % str(key)
+        dlog.client_print("==== official setting button click: %s ====" % str(key))
         try:
             comp = clientApi.GetEngineCompFactory().CreateNeteaseWindow(clientApi.GetLevelId())
             comp.CloseSettingUI()
         except Exception as e:
-            print "==== CloseSettingUI error: %s ====" % str(e)
+            dlog.client_print("==== CloseSettingUI error: %s ====" % str(e))
         # 等官方界面关闭完成后再打开本模组设置界面，避免压栈冲突
         game_comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
         game_comp.AddTimer(0.15, self._OpenMySettings)
@@ -331,9 +452,9 @@ class MyClientSystem(ClientSystem):
         :param sub_key:       子卡片 key，可选 "client" 或 "server"
         :param middle_card_id: 中间卡片 ID（如 "client_opt_a"）
         """
-        print "==== OpenSettings: main=%s sub=%s middle=%s ====" % (
+        dlog.client_print("==== OpenSettings: main=%s sub=%s middle=%s ====" % (
             main_card_id, sub_key, middle_card_id
-        )
+        ))
         if self.mSettingsUIOpen or self.mSettingsScreenNode is not None:
             # UI 已打开（标志或实际 ScreenNode 任一命中），直接导航，避免重复 PushScreen
             if main_card_id and self.mSettingsScreenNode:
@@ -354,17 +475,17 @@ class MyClientSystem(ClientSystem):
         from CardRegistry import GetPopUp, PopUpOpenEvent
         data = GetPopUp(popup_id)
         if not data:
-            print "==== ShowPopUp: popup '%s' not registered ====" % popup_id
+            dlog.client_print("==== ShowPopUp: popup '%s' not registered ====" % popup_id)
             return False
         self.mCurrentPopUp = data
         if self.mPopUpOpen:
             # 弹窗已打开：重新 Push 会破坏场景栈，直接复用现有 ScreenNode 刷新
-            print "==== ShowPopUp: popup already open, refresh content ===="
+            dlog.client_print("==== ShowPopUp: popup already open, refresh content ====")
             if self.mPopUpScreenNode:
                 try:
                     self.mPopUpScreenNode._ApplyPopUp()
                 except Exception as e:
-                    print "==== ShowPopUp: refresh error: %s ====" % str(e)
+                    dlog.client_print("==== ShowPopUp: refresh error: %s ====" % str(e))
             return True
         useScroll = self._DecideScroll(data, force_scroll)
         # 弹窗即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
@@ -419,18 +540,18 @@ class MyClientSystem(ClientSystem):
         from CardRegistry import GetCollapsibleMenu
         data = GetCollapsibleMenu(menu_id)
         if not data:
-            print "==== ShowCollapsibleMenu: menu '%s' not registered ====" % menu_id
+            dlog.client_print("==== ShowCollapsibleMenu: menu '%s' not registered ====" % menu_id)
             return False
         self.mCurrentCollapsibleMenu = data
         self.mCurrentCollapsibleItem = item
         if self.mCollapsibleMenuOpen:
             # 已打开：重新 Push 会破坏场景栈，复用现有 ScreenNode 刷新内容
-            print "==== ShowCollapsibleMenu: menu already open, refresh content ===="
+            dlog.client_print("==== ShowCollapsibleMenu: menu already open, refresh content ====")
             if self.mCollapsibleMenuScreenNode:
                 try:
                     self.mCollapsibleMenuScreenNode._ApplyMenu()
                 except Exception as e:
-                    print "==== ShowCollapsibleMenu refresh error: %s ====" % str(e)
+                    dlog.client_print("==== ShowCollapsibleMenu refresh error: %s ====" % str(e))
             return True
         # 折叠菜单即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
@@ -452,7 +573,7 @@ class MyClientSystem(ClientSystem):
         if self.mSettingsScreenNode:
             self.mSettingsScreenNode.SetLocked(item_id_or_path, locked)
         else:
-            print "==== SetLocked: settings screen not open ===="
+            dlog.client_print("==== SetLocked: settings screen not open ====")
 
 
 class Test1ScreenNode(ScreenNode):
@@ -469,13 +590,13 @@ class Test1ScreenNode(ScreenNode):
         self.mScrollContent = None
 
     def Create(self):
-        print "==== Test1ScreenNode.Create called ===="
+        dlog.client_print("==== Test1ScreenNode.Create called ====")
         self.mScrollContent = self.GetBaseUIControl("/groung/mods/scroll_content")
         if not self.mScrollContent:
-            print "==== scroll_content not found ===="
+            dlog.client_print("==== scroll_content not found ====")
             return
 
-        print "==== scroll_content found, creating cards ===="
+        dlog.client_print("==== scroll_content found, creating cards ====")
         testCards = [
             ("基础设置", "textures/ui/icon_setting"),
             ("音量调节", "textures/ui/icon_volume"),
@@ -485,7 +606,7 @@ class Test1ScreenNode(ScreenNode):
         ]
         for text, icon in testCards:
             self.AddCard(text, icon)
-        print "==== test cards created, total: %d ====" % len(self.mWrappers)
+        dlog.client_print("==== test cards created, total: %d ====" % len(self.mWrappers))
 
     def Init(self):
         pass
@@ -502,15 +623,15 @@ class Test1ScreenNode(ScreenNode):
                 True
             )
         except Exception as e:
-            print "==== CreateCardGroup error: %s ====" % str(e)
+            dlog.client_print("==== CreateCardGroup error: %s ====" % str(e))
             return -1
         if not wrapper:
-            print "==== card_group_%d returned None ====" % index
+            dlog.client_print("==== card_group_%d returned None ====" % index)
             return -1
 
         btnCtrl = wrapper.GetChildByName('card_btn')
         if not btnCtrl:
-            print "==== card_btn not found in card_%d ====" % index
+            dlog.client_print("==== card_btn not found in card_%d ====" % index)
             return -1
 
         try:
@@ -518,21 +639,21 @@ class Test1ScreenNode(ScreenNode):
             if labelCtrl:
                 labelCtrl.asLabel().SetText(text)
         except Exception as e:
-            print "==== set name error: %s ====" % str(e)
+            dlog.client_print("==== set name error: %s ====" % str(e))
 
         try:
             iconCtrl = btnCtrl.GetChildByName('icon')
             if iconCtrl:
                 iconCtrl.SetPropertyBag({"texture": icon})
         except Exception as e:
-            print "==== set icon error: %s ====" % str(e)
+            dlog.client_print("==== set icon error: %s ====" % str(e))
 
         try:
             btn = btnCtrl.asButton()
             btn.AddTouchEventParams({})
             btn.SetButtonTouchDownCallback(self.OnCardClick)
         except Exception as e:
-            print "==== touch setup error: %s ====" % str(e)
+            dlog.client_print("==== touch setup error: %s ====" % str(e))
 
         subPanel = wrapper.GetChildByName('sub_panel')
 
@@ -541,12 +662,12 @@ class Test1ScreenNode(ScreenNode):
         self.mSubPanels.append(subPanel)
         self.mSubCards[index] = {}
         self.mSubCardStates[index] = {}
-        print "==== card_%d created: %s ====" % (index, text)
+        dlog.client_print("==== card_%d created: %s ====" % (index, text))
         return index
 
     def OnCardClick(self, args):
         cardPath = args.get('ButtonPath', '')
-        print "==== OnCardClick path: %s ====" % cardPath
+        dlog.client_print("==== OnCardClick path: %s ====" % cardPath)
         for i in range(len(self.mCardBtns)):
             if 'card_%d/card_btn' % i in cardPath:
                 if self.mSelectedIndex == i:
@@ -561,7 +682,7 @@ class Test1ScreenNode(ScreenNode):
                 self.SetCardState(i, True)
                 self.ShowSubCards(i)
 
-                print "==== card_%d selected ====" % i
+                dlog.client_print("==== card_%d selected ====" % i)
                 break
         return ViewRequest.Nothing
 
@@ -630,13 +751,13 @@ class Test1ScreenNode(ScreenNode):
                             img = iconCtrl.asImage()
                             if img:
                                 img.SetSprite(iconPath)
-                                print "==== sub_card icon set: %s -> %s ====" % (key, iconPath)
+                                dlog.client_print("==== sub_card icon set: %s -> %s ====" % (key, iconPath))
                             else:
-                                print "==== sub_card icon asImage failed ===="
+                                dlog.client_print("==== sub_card icon asImage failed ====")
                         else:
-                            print "==== sub_card icon not found inside icon_backdrop ===="
+                            dlog.client_print("==== sub_card icon not found inside icon_backdrop ====")
                     else:
-                        print "==== sub_card icon_backdrop not found ===="
+                        dlog.client_print("==== sub_card icon_backdrop not found ====")
                     btn = ctrl.asButton()
                     if btn:
                         btn.AddTouchEventParams({})
@@ -645,9 +766,9 @@ class Test1ScreenNode(ScreenNode):
                     self.mSubCards[index][key] = ctrl
                     self.mSubCardStates[index][key] = False
                     self.SetSubCardVisualState(ctrl, "normal")
-                    print "==== sub_card created: %s ====" % text
+                    dlog.client_print("==== sub_card created: %s ====" % text)
             except Exception as e:
-                print "==== sub_card error: %s ====" % str(e)
+                dlog.client_print("==== sub_card error: %s ====" % str(e))
 
     def HideSubCards(self, index):
         if index < 0:
@@ -708,7 +829,7 @@ class Test1ScreenNode(ScreenNode):
         index, key = result
         self.mSubCardPressing = (index, key)
         self.SetSubCardVisualState(self.mSubCards[index][key], "pressing")
-        print "==== Test1 sub_card touch down: sub_%d_%s ====" % (index, key)
+        dlog.client_print("==== Test1 sub_card touch down: sub_%d_%s ====" % (index, key))
         return ViewRequest.Nothing
 
     def OnSubCardTouchUp(self, args):
@@ -751,7 +872,7 @@ class Test1ScreenNode(ScreenNode):
                 self.SetSubCardVisualState(self.mSubCards[index][otherKey], "normal")
         self.mSubCardStates[index][key] = True
         self.SetSubCardVisualState(self.mSubCards[index][key], "selected")
-        print "==== Test1 sub_card sub_%d_%s selected ====" % (index, key)
+        dlog.client_print("==== Test1 sub_card sub_%d_%s selected ====" % (index, key))
 
 
 class SettingsScreenNode(ScreenNode):
@@ -795,6 +916,10 @@ class SettingsScreenNode(ScreenNode):
         self.mRightFinishedStates = {}  # group -> set(item_id)，记录已 finish 的按钮
         self.mCurrentRightGroup = None  # 当前右侧面板对应的 (main, sub, middle)
         self.mCurrentSubKey = None      # 当前选中的子卡片 key（client/server）
+        # 服务端全局日志开关同步状态
+        self.mServerLogSwitchItem = None  # 服务端调试开关 item_id，None 表示当前分组无需同步
+        self.mNeedServerLogRequest = False  # 服务端调试开关渲染完成后是否请求全局值
+        self.mServerLogPending = None       # 尚未应用的 (enabled, is_op) 待处理状态
         self.mRightPendingItems = []  # 等待延迟创建的右侧内容项数据队列
         self.mRightContentDelayTimer = 0
         self.mRightContentDelayInterval = 2  # 每2帧创建一项，避免瞬间加载过多卡顿
@@ -859,7 +984,7 @@ class SettingsScreenNode(ScreenNode):
         global _g_ClientSystem
         if _g_ClientSystem:
             _g_ClientSystem.RegisterSettingsScreenNode(self)
-            print "==== SettingsScreenNode registered to client system ===="
+            dlog.client_print("==== SettingsScreenNode registered to client system ====")
 
     def Destroy(self):
         # 重置按压状态，防止残留
@@ -869,10 +994,24 @@ class SettingsScreenNode(ScreenNode):
         global _g_ClientSystem
         if _g_ClientSystem:
             _g_ClientSystem.UnregisterSettingsScreenNode(self)
-            print "==== SettingsScreenNode unregistered from client system ===="
+            dlog.client_print("==== SettingsScreenNode unregistered from client system ====")
+        # 注销为底部 toast 的内嵌宿主
+        try:
+            from Toast import unregister_settings_under_host
+            unregister_settings_under_host(self)
+        except Exception:
+            pass
+        # 清理内嵌底部提示的停留定时器，避免关闭界面后残留回调
+        if getattr(self, "mEmbeddedUnderTimer", None) is not None:
+            try:
+                comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+                comp.KillTimer(self.mEmbeddedUnderTimer)
+            except Exception:
+                pass
+            self.mEmbeddedUnderTimer = None
         try:
             UnregisterContentListener(self._OnContentChanged)
-            print "==== content change listener unregistered ===="
+            dlog.client_print("==== content change listener unregistered ====")
         except Exception:
             pass
         try:
@@ -881,9 +1020,9 @@ class SettingsScreenNode(ScreenNode):
             pass
 
     def Create(self):
-        print "==== SettingsScreenNode.Create called ===="
+        dlog.client_print("==== SettingsScreenNode.Create called ====")
         self.mBasePath = self.ExploreAndFindBasePath()
-        print "==== SettingsScreenNode: resolved base path: %s ====" % self.mBasePath
+        dlog.client_print("==== SettingsScreenNode: resolved base path: %s ====" % self.mBasePath)
 
         if self.mBasePath is not None:
             self.mScrollContent = self.FindScrollingContent(self.mBasePath)
@@ -891,31 +1030,31 @@ class SettingsScreenNode(ScreenNode):
             self.mScrollContent = None
 
         if self.mScrollContent:
-            print "==== scroll_content resolved ===="
+            dlog.client_print("==== scroll_content resolved ====")
         else:
-            print "==== SettingsScreenNode: scroll_content not found, will still bind back button ===="
+            dlog.client_print("==== SettingsScreenNode: scroll_content not found, will still bind back button ====")
 
         previewCtrl = self.GetBaseUIControlByBase('/left/icon_under/image')
         if previewCtrl:
             self.mPreviewIcon = previewCtrl.asImage()
             self.UpdatePreviewIcon(self.mDefaultIcon)
-            print "==== preview icon bound ===="
+            dlog.client_print("==== preview icon bound ====")
         else:
-            print "==== preview icon not found ===="
+            dlog.client_print("==== preview icon not found ====")
 
         middleCtrl = self.GetBaseUIControlByBase('/middle')
         if middleCtrl:
             self.mMiddleCtrl = middleCtrl
-            print "==== middle panel bound ===="
+            dlog.client_print("==== middle panel bound ====")
         else:
-            print "==== middle panel not found ===="
+            dlog.client_print("==== middle panel not found ====")
 
         rightCtrl = self.GetBaseUIControlByBase('/right')
         if rightCtrl:
             self.mRightCtrl = rightCtrl
-            print "==== right panel bound ===="
+            dlog.client_print("==== right panel bound ====")
         else:
-            print "==== right panel not found ===="
+            dlog.client_print("==== right panel not found ====")
 
         if self.mBasePath is not None:
             self.mMiddleScrollContent = self.FindMiddleScrollingContent(self.mBasePath)
@@ -923,9 +1062,9 @@ class SettingsScreenNode(ScreenNode):
             self.mMiddleScrollContent = None
 
         if self.mMiddleScrollContent:
-            print "==== middle scroll_content resolved ===="
+            dlog.client_print("==== middle scroll_content resolved ====")
         else:
-            print "==== middle scroll_content not found ===="
+            dlog.client_print("==== middle scroll_content not found ====")
 
         if self.mBasePath is not None:
             self.mRightScrollContent = self.FindRightScrollingContent(self.mBasePath)
@@ -933,400 +1072,187 @@ class SettingsScreenNode(ScreenNode):
             self.mRightScrollContent = None
 
         if self.mRightScrollContent:
-            print "==== right scroll_content resolved ===="
+            dlog.client_print("==== right scroll_content resolved ====")
         else:
-            print "==== right scroll_content not found ===="
+            dlog.client_print("==== right scroll_content not found ====")
+
+        # 测试/示例注册项已全部删除。
+        # 真实设置项由外部模组通过 CardRegistryApi 提供的受支持接口在运行时注册：
+        #   - RegisterMainCard / RegisterMiddleCard      主卡片 / 中间卡片
+        #   - RegisterPopUp / RegisterCollapsibleMenu    弹窗 / 下拉菜单
+        #   - CreateContentInst(...).AddXXX(...)         内容项（文本/开关/按钮/输入框/滑块等）
+        # -> 首次打开设置界面必须在此重建主卡片（网易 SDK 不回调 OnActive，
+        #    故不能依赖 OnActive 触发 RebuildMainCards）。
 
         if self.mScrollContent:
-            # 清空注册表 + 注册示例卡片（与 RebuildMainCards 连续执行）
-            ClearAllCards()
-            RegisterMainCard("basic_settings", "基础设置", "textures/ui/icon_setting")
-            RegisterMainCard("my_mod", "我的模组", "textures/ui/sidebar_icons/addon")
-            RegisterMainCard("audio_settings", "音频设置", "textures/ui/icon_volume")
-            RegisterMainCard("control_settings", "控制设置", "textures/ui/icon_display")
-            RegisterMainCard("display_settings", "显示设置", "textures/ui/icon_display")
-            RegisterMainCard("network_settings", "网络设置", "textures/ui/sidebar_icons/realms")
-            RegisterMainCard("advanced_settings", "高级设置", "textures/ui/icon_setting")
-            RegisterMainCard("plugin_mod", "插件管理", "textures/ui/sidebar_icons/addon")
-            RegisterMainCard("security_mod", "安全设置", "textures/ui/icon_setting")
-            RegisterMainCard("performance_mod", "性能优化", "textures/ui/sidebar_icons/realms")
-
-            # 基础设置 - 5个中间卡片（每个图标不同）
-            RegisterMiddleCard("basic_settings", "client", "client_opt_a", "客户端选项A", "textures/ui/icon_setting")
-
-            # ===== 弹窗测试：注册一个重置确认弹窗 =====
-            from CardRegistry import RegisterPopUp
-
-            def _OnConfirmReset():
-                """弹窗确认按钮：重置当前分页设置并关闭弹窗。"""
-                node = None
-                if _g_ClientSystem:
-                    node = _g_ClientSystem.mSettingsScreenNode
-                group = node.mCurrentRightGroup if node else None
-                if group:
-                    ResetGroupSettings(group[0], group[1], group[2])
-                else:
-                    ResetAllSettings()
-                # 重置后重建右侧内容，刷新 value 与锁定状态的 UI 表现
-                if node and group:
-                    try:
-                        node.RebuildRightContent(group[0], group[1], group[2])
-                    except Exception as e:
-                        print "==== reset rebuild error: %s ====" % str(e)
-                return True  # 返回 True 自动关闭弹窗
-
-            RegisterPopUp(
-                "reset_confirm_test",
-                "确认重置",
-                "确定要重置所有设置吗？\n此操作不可撤销，将恢复全部默认值。",
-                [("取消", None), ("确认重置", _OnConfirmReset)]
-            )
-
-            # ===== 弹窗测试：普通/自动滚动/强制滚动 三个弹窗 =====
-            RegisterPopUp(
-                "pop_test_short",
-                "短消息弹窗",
-                "这是一条简短的通知消息。",
-                [("知道了", None)]
-            )
-
-            RegisterPopUp(
-                "pop_test_long",
-                "长内容滚动弹窗",
-                "这是一条非常长的内容，超过 4 行时会自动切换为滚动版弹窗，"
-                "方便查看完整信息。\n\n"
-                "第一行：自动保存每 5 分钟执行一次，防止意外丢失进度。\n"
-                "第二行：性能监控面板开启后实时显示 FPS、内存占用。\n"
-                "第三行：网络优化功能减少游戏延迟和丢包率。\n"
-                "第四行：区块优化降低服务器 CPU 与内存占用。\n"
-                "第五行：渲染优化提升客户端帧率与流畅度。\n\n"
-                "滚动版弹窗内容区固定高度 140px，无上下留空，"
-                "超出部分可上下滑动查看。",
-                [("知道了", None)]
-            )
-
-            RegisterPopUp(
-                "pop_test_force",
-                "强制滚动弹窗",
-                "这条内容并不长，但因为 force_scroll=True，会强制使用滚动版弹窗展示。\n\n测试完毕。",
-                [("确定", None), ("取消", None)]
-            )
-
-            # ===== 弹窗容量测试：数一下滚动区能装多少行 =====
-            _capLines = []
-            _capLines.append("滚动区高度 140px，每行行高约 10px，")
-            _capLines.append("理论可容纳约 14 行（不滚动）。")
-            _capLines.append("-----------------------------------")
-            for _i in range(1, 22):
-                _capLines.append("第 %02d 行：ABCDEFGHIJKLMNOPQRSTUVWXYZ" % _i)
-            RegisterPopUp(
-                "pop_test_capacity",
-                "滚动容量测试",
-                "\n".join(_capLines),
-                [("知道了", None)]
-            )
-            RegisterMiddleCard("basic_settings", "client", "client_opt_b", "客户端选项B", "textures/ui/sidebar_icons/addon")
-            RegisterMiddleCard("basic_settings", "server", "server_opt_x", "服务端选项X", "textures/ui/sidebar_icons/realms")
-            RegisterMiddleCard("basic_settings", "server", "server_opt_y", "服务端选项Y", "textures/ui/icon_volume")
-            RegisterMiddleCard("basic_settings", "client", "client_opt_c", "客户端选项C", "textures/ui/icon_display")
-            RegisterMiddleCard("basic_settings", "client", "client_test_layout", "布局测试", "textures/ui/icon_display")
-
-            # 我的模组 - 3个中间卡片
-            RegisterMiddleCard("my_mod", "client", "my_feature_1", "功能一", "textures/ui/icon_setting")
-            RegisterMiddleCard("my_mod", "server", "my_feature_2", "功能二", "textures/ui/sidebar_icons/addon")
-            RegisterMiddleCard("my_mod", "client", "my_feature_3", "功能三", "textures/ui/sidebar_icons/realms")
-
-            # 音频设置 - 3个中间卡片（每个图标不同）
-            RegisterMiddleCard("audio_settings", "client", "audio_master", "主音量", "textures/ui/icon_volume")
-            RegisterMiddleCard("audio_settings", "client", "audio_music", "音乐", "textures/ui/icon_setting")
-            RegisterMiddleCard("audio_settings", "client", "audio_effect", "音效", "textures/ui/icon_display")
-
-            # 控制设置 - 2个中间卡片
-            RegisterMiddleCard("control_settings", "client", "ctrl_mouse", "鼠标灵敏度", "textures/ui/icon_display")
-            RegisterMiddleCard("control_settings", "server", "ctrl_key", "按键绑定", "textures/ui/sidebar_icons/addon")
-
-            # 显示设置 - 2个中间卡片（每个图标不同）
-            RegisterMiddleCard("display_settings", "client", "disp_resolution", "分辨率", "textures/ui/icon_display")
-            RegisterMiddleCard("display_settings", "client", "disp_quality", "画质", "textures/ui/icon_setting")
-
-            # 网络设置 - 1个中间卡片
-            RegisterMiddleCard("network_settings", "server", "net_proxy", "代理设置", "textures/ui/sidebar_icons/realms")
-
-            # 高级设置 - 1个中间卡片
-            RegisterMiddleCard("advanced_settings", "client", "adv_debug", "调试模式", "textures/ui/icon_setting")
-
-            # 插件管理 - 2个中间卡片
-            RegisterMiddleCard("plugin_mod", "server", "plug_loader", "插件加载器", "textures/ui/sidebar_icons/realms")
-            RegisterMiddleCard("plugin_mod", "client", "plug_market", "插件市场", "textures/ui/sidebar_icons/addon")
-
-            # 安全设置 - 2个中间卡片（每个图标不同）
-            RegisterMiddleCard("security_mod", "client", "sec_whitelist", "白名单", "textures/ui/icon_setting")
-            RegisterMiddleCard("security_mod", "server", "sec_anti_cheat", "反作弊", "textures/ui/sidebar_icons/realms")
-
-            # 性能优化 - 2个中间卡片（每个图标不同）
-            RegisterMiddleCard("performance_mod", "server", "perf_chunk", "区块优化", "textures/ui/sidebar_icons/realms")
-            RegisterMiddleCard("performance_mod", "client", "perf_render", "渲染优化", "textures/ui/sidebar_icons/addon")
-
-            # 注册后再删除，测试动态效果
-            UnregisterMainCard("network_settings")
-            UnregisterMainCard("advanced_settings")
-            UnregisterMiddleCard("control_settings", "server", "ctrl_key")
-
-            print "==== sample cards registered in Create ===="
-
-            # 根据注册表动态重建左侧主卡片
             self.RebuildMainCards()
-            print "==== 从注册表重建 %d 张主卡片 ====" % len(self.mWrappers)
+            dlog.client_print("==== Create: 从注册表重建 %d 张主卡片 ====" % len(self.mWrappers))
+        else:
+            dlog.client_print("==== Create: scroll_content 未解析，跳过主卡片重建 ====")
 
-            # 检查是否有待执行导航参数（来自 /setting_open 命令）
-            global _g_ClientSystem
-            if _g_ClientSystem and _g_ClientSystem.mPendingNavigation:
-                main_card_id, sub_key, middle_card_id = _g_ClientSystem.mPendingNavigation
-                _g_ClientSystem.mPendingNavigation = None
-                print "==== Create: executing pending navigation: %s %s %s ====" % (
-                    main_card_id, sub_key, middle_card_id
-                )
-                self._ExecuteNavigation(main_card_id, sub_key, middle_card_id)
-
-            # 注册右侧内容项（链式API），按 主卡片 + 子卡片 + 中间卡片 分组
-            ClearContentItems()
-
-            # ========================================================================
-            # 正常数量内容项 — 每个中间卡片 3~5 项
-            # ========================================================================
-
-            # ---------- 基础设置 ----------
-            CreateContentInst("basic_settings", "client", "client_opt_a")\
-                .AddText("opt_a_intro", "选项A", "调整游戏基本参数，包括自动保存间隔、性能监控开关、网络优化等多项设置。\n你可以根据个人喜好自由调整这些参数。\n\n第一行是自动保存间隔设置，默认5分钟。\n第二行是性能监控开关，开启后显示FPS。\n第三行是网络优化，减少游戏延迟。\n\n如果遇到任何问题，可以随时恢复默认设置。")\
-                .AddSwitch("opt_a_switch_1", "启用自动保存功能，每5分钟自动保存游戏进度，防止意外丢失", default_value=True, litle="自动保存")\
-                .AddSwitch("opt_a_switch_2", "启用性能监控面板，实时显示FPS、内存占用和网络延迟", default_value=False, litle="性能监控")\
-                .AddSwitch("opt_a_switch_lock_test", "【锁定测试】被锁定开关，当前处于锁定状态无法交互", default_value=False, locked=True, litle="锁定测试")\
-                .AddSwitch("opt_a_switch_toggle_lock", "点击切换上方开关锁定状态，解锁后可以自由开关", default_value=True, on_toggle=lambda sn, iid, state: (
-                    sn.SetLocked("opt_a_switch_lock_test", not GetContentItem("basic_settings", "client", "client_opt_a", "opt_a_switch_lock_test").locked)
-                ), litle="锁定控制")\
-                .AddButton("opt_a_lock_test", "【锁定测试】被锁定按钮，当前处于锁定状态无法点击", "我是锁定", locked=True, litle="锁定测试")\
-                .AddButton("opt_a_unlock_btn", "点击切换上方按钮的锁定状态，解锁后按钮可以正常点击使用", "切换锁定", on_click=lambda sn, iid: (
-                    sn.SetLocked("opt_a_lock_test", not GetContentItem("basic_settings", "client", "client_opt_a", "opt_a_lock_test").locked)
-                ), litle="锁定控制")\
-                .AddButton("opt_a_btn1", "启用自动保存功能，每5分钟自动存档，防止意外丢失游戏进度", "启用", litle="自动保存")\
-                .AddButton("opt_a_btn2", "关闭自动保存（改为手动保存），需要玩家手动点击保存按钮", "关闭", litle="自动保存")\
-                .AddButton("opt_a_pop_short", "打开一个简短通知弹窗（普通版）", "短弹窗", on_click=lambda sn, iid: (
-                    _g_ClientSystem.ShowPopUp("pop_test_short")
-                ), litle="弹窗测试")\
-                .AddButton("opt_a_pop_long", "打开一个长内容弹窗（自动判断使用滚动版）", "长弹窗", on_click=lambda sn, iid: (
-                    _g_ClientSystem.ShowPopUp("pop_test_long")
-                ), litle="弹窗测试")\
-                .AddButton("opt_a_pop_force", "打开一个强制滚动版弹窗（force_scroll=True）", "强制滚动", on_click=lambda sn, iid: (
-                    _g_ClientSystem.ShowPopUp("pop_test_force", force_scroll=True)
-                ), litle="弹窗测试")\
-                .AddButton("opt_a_pop_capacity", "打开滚动容量测试弹窗，观察滚动区能显示多少行文字", "容量测试", on_click=lambda sn, iid: (
-                    _g_ClientSystem.ShowPopUp("pop_test_capacity", force_scroll=True)
-                ), litle="弹窗测试")\
-                .AddText("opt_a_tip", "提示", "自动保存可防止意外丢失进度，但可能对性能有轻微影响。\n建议在探索大型地图时保持开启状态，以确保游戏数据安全。\n\n如果不确定如何设置，建议保持默认配置。")\
-                .AddResetButton("opt_a_reset", popup_id="reset_confirm_test")
-
-            CreateContentInst("basic_settings", "client", "client_opt_b")\
-                .AddText("opt_b_intro", "选项B", "自定义界面显示风格，包括字体大小、颜色主题、背景透明度、按钮样式等多项视觉参数。\n你可以按照自己的审美偏好自由搭配。\n\n支持以下自定义项目：\n- 字体大小：小号/中号/大号/特大号\n- 颜色主题：明亮/暗黑/护眼/自定义\n- 背景透明度：0%到100%之间自由调节\n- 按钮样式：圆角/直角/立体/扁平\n\n所有修改立即生效，无需重启游戏。")\
-                .AddButton("opt_b_btn", "应用自定义界面设置，包括字体、颜色和主题风格等多项参数", "应用", litle="界面设置")\
-                .AddText("opt_b_tip", "提示", "部分界面修改需要重新打开设置面板才能看到效果。\n如果修改后界面显示异常，请尝试重新打开设置界面。\n\n若仍然无法正常显示，建议恢复默认设置后重新配置。")\
-                .AddResetButton("opt_b_reset", popup_id="reset_confirm_test")
-
-            CreateContentInst("basic_settings", "client", "client_opt_c")\
-                .AddText("opt_c_intro", "选项C", "优化网络连接质量，减少延迟和丢包率，提高游戏流畅度。\n\n网络优化功能：\n- 延迟优化：减少数据包传输延迟\n- 丢包补偿：降低网络丢包对游戏的影响\n- 带宽管理：合理分配网络带宽资源\n- 连接优化：优化与服务器的连接质量\n\n开启网络优化后，可以有效减少卡顿和延迟问题。\n如果网络环境较差，建议开启全部优化选项。\n\n注意：部分网络优化功能可能与某些网络环境不兼容，\n如果遇到连接问题，请尝试关闭优化功能。")\
-                .AddButton("opt_c_enable", "启用网络优化功能，改善网络连接质量", "启用", litle="网络优化")\
-                .AddButton("opt_c_disable", "关闭网络优化功能，恢复默认网络设置", "关闭", litle="网络优化")
-
-            CreateContentInst("basic_settings", "server", "server_opt_x")\
-                .AddText("srv_x_intro", "服务器选项X", "控制服务器级别的游戏规则，包括生物生成、物品掉落、经验倍率等。\n\n可用配置项：\n- 生物生成：开启/关闭怪物的自然生成\n- 物品掉落率：0.5倍到5倍之间自由调节\n- 经验倍率：1倍到10倍之间自由调节\n- 游戏规则：可修改keepInventory、doDaylightCycle等\n\n所有修改需要OP权限才能执行。")\
-                .AddButton("srv_x_btn", "重载服务器配置文件，应用所有修改过的设置项", "重载配置", litle="配置管理")\
-                .AddText("srv_x_warn", "注意", "修改服务端配置请谨慎操作，错误的配置可能导致服务器运行异常。\n建议在修改前备份当前配置文件，以便出现问题后快速恢复。\n\n部分配置修改需要重启服务器才能生效。")
-
-            CreateContentInst("basic_settings", "server", "server_opt_y")\
-                .AddText("srv_y_intro", "备份与恢复", "提供服务器配置文件的备份与恢复服务，确保数据安全。\n\n备份功能：\n- 自动备份：每天定时自动创建配置备份\n- 手动备份：随时手动创建配置备份\n- 备份列表：查看所有已创建的备份文件\n- 恢复备份：从选中的备份文件中恢复配置\n- 删除备份：清理不需要的备份文件\n\n建议定期创建备份，以防止配置丢失或损坏。\n最多保留最近10个备份文件，超过后将自动覆盖最早的备份。\n\n恢复操作会覆盖当前配置，请谨慎操作。\n建议在恢复前先创建当前配置的备份。")\
-                .AddButton("srv_y_btn", "创建当前配置备份，保存当前的服务器配置状态", "创建备份", litle="备份管理")\
-                .AddText("srv_y_tip", "提示", "最多保留最近10个备份文件，超过后将自动覆盖最早的备份。\n建议在每次修改配置前都创建一个备份，以便出现问题后快速恢复。\n\n备份文件存储在服务器本地，请定期下载到本地保存。")
-
-            # ---------- 布局测试（验证 stack_panel 在各种内容长度下的表现）----------
-            CreateContentInst("basic_settings", "client", "client_test_layout")\
-                .AddText("test_only_title", "只有标题，没有正文内容", "")\
-                .AddText("test_only_text", "", "只有长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长内容的正文，没有标题，验证正文是否贴顶显示")\
-                .AddText("test_empty", "", "")\
-                .AddText("test_very_long", "超长内容测试", "第一行：这是第一行非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第二行：这是第二行同样非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第三行：这是第三行继续非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第四行：这是第四行也非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第五行：这是第五行还是非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第六行：这是第六行依然非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第七行：这是第七行仍然非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第八行：这是第八行永远非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第九行：这是第九行始终非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字\n第十行：这是第十行一直非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常非常长的文字")\
-                .AddButton("test_btn_no_title", "只有描述文字没有标题的按钮，内容很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长", "配置", litle="")\
-                .AddButton("test_btn_no_desc", "", "配置", litle="只有标题没有描述的按钮")\
-                .AddButton("test_btn_empty", "", "", litle="")\
-                .AddSwitch("test_sw_no_title", "只有描述文字没有标题的开关，内容很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长很长", default_value=True, litle="")\
-                .AddSwitch("test_sw_no_desc", "", default_value=False, litle="只有标题没有描述的开关")\
-                .AddSwitch("test_sw_empty", "", default_value=False, litle="")\
-                .AddEditBox("test_eb_normal", "自定义输入框：设置服务器地址，支持自定义提示文字与初始内容", default_value="127.0.0.1", placeholder="请输入服务器IP", litle="服务器地址")\
-                .AddEditBox("test_eb_locked", "【锁定测试】被锁定输入框，当前处于锁定状态无法输入", default_value="固定配置值", locked=True, litle="锁定测试")\
-                .AddEditBox("test_eb_lock_ctrl", "在下方输入框中输入 0 锁定上方输入框，输入 1 解锁", default_value="", placeholder="输入 0 锁定 / 输入 1 解锁", on_value_change=lambda sn, iid, value: (
-                    sn.SetLocked("test_eb_locked", value.strip() == "0")
-                ), litle="锁定控制")\
-                .AddEditBox("test_eb_empty", "空初始内容与默认提示文字", litle="")\
-                .AddSlider("test_sl_pct", "百分比滑块：控制音量大小，值范围 0~1", value=0.5, steps=1, slider_type="percent", litle="音量")\
-                .AddSlider("test_sl_step", "固定格滑块：控制画质等级，值范围 0~5", value=2, steps=5, min_val=0, max_val=5, slider_type="steps", litle="画质等级", value_labels=["极低", "低", "中", "高", "极高", "极致"])\
-                .AddSlider("test_sl_locked", "【锁定测试】被锁定滑块，当前处于锁定状态无法拖动", value=0.8, locked=True, litle="锁定测试")\
-                .AddSwitch("test_sl_lock_ctrl", "开启后锁定上方所有滑块，锁定后无法拖动调节", default_value=False, on_toggle=self._OnDemoSliderLockToggle, litle="滑块锁定控制")
-
-            # ---------- 我的模组 ----------
-            CreateContentInst("my_mod", "client", "my_feature_1")\
-                .AddText("my_f1_intro", "自定义装备", "提供多种装备强化与进阶功能，让你的武器和防具更加强大。\n\n装备强化系统：\n- 基础强化：消耗金币和材料，提升装备基础属性\n- 进阶强化：需要特殊材料，解锁装备隐藏属性\n- 附魔系统：可以自由搭配各种附魔效果\n- 装备合成：将多个低级装备合成为高级装备\n\n强化等级越高，成功率越低，请合理规划资源。")\
-                .AddButton("my_f1_btn", "查看模组装备图鉴与详情，了解所有可用的装备", "查看详情", litle="装备图鉴")\
-                .AddText("my_f1_tip", "提示", "装备强化有一定概率失败，失败后装备不会消失但会降级。\n建议使用保护道具来防止强化失败。\n\n高级强化需要先完成对应的成就任务才能解锁。")
-
-            CreateContentInst("my_mod", "server", "my_feature_2")\
-                .AddText("my_f2_intro", "数据同步", "在服务器与客户端之间同步模组数据，确保所有玩家数据一致。\n\n同步内容包括：\n- 玩家装备数据：所有已装备和已获得的装备信息\n- 任务进度数据：当前完成的任务和未完成的任务\n- 成就系统数据：已解锁的成就和奖励\n- 游戏设置数据：自定义的界面和游戏设置\n\n同步操作可能需要几秒钟，请耐心等待。")\
-                .AddButton("my_f2_btn", "执行数据同步操作，将服务器数据同步到本地", "开始同步", litle="数据同步")
-
-            CreateContentInst("my_mod", "client", "my_feature_3")\
-                .AddText("my_f3_intro", "传送点系统", "记录和管理游戏中的传送坐标，方便快速在地图间移动。\n\n传送点功能：\n- 添加传送点：记录当前所在位置的坐标\n- 传送点列表：查看所有已保存的传送点\n- 快速传送：点击传送点即可快速到达\n- 传送点管理：编辑名称、删除、分组管理\n\n最多可以保存50个传送点，传送需要消耗一定的经验值。\n\n部分特殊区域可能无法使用传送功能。")\
-                .AddButton("my_f3_btn", "打开传送点管理界面，查看和管理所有传送点", "传送管理", litle="传送管理")
-
-            # ---------- 音频设置 ----------
-            CreateContentInst("audio_settings", "client", "audio_master")\
-                .AddText("audio_m_intro", "主音量", "调整游戏整体音量大小，影响所有音频输出。\n\n主音量控制范围：0%到100%\n- 0%：完全静音\n- 50%：正常音量\n- 100%：最大音量\n\n建议设置在60%-80%之间以获得最佳体验。\n\n如果开启声音输出开关后还是没有声音，请检查系统音量设置。")\
-                .AddSwitch("audio_m_switch", "启用声音输出，关闭后游戏将没有任何声音", default_value=True, litle="声音开关")\
-                .AddButton("audio_m_btn", "重置主音量为默认值（80%），恢复标准音量设置", "重置音量", litle="主音量")
-
-            CreateContentInst("audio_settings", "client", "audio_music")\
-                .AddText("audio_music_intro", "音乐音量", "调整游戏背景音乐音量，与音效音量独立控制。\n\n建议将音乐音量设置在40%-60%之间，\n这样既能享受游戏音乐，又不会掩盖重要的游戏音效。\n\n部分自定义音乐包可能音量不一致，\n可以根据实际情况适当调整。\n\n注意：音乐音量不影响其他玩家的听觉体验。")\
-                .AddButton("audio_music_btn", "重置音乐音量为默认值（60%），恢复默认音乐设置", "重置音乐", litle="音乐音量")
-
-            CreateContentInst("audio_settings", "client", "audio_effect")\
-                .AddText("audio_effect_intro", "音效音量", "调整游戏音效音量，与音乐独立控制。\n\n音效包括：\n- 脚步声：行走和奔跑时的脚步声\n- 方块破坏：破坏和放置方块的声音\n- 武器音效：攻击和命中时的声音\n- 环境音效：下雨、风声等环境声音\n- 界面音效：按钮点击、菜单打开等界面声音\n\n建议将音效音量设置在70%-90%之间，\n以确保所有游戏音效清晰可辨。")\
-                .AddButton("audio_effect_btn", "重置音效音量为默认值（90%），恢复默认音效设置", "重置音效", litle="音效音量")
-
-            # ---------- 控制设置 ----------
-            CreateContentInst("control_settings", "client", "ctrl_mouse")\
-                .AddText("ctrl_intro", "鼠标灵敏度", "调整鼠标视角移动速度，影响游戏中的视野转动速度。\n\n灵敏度范围：1到20\n- 1-5：低灵敏度，适合精准瞄准\n- 6-10：中等灵敏度，适合一般操作\n- 11-15：高灵敏度，适合快速转向\n- 16-20：极高灵敏度，适合特殊需求\n\n更改灵敏度后建议在游戏中实际操作几分钟来适应新设置。\n如果感觉头晕或不适，请降低灵敏度。")\
-                .AddButton("ctrl_btn", "恢复鼠标灵敏度为默认设置（8），恢复标准操作手感", "恢复默认", litle="鼠标灵敏度")\
-                .AddText("ctrl_tip", "提示", "更改灵敏度后建议在游戏中实际操作几分钟来适应新设置。\n\n如果从低灵敏度切换到高灵敏度，\n建议先在中档位（10-12）适应一段时间再逐步调整。\n\n不同的武器和场景可能需要不同的灵敏度设置，\n你可以根据实际情况灵活调整。")
-
-            # ---------- 显示设置 ----------
-            CreateContentInst("display_settings", "client", "disp_resolution")\
-                .AddText("disp_r_intro", "分辨率", "调整游戏渲染分辨率，影响画面清晰度和性能表现。\n\n分辨率选项：\n- 720p（1280x720）：性能优先，适合低配设备\n- 1080p（1920x1080）：平衡画质和性能\n- 1440p（2560x1440）：高画质，需要中高配设备\n- 2160p（3840x2160）：极致画质，需要高配设备\n\n更高的分辨率会消耗更多性能，\n如果游戏卡顿建议降低分辨率。\n\n修改分辨率后需要重新加载游戏资源，\n可能会出现短暂的画面黑屏，请耐心等待。")\
-                .AddButton("disp_r_btn", "应用选中的分辨率设置，立即生效", "应用分辨率", litle="分辨率")
-
-            CreateContentInst("display_settings", "client", "disp_quality")\
-                .AddText("disp_q_intro", "画质", "调整游戏画面品质，影响视觉效果和性能表现。\n\n画质预设：\n- 流畅：最低画质，最大化性能\n- 均衡：中等画质，平衡性能和画质\n- 高品质：高画质，视觉效果优秀\n- 极致：最高画质，细节丰富\n\n另外可以单独调整以下参数：\n- 渲染距离：4-32区块\n- 光影质量：关闭/低/中/高\n- 抗锯齿：关闭/2x/4x/8x\n- 纹理质量：低/中/高\n\n建议根据设备性能选择合适的画质设置。\n如果遇到卡顿，建议先降低渲染距离。")\
-                .AddButton("disp_q_btn", "应用选中的画质预设，立即生效", "应用画质", litle="画质设置")
-
-            # ---------- 插件管理 ----------
-            CreateContentInst("plugin_mod", "server", "plug_loader")\
-                .AddText("plug_l_intro", "插件加载器", "管理服务器插件的加载与卸载，控制服务器功能的扩展。\n\n插件管理功能：\n- 加载插件：将新插件加载到服务器中\n- 卸载插件：从服务器中移除不需要的插件\n- 重载插件：重新加载所有已安装的插件\n- 插件状态：查看插件的运行状态和版本信息\n\n重载操作会影响所有在线玩家，建议在服务器空闲时执行。\n部分插件重载后可能需要重新配置才能正常工作。\n\n不兼容的插件可能导致服务器崩溃，请谨慎安装。")\
-                .AddButton("plug_l_btn", "重新加载全部服务器插件，应用插件更新和配置变更", "重载插件", litle="插件加载器")
-
-            CreateContentInst("plugin_mod", "client", "plug_market")\
-                .AddText("plug_m_intro", "插件市场", "浏览和安装社区开发的插件，扩展游戏功能。\n\n插件市场功能：\n- 浏览插件：按分类浏览所有可用的社区插件\n- 搜索插件：通过关键词快速找到需要的插件\n- 安装插件：一键安装选中的插件\n- 更新插件：检查并更新已安装的插件\n- 卸载插件：移除不需要的插件\n\n注意：从插件市场安装的插件来源为社区，\n请在使用前确认插件的安全性和兼容性。\n\n建议定期检查插件更新，以获得最新功能和修复。")\
-                .AddButton("plug_m_btn", "打开插件市场浏览页面，浏览和安装社区插件", "浏览市场", litle="插件市场")
-
-            # ---------- 安全设置 ----------
-            CreateContentInst("security_mod", "client", "sec_whitelist")\
-                .AddText("sec_w_intro", "白名单", "管理服务器白名单中的玩家，只有白名单内的玩家才能加入服务器。\n\n白名单功能说明：\n- 启用后，非白名单玩家将被拒绝进入服务器\n- 管理员可以随时添加或移除白名单成员\n- 白名单列表支持批量导入和导出\n- 所有操作都会记录在服务器日志中\n\n请谨慎管理白名单，避免误操作导致玩家无法进入。")\
-                .AddSwitch("sec_w_switch", "启用白名单功能，开启后只有白名单玩家可以加入", default_value=True, locked=True, litle="白名单")\
-                .AddButton("sec_w_btn", "打开白名单管理界面，查看和编辑白名单列表", "管理白名单", litle="白名单管理")
-
-            CreateContentInst("security_mod", "server", "sec_anti_cheat")\
-                .AddText("sec_a_intro", "反作弊", "服务器反作弊保护功能，可以检测并阻止各种作弊行为。\n\n检测范围包括：\n- 飞行检测：检测非正常飞行行为\n- 加速检测：检测移动速度异常\n- 击杀检测：检测不合理击杀数据\n- 物品检测：检测异常物品获取\n\n检测到作弊行为后，系统会自动记录并通知管理员。\n管理员可以根据日志决定是否封禁玩家。\n\n建议保持反作弊功能开启以维护公平游戏环境。")\
-                .AddSwitch("sec_a_switch", "启用反作弊检测，自动检测异常行为", default_value=True, litle="反作弊")\
-                .AddButton("sec_a_btn", "查看反作弊检测日志，了解所有被检测到的异常行为", "查看日志", litle="反作弊日志")
-
-            # ---------- 性能优化 ----------
-            CreateContentInst("performance_mod", "server", "perf_chunk")\
-                .AddText("perf_c_intro", "区块优化", "优化服务器区块加载性能，提高服务器运行效率。\n\n区块优化策略：\n- 智能加载：根据玩家位置动态加载区块\n- 视距管理：自动调整玩家视距以平衡性能\n- 卸载延迟：合理设置区块卸载延迟时间\n- 预加载优化：预加载玩家可能前往的区域\n\n优化后可以显著降低服务器CPU和内存占用，\n特别是对于大型地图和多人服务器效果明显。\n\n注意：过度优化可能影响游戏体验，请根据实际情况调整。\n建议在服务器负载较高时启用全部优化选项。")\
-                .AddButton("perf_c_btn", "应用区块优化设置，提高服务器区块加载效率", "应用优化", litle="区块优化")
-
-            CreateContentInst("performance_mod", "client", "perf_render")\
-                .AddText("perf_r_intro", "渲染优化", "优化客户端渲染性能，提高游戏帧率和流畅度。\n\n渲染优化选项：\n- 帧率限制：设置最大帧率，减少GPU负载\n- 垂直同步：开启后消除画面撕裂\n- 粒子效果：减少粒子数量以提高性能\n- 水体渲染：降低水体渲染质量以提高帧率\n- 实体渲染距离：减少远处实体的渲染\n\n建议开启帧率限制和垂直同步以获得稳定游戏体验。\n如果遇到卡顿，可以尝试降低粒子效果和渲染距离。\n\n注意：部分优化选项可能需要重启游戏才能生效。")\
-                .AddButton("perf_r_btn", "应用渲染优化设置，提高客户端渲染性能", "应用优化", litle="渲染优化")
-
-            # ---------- 折叠菜单演示（collapsible_menu_content） ----------
-            RegisterCollapsibleMenu(
-                "demo_resolution_menu", "选择分辨率",
-                [("r_720p", "720p"), ("r_1080p", "1080p"),
-                 ("r_1440p", "1440p"), ("r_2160p", "2160p")]
-            )
-            RegisterCollapsibleMenu(
-                "demo_quality_menu", "选择画质",
-                [("q_low", "流畅"), ("q_mid", "均衡"),
-                 ("q_high", "高品质"), ("q_ultra", "极致")]
-            )
-            CreateContentInst("basic_settings", "client", "client_test_layout")\
-                .AddCollapsibleMenu(
-                    "test_cm_resolution", "选择游戏分辨率，点击下方按钮弹出菜单选择",
-                    "demo_resolution_menu", litle="分辨率",
-                    default_selected_id="r_1080p",
-                    on_select=self._OnDemoCollapsibleSelect
-                )\
-                .AddCollapsibleMenu(
-                    "test_cm_quality", "选择画面质量等级，不同等级对应不同渲染效果",
-                    "demo_quality_menu", litle="画质",
-                    on_select=self._OnDemoCollapsibleSelect
-                )\
-                .AddSwitch("test_cm_lock_ctrl", "开启后锁定上方下拉菜单，锁定后无法打开选择", default_value=False, on_toggle=self._OnDemoCmLockToggle, litle="下拉菜单锁定控制")
-
-            # ---------- Toast 提示测试 ----------
-            from Toast import ShowToast, ToastTop, ToastTopRight, ToastUnder
-            RegisterMainCard("toast_test", "Toast 测试", "textures/ui/icon_setting")
-            RegisterMiddleCard("toast_test", "client", "toast_demo", "提示演示", "textures/ui/icon_setting")
-
-            def _ToastDemo(sn, iid):
-                """Toast 演示回调：根据按钮 item_id 展示不同效果。"""
-                if iid == "toast_top_item":
-                    ShowToast(ToastTop, "顶部提示 + 物品层", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
-                elif iid == "toast_top_icon":
-                    ShowToast(ToastTop, "顶部提示 + 图片层", color=(0.0, 0.5, 1.0), icon="textures/ui/icon_setting")
-                elif iid == "toast_top_text":
-                    ShowToast(ToastTop, "纯文字提示（无图层）")
-                elif iid == "toast_top_right":
-                    ShowToast(ToastTopRight, "右上双图层", color=(0.0, 1.0, 0.0),
-                              item_name="minecraft:apple", icon="textures/ui/icon_setting")
-                elif iid == "toast_under":
-                    ShowToast(ToastUnder, "底部文字提示", color=(1.0, 1.0, 0.0))
-                elif iid == "toast_under_long":
-                    ShowToast(ToastUnder, "停留 5 秒的提示", color=(1.0, 0.5, 0.0), duration=5.0)
-                elif iid == "toast_queue":
-                    ShowToast(ToastTop, "排队1", color=(1.0, 0.0, 0.0))
-                    ShowToast(ToastTop, "排队2", color=(0.0, 1.0, 0.0))
-                    ShowToast(ToastTop, "排队3", color=(0.0, 0.5, 1.0))
-
-            CreateContentInst("toast_test", "client", "toast_demo")\
-                .AddButton("toast_top_item", "顶部居中，红色文字 + 钻石物品图层", "顶部+物品", on_click=_ToastDemo, litle="位置：顶部")\
-                .AddButton("toast_top_icon", "顶部居中，蓝色文字 + 图片图层", "顶部+图片", on_click=_ToastDemo, litle="位置：顶部")\
-                .AddButton("toast_top_text", "顶部居中，仅白色文字，不显示图层", "顶部纯文字", on_click=_ToastDemo, litle="位置：顶部")\
-                .AddButton("toast_top_right", "右上角，绿色文字 + 苹果物品 + 图片双图层", "右上双图层", on_click=_ToastDemo, litle="位置：右上角")\
-                .AddButton("toast_under", "底部居中，黄色文字", "底部文字", on_click=_ToastDemo, litle="位置：底部")\
-                .AddButton("toast_under_long", "底部居中，橙色文字，停留 5 秒", "底部5秒", on_click=_ToastDemo, litle="位置：底部")\
-                .AddButton("toast_queue", "连发 3 个顶部提示，验证排队依次播放", "排队测试", on_click=_ToastDemo, litle="排队规则")
-
-            print "==== all sample content items registered ===="
-
-            # 注册内容项变更监听器，用于运行时动态刷新
-            RegisterContentListener(self._OnContentChanged)
-            print "==== content change listener registered ===="
+        # 执行待执行导航参数（来自 /setting_open 命令）
+        global _g_ClientSystem
+        if _g_ClientSystem and _g_ClientSystem.mPendingNavigation:
+            main_card_id, sub_key, middle_card_id = _g_ClientSystem.mPendingNavigation
+            _g_ClientSystem.mPendingNavigation = None
+            dlog.client_print("==== Create: executing pending navigation: %s %s %s ====" % (
+                main_card_id, sub_key, middle_card_id
+            ))
+            self._ExecuteNavigation(main_card_id, sub_key, middle_card_id)
 
         self.BindBackButton()
+
+        # 注册为底部 toast 的内嵌宿主：设置界面打开时底部提示显示在此处（盖在其上）
+        self._SetupEmbeddedUnderToast()
+
+    def _SetupEmbeddedUnderToast(self):
+        """缓存设置界面内嵌底部提示面板的控件引用，并向 Toast 注册宿主。
+
+        内嵌面板通过 $additional_screen_content 挂在 screen 根级
+        （与 root_screen_panel 同级，layer 1000 盖在主内容之上），
+        结构与 toast.json 的 toast_under 完全一致。
+        """
+        try:
+            from Toast import register_settings_under_host
+        except ImportError:
+            self.mEmbeddedUnderToast = None
+            return
+        self.mEmbeddedUnderToast = None
+        self.mEmbeddedUnderTimer = None
+        base = self.mBasePath or ""
+        # additional_screen_content 与 root_screen_panel 在 screen_panel 下同级
+        additional = base.replace("/root_screen_panel", "/additional_screen_content")
+        candidates = [
+            additional + "/under_toast",
+            base + "/additional_screen_content/under_toast",
+            "/screen_panel/additional_screen_content/under_toast",
+            "/additional_screen_content/under_toast",
+            base + "/under_toast",
+        ]
+        self.mEmbeddedUnderRoot = None
+        self.mEmbeddedUnderImage = None
+        self.mEmbeddedUnderShadow = None
+        self.mEmbeddedUnderLabel = None
+        self._embedded_anim_set = False
+        for path in candidates:
+            try:
+                root = self.GetBaseUIControl(path)
+                if root:
+                    self.mEmbeddedUnderRoot = root
+                    self.mEmbeddedUnderImage = self.GetBaseUIControl(path + "/image")
+                    self.mEmbeddedUnderShadow = self.GetBaseUIControl(path + "/under")
+                    label = self.GetBaseUIControl(path + "/image/label")
+                    if label:
+                        label = label.asLabel()
+                    self.mEmbeddedUnderLabel = label
+                    dlog.client_print("==== embedded under toast found at: %s ====" % path)
+                    break
+            except Exception as e:
+                dlog.client_print("==== embedded under toast path error %s: %s ====" % (path, str(e)))
+        if self.mEmbeddedUnderRoot:
+            # 默认隐藏：防止设置界面首次打开时内嵌面板闪出
+            try:
+                self.mEmbeddedUnderRoot.SetVisible(False)
+            except Exception:
+                pass
+            register_settings_under_host(self)
+            dlog.client_print("==== SettingsScreenNode: embedded under toast host registered ====")
+        else:
+            dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
+
+    def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
+        """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。
+
+        动画定义在 toast.json 的 toast 命名空间（toast_under_enter/exit 等）。
+        用 _embedded_anim_set 守护：只有控件上已有动画时才 Stop/Remove，
+        避免首次播放时对无动画控件调用导致报错。置位放在全部控件处理之后，
+        确保同一次调用里 image/under 两个分支看到的标志一致。
+        """
+        if self.mEmbeddedUnderImage:
+            try:
+                if self._embedded_anim_set:
+                    self.mEmbeddedUnderImage.StopAnimation("offset")
+                    self.mEmbeddedUnderImage.RemoveAnimation("offset")
+                self.mEmbeddedUnderImage.SetAnimation("offset", "toast", enter_anim)
+                self.mEmbeddedUnderImage.PlayAnimation("offset")
+                if end_callback:
+                    self.mEmbeddedUnderImage.SetAnimEndCallback(enter_anim, end_callback)
+            except Exception as e:
+                dlog.client_print("==== _PlayEmbeddedUnderAnim image error: %s ====" % str(e))
+        if self.mEmbeddedUnderShadow and shadow_anim:
+            try:
+                if self._embedded_anim_set:
+                    self.mEmbeddedUnderShadow.StopAnimation("offset")
+                    self.mEmbeddedUnderShadow.RemoveAnimation("offset")
+                self.mEmbeddedUnderShadow.SetAnimation("offset", "toast", shadow_anim)
+                self.mEmbeddedUnderShadow.PlayAnimation("offset")
+            except Exception as e:
+                dlog.client_print("==== _PlayEmbeddedUnderAnim shadow error: %s ====" % str(e))
+        # 全部控件设置完动画后再置位
+        self._embedded_anim_set = True
+
+    def ShowEmbeddedUnderToast(self, cfg):
+        """在设置界面内部显示底部提示（由 Toast.ShowToast 在设置打开时路由调用）。
+
+        与原版 toast_under 一致：入场动画 -> 停留 -> 出场动画 -> 隐藏。
+        """
+        if not self.mEmbeddedUnderRoot:
+            return
+        text = cfg.get("text", "")
+        color = cfg.get("color")
+        duration = cfg.get("duration", 3.0)
+        if self.mEmbeddedUnderLabel:
+            self.mEmbeddedUnderLabel.SetText(text, True)
+            self.mEmbeddedUnderLabel.SetTextColor(color if color else (1.0, 1.0, 1.0))
+        # 清掉上次未完成的停留定时器，避免提前隐藏本次提示
+        if self.mEmbeddedUnderTimer is not None:
+            try:
+                comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+                comp.KillTimer(self.mEmbeddedUnderTimer)
+            except Exception:
+                pass
+            self.mEmbeddedUnderTimer = None
+        # 面板设为可见并播放入场动画
+        self.mEmbeddedUnderRoot.SetVisible(True)
+        self._PlayEmbeddedUnderAnim("toast_under_enter", "toast_under_shadow_enter")
+        # 入场音效：与 Toast 语义一致（ToastUnder 默认 random.toast，空串不播）
+        enter_sound = cfg.get("enter_sound")
+        if enter_sound is None:
+            enter_sound = "random.toast"
+        if enter_sound:
+            try:
+                audio_comp = clientApi.GetEngineCompFactory().CreateCustomAudio(clientApi.GetLevelId())
+                audio_comp.PlayCustomUIMusic(enter_sound, 1.0, 1.0, False)
+            except Exception as e:
+                dlog.client_print("==== ShowEmbeddedUnderToast sound error: %s ====" % str(e))
+        # 停留结束后播放出场动画
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+            self.mEmbeddedUnderTimer = comp.AddTimer(duration, self._StartEmbeddedUnderExit)
+        except Exception as e:
+            dlog.client_print("==== ShowEmbeddedUnderToast timer error: %s ====" % str(e))
+
+    def _StartEmbeddedUnderExit(self):
+        """停留结束，播放出场动画。"""
+        self.mEmbeddedUnderTimer = None
+        if not self.mEmbeddedUnderRoot:
+            return
+        self._PlayEmbeddedUnderAnim("toast_under_exit", "toast_under_shadow_exit",
+                                    end_callback=self._OnEmbeddedUnderExitEnd)
+
+    def _OnEmbeddedUnderExitEnd(self):
+        """出场动画结束，隐藏内嵌底部提示面板。"""
+        if self.mEmbeddedUnderRoot:
+            try:
+                self.mEmbeddedUnderRoot.SetVisible(False)
+            except Exception:
+                pass
 
     def _OnContentChanged(self, group):
         """内容项注册表变更回调。如果当前右侧面板正好显示该分组，则刷新。"""
         if self.mCurrentRightGroup == group:
-            print "==== content changed for current group %s, rebuilding ====" % str(group)
+            dlog.client_print("==== content changed for current group %s, rebuilding ====" % str(group))
             self.RebuildRightContent(*group)
-
-    def _OnDemoCollapsibleSelect(self, sn, item_id, card_id):
-        """折叠菜单演示选择回调：打印选中信息。"""
-        print "==== collapsible select item=%s card=%s ====" % (item_id, card_id)
-
-    def _OnDemoSliderLockToggle(self, sn, iid, state):
-        """折叠菜单演示：滑块锁定控制开关回调，锁定/解锁上方所有滑块。"""
-        for sid in ("test_sl_pct", "test_sl_step", "test_sl_locked"):
-            sn.SetLocked(sid, bool(state))
-
-    def _OnDemoCmLockToggle(self, sn, iid, state):
-        """折叠菜单演示：下拉菜单锁定控制开关回调，锁定/解锁上方所有下拉菜单。"""
-        for cid in ("test_cm_resolution", "test_cm_quality"):
-            sn.SetLocked(cid, bool(state))
 
     def OnActive(self):
         """
@@ -1335,11 +1261,11 @@ class SettingsScreenNode(ScreenNode):
         从弹窗返回时跳过重建，保留当前详情（中间/右边面板不变）。
         """
         ScreenNode.OnActive(self)
-        print "==== SettingsScreenNode.OnActive called ===="
+        dlog.client_print("==== SettingsScreenNode.OnActive called ====")
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mReturningFromPopUp:
             _g_ClientSystem.mReturningFromPopUp = False
-            print "==== OnActive: returning from popup, keep detail ===="
+            dlog.client_print("==== OnActive: returning from popup, keep detail ====")
             return
         # 从 MyClientSystem 获取待执行导航参数
         if _g_ClientSystem and _g_ClientSystem.mPendingNavigation:
@@ -1347,7 +1273,7 @@ class SettingsScreenNode(ScreenNode):
             _g_ClientSystem.mPendingNavigation = None
         if self.mScrollContent:
             self.RebuildMainCards()
-            print "==== OnActive: 从注册表重建 %d 张主卡片 ====" % len(self.mWrappers)
+            dlog.client_print("==== OnActive: 从注册表重建 %d 张主卡片 ====" % len(self.mWrappers))
             # 处理待执行导航参数
             if self.mPendingNavigation:
                 main_card_id, sub_key, middle_card_id = self.mPendingNavigation
@@ -1376,11 +1302,11 @@ class SettingsScreenNode(ScreenNode):
             try:
                 leftCtrl = self.GetBaseUIControl(leftPath)
                 if leftCtrl:
-                    print "==== base path candidate found: %s ====" % base
+                    dlog.client_print("==== base path candidate found: %s ====" % base)
                     return base
             except Exception as e:
-                print "==== path check error %s: %s ====" % (leftPath, str(e))
-        print "==== no base path candidate found, dumping root ===="
+                dlog.client_print("==== path check error %s: %s ====" % (leftPath, str(e)))
+        dlog.client_print("==== no base path candidate found, dumping root ====")
         self.DumpChildren("/", 0, 6)
         return None
 
@@ -1388,7 +1314,7 @@ class SettingsScreenNode(ScreenNode):
         modsPath = basePath + "/left/mods"
         modsCtrl = self.GetBaseUIControl(modsPath)
         if not modsCtrl:
-            print "==== mods not found at: %s ====" % modsPath
+            dlog.client_print("==== mods not found at: %s ====" % modsPath)
             return None
 
         possiblePaths = [
@@ -1401,12 +1327,12 @@ class SettingsScreenNode(ScreenNode):
             try:
                 ctrl = self.GetBaseUIControl(p)
                 if ctrl:
-                    print "==== scroll_content found at: %s ====" % p
+                    dlog.client_print("==== scroll_content found at: %s ====" % p)
                     return ctrl
             except Exception as e:
-                print "==== scroll_content check error %s: %s ====" % (p, str(e))
+                dlog.client_print("==== scroll_content check error %s: %s ====" % (p, str(e)))
 
-        print "==== common scroll_content paths failed, exploring mods tree ===="
+        dlog.client_print("==== common scroll_content paths failed, exploring mods tree ====")
         self.DumpChildren(modsPath, 0, 10)
         return None
 
@@ -1414,7 +1340,7 @@ class SettingsScreenNode(ScreenNode):
         modsPath = basePath + "/middle/mods"
         modsCtrl = self.GetBaseUIControl(modsPath)
         if not modsCtrl:
-            print "==== middle mods not found at: %s ====" % modsPath
+            dlog.client_print("==== middle mods not found at: %s ====" % modsPath)
             return None
 
         possiblePaths = [
@@ -1427,12 +1353,12 @@ class SettingsScreenNode(ScreenNode):
             try:
                 ctrl = self.GetBaseUIControl(p)
                 if ctrl:
-                    print "==== middle scroll_content found at: %s ====" % p
+                    dlog.client_print("==== middle scroll_content found at: %s ====" % p)
                     return ctrl
             except Exception as e:
-                print "==== middle scroll_content check error %s: %s ====" % (p, str(e))
+                dlog.client_print("==== middle scroll_content check error %s: %s ====" % (p, str(e)))
 
-        print "==== common middle scroll_content paths failed, exploring mods tree ===="
+        dlog.client_print("==== common middle scroll_content paths failed, exploring mods tree ====")
         self.DumpChildren(modsPath, 0, 10)
         return None
 
@@ -1440,7 +1366,7 @@ class SettingsScreenNode(ScreenNode):
         modsPath = basePath + "/right/mods"
         modsCtrl = self.GetBaseUIControl(modsPath)
         if not modsCtrl:
-            print "==== right mods not found at: %s ====" % modsPath
+            dlog.client_print("==== right mods not found at: %s ====" % modsPath)
             return None
         possiblePaths = [
             modsPath + "/scroll_mouse/scroll_view/stack_panel/background_and_viewport/scrolling_view_port/scrolling_content",
@@ -1452,12 +1378,12 @@ class SettingsScreenNode(ScreenNode):
             try:
                 ctrl = self.GetBaseUIControl(p)
                 if ctrl:
-                    print "==== right scroll_content found at: %s ====" % p
+                    dlog.client_print("==== right scroll_content found at: %s ====" % p)
                     self.mRightScrollContentPath = p
                     return ctrl
             except Exception as e:
-                print "==== right scroll_content check error %s: %s ====" % (p, str(e))
-        print "==== common right scroll_content paths failed, exploring mods tree ===="
+                dlog.client_print("==== right scroll_content check error %s: %s ====" % (p, str(e)))
+        dlog.client_print("==== common right scroll_content paths failed, exploring mods tree ====")
         self.DumpChildren(modsPath, 0, 10)
         return None
 
@@ -1470,11 +1396,11 @@ class SettingsScreenNode(ScreenNode):
                 return
             for child in children:
                 childPath = path + "/" + child if path != "/" else "/" + child
-                print "==== path[%d]: %s ====" % (depth, childPath)
+                dlog.client_print("==== path[%d]: %s ====" % (depth, childPath))
                 if depth < maxDepth:
                     self.DumpChildren(childPath, depth + 1, maxDepth)
         except Exception as e:
-            print "==== DumpChildren error at %s: %s ====" % (path, str(e))
+            dlog.client_print("==== DumpChildren error at %s: %s ====" % (path, str(e)))
 
     def BindBackButton(self):
         backPaths = [
@@ -1492,18 +1418,18 @@ class SettingsScreenNode(ScreenNode):
                     if btn:
                         btn.AddTouchEventParams({})
                         btn.SetButtonTouchUpCallback(self.OnBackClick)
-                        print "==== back button bound at: %s ====" % backPath
+                        dlog.client_print("==== back button bound at: %s ====" % backPath)
                     else:
-                        print "==== back button asButton failed at: %s ====" % backPath
+                        dlog.client_print("==== back button asButton failed at: %s ====" % backPath)
                     return
             except Exception as e:
-                print "==== back button bind error at %s: %s ====" % (backPath, str(e))
-        print "==== back button not found ===="
+                dlog.client_print("==== back button bind error at %s: %s ====" % (backPath, str(e)))
+        dlog.client_print("==== back button not found ====")
 
     def UpdatePreviewIcon(self, iconPath):
         if self.mPreviewIcon:
             self.mPreviewIcon.SetSprite(iconPath)
-            print "==== preview icon updated: %s ====" % iconPath
+            dlog.client_print("==== preview icon updated: %s ====" % iconPath)
 
     def Init(self):
         pass
@@ -1514,7 +1440,7 @@ class SettingsScreenNode(ScreenNode):
         return True
 
     def OnBackClick(self, args):
-        print "==== back button clicked ===="
+        dlog.client_print("==== back button clicked ====")
         clientApi.PopScreen()
         return ViewRequest.Nothing
 
@@ -1532,7 +1458,7 @@ class SettingsScreenNode(ScreenNode):
                 True
             )
         except Exception as e:
-            print "==== Settings AddCard error: %s ====" % str(e)
+            dlog.client_print("==== Settings AddCard error: %s ====" % str(e))
             return -1
         if not wrapper:
             return -1
@@ -1567,17 +1493,17 @@ class SettingsScreenNode(ScreenNode):
                     img = iconCtrl.asImage()
                     if img:
                         img.SetSprite(icon)
-                        print "==== Settings card icon set: %s -> %s ====" % (text, icon)
+                        dlog.client_print("==== Settings card icon set: %s -> %s ====" % (text, icon))
                     else:
-                        print "==== Settings card icon asImage failed ===="
+                        dlog.client_print("==== Settings card icon asImage failed ====")
                 else:
-                    print "==== Settings card icon not found inside icon_backdrop ===="
+                    dlog.client_print("==== Settings card icon not found inside icon_backdrop ====")
             else:
                 self.mCardBackdropCtrls.append(None)
-                print "==== Settings card icon_backdrop not found ===="
+                dlog.client_print("==== Settings card icon_backdrop not found ====")
         except Exception as e:
             self.mCardBackdropCtrls.append(None)
-            print "==== Settings card icon error: %s ====" % str(e)
+            dlog.client_print("==== Settings card icon error: %s ====" % str(e))
 
         # 初始化动画状态
         # 初始透明度为 0，加入淡入队列
@@ -1601,7 +1527,7 @@ class SettingsScreenNode(ScreenNode):
             btn.SetButtonTouchUpCallback(self.OnCardTouchUp)
             btn.SetButtonTouchCancelCallback(self.OnCardTouchCancel)
         except Exception as e:
-            print "==== Settings card event error: %s ====" % str(e)
+            dlog.client_print("==== Settings card event error: %s ====" % str(e))
 
         subPanel = wrapper.GetChildByName('sub_panel')
 
@@ -1671,7 +1597,7 @@ class SettingsScreenNode(ScreenNode):
                 self.HideMiddlePanel()
             if self.mRightOpen:
                 self.HideRightPanel()
-            print "==== RebuildMainCards: registry unchanged, skip rebuild (%d cards) ====" % len(self.mWrappers)
+            dlog.client_print("==== RebuildMainCards: registry unchanged, skip rebuild (%d cards) ====" % len(self.mWrappers))
             return
         self.mMainCardSnapshot = snapshot
 
@@ -1737,7 +1663,7 @@ class SettingsScreenNode(ScreenNode):
     def _LogMainCardCount(self):
         """打印主卡片总数日志。"""
         if not self.mMainCardPending:
-            print "==== RebuildMainCards: %d cards (lazy loaded) ====" % len(self.mWrappers)
+            dlog.client_print("==== RebuildMainCards: %d cards (lazy loaded) ====" % len(self.mWrappers))
 
     def FindCardIndexByPath(self, cardPath):
         for i in range(len(self.mCardBtns)):
@@ -1757,7 +1683,7 @@ class SettingsScreenNode(ScreenNode):
             return ViewRequest.Nothing
         self.mPressingIndex = index
         self.SetCardVisualState(self.mCardBtns[index], "pressing")
-        print "==== Settings card_%d touch down ====" % index
+        dlog.client_print("==== Settings card_%d touch down ====" % index)
         return ViewRequest.Nothing
 
     def OnCardTouchUp(self, args):
@@ -1791,7 +1717,7 @@ class SettingsScreenNode(ScreenNode):
         self.mPressingIndex = -1
         if index >= 0:
             self._RestoreMainCardVisual(index)
-            print "==== Settings card_%d touch cancel ====" % index
+            dlog.client_print("==== Settings card_%d touch cancel ====" % index)
         return ViewRequest.Nothing
 
     def SelectMainCard(self, index):
@@ -1818,7 +1744,7 @@ class SettingsScreenNode(ScreenNode):
             self.mSelectedIndex = index
             self.ShowSubCards(index)
             self.UpdatePreviewIcon(self.mCardIcons[index])
-            print "==== Settings card_%d selected ====" % index
+            dlog.client_print("==== Settings card_%d selected ====" % index)
         self.SetMainCardVisualState(index, "selected")
 
     def SetCardState(self, index, selected):
@@ -1961,11 +1887,11 @@ class SettingsScreenNode(ScreenNode):
                             img = iconCtrl.asImage()
                             if img:
                                 img.SetSprite(iconPath)
-                                print "==== Settings sub_card icon set: %s -> %s ====" % (key, iconPath)
+                                dlog.client_print("==== Settings sub_card icon set: %s -> %s ====" % (key, iconPath))
                             else:
-                                print "==== Settings sub_card icon asImage failed ===="
+                                dlog.client_print("==== Settings sub_card icon asImage failed ====")
                         else:
-                            print "==== Settings sub_card icon not found inside icon_backdrop ===="
+                            dlog.client_print("==== Settings sub_card icon not found inside icon_backdrop ====")
                     else:
                         self.mSubCardBackdropCtrls[(index, key)] = None
                         self.mSubCardAnimStates[(index, key)] = {
@@ -1973,7 +1899,7 @@ class SettingsScreenNode(ScreenNode):
                             "timer": 0,
                             "playing": False
                         }
-                        print "==== Settings sub_card icon_backdrop not found ===="
+                        dlog.client_print("==== Settings sub_card icon_backdrop not found ====")
                     btn = ctrl.asButton()
                     if btn:
                         btn.AddTouchEventParams({})
@@ -1984,7 +1910,7 @@ class SettingsScreenNode(ScreenNode):
                     self.mSubCardStates[index][key] = False
                     self.SetSubCardVisualState(ctrl, "normal")
             except Exception as e:
-                print "==== Settings sub_card error: %s ====" % str(e)
+                dlog.client_print("==== Settings sub_card error: %s ====" % str(e))
 
     def HideSubCards(self, index):
         if index < 0:
@@ -2050,7 +1976,7 @@ class SettingsScreenNode(ScreenNode):
             return ViewRequest.Nothing
         self.mSubCardPressing = (index, key)
         self.SetSubCardVisualState(self.mSubCards[index][key], "pressing")
-        print "==== Settings sub_card touch down: sub_%d_%s ====" % (index, key)
+        dlog.client_print("==== Settings sub_card touch down: sub_%d_%s ====" % (index, key))
         return ViewRequest.Nothing
 
     def OnSubCardTouchUp(self, args):
@@ -2088,7 +2014,7 @@ class SettingsScreenNode(ScreenNode):
         if prevPressing:
             index, key = prevPressing
             self._RestoreSubCardVisual(index, key)
-            print "==== Settings sub_card touch cancel: sub_%d_%s ====" % (index, key)
+            dlog.client_print("==== Settings sub_card touch cancel: sub_%d_%s ====" % (index, key))
         return ViewRequest.Nothing
 
     def SelectSubCard(self, index, key):
@@ -2109,21 +2035,21 @@ class SettingsScreenNode(ScreenNode):
         self.ClearRightContent()
         self.mCurrentRightGroup = (mainCardId, key, None) if mainCardId else None
         self.OpenRightPanel()
-        print "==== sub_card sub_%d_%s selected, middle+right panels opened ====" % (index, key)
+        dlog.client_print("==== sub_card sub_%d_%s selected, middle+right panels opened ====" % (index, key))
 
     def BuildMiddleOptions(self, index, key):
         self.ClearMiddleOptions()
         if not self.mMiddleScrollContent:
-            print "==== BuildMiddleOptions: scroll content not found ===="
+            dlog.client_print("==== BuildMiddleOptions: scroll content not found ====")
             return
         # 通过 index 查找主卡片 ID
         mainCardId = self.mIndexToCardId[index] if 0 <= index < len(self.mIndexToCardId) else None
         if not mainCardId:
-            print "==== BuildMiddleOptions: invalid index %d ====" % index
+            dlog.client_print("==== BuildMiddleOptions: invalid index %d ====" % index)
             return
         # 从全局绑定中获取该主卡片+子卡片的中间卡片列表
         bindings = GetMiddleCardBindings(mainCardId, key)
-        print "==== BuildMiddleOptions for %s/%s: %d cards ====" % (mainCardId, key, len(bindings))
+        dlog.client_print("==== BuildMiddleOptions for %s/%s: %d cards ====" % (mainCardId, key, len(bindings)))
         # 先暂存，等旧卡片淡出完成 + 极短停顿后再开始创建
         self.mMiddleShowPending = list(bindings)
         self.mMiddleShowDelayTimer = 3  # 约 3 帧（约 0.05s）额外等待，可调
@@ -2142,7 +2068,7 @@ class SettingsScreenNode(ScreenNode):
                 True
             )
             if not ctrl:
-                print "==== middle card '%s' create failed ====" % cardId
+                dlog.client_print("==== middle card '%s' create failed ====" % cardId)
                 return
             label = ctrl.GetChildByName('name')
             if label:
@@ -2199,9 +2125,9 @@ class SettingsScreenNode(ScreenNode):
             # 如果没有任何卡片被选中，自动选中第一个
             if self.mMiddleSelectedIndex < 0 and self.mMiddleOptionCtrls:
                 self.SelectMiddleCard(0)
-            print "==== middle card '%s' created: %s ====" % (cardId, name)
+            dlog.client_print("==== middle card '%s' created: %s ====" % (cardId, name))
         except Exception as e:
-            print "==== middle card '%s' error: %s ====" % (cardId, str(e))
+            dlog.client_print("==== middle card '%s' error: %s ====" % (cardId, str(e)))
 
     def SetMiddleCardAlpha(self, ctrl, alpha):
         """设置中间卡片内部所有 image/label 子控件的透明度（递归覆盖 icon_backdrop 内部）"""
@@ -2212,7 +2138,7 @@ class SettingsScreenNode(ScreenNode):
         """
         设置并立即执行导航参数（UI 已打开时调用）。
         """
-        print "==== SetPendingNavigation: %s %s %s ====" % (main_card_id, sub_key, middle_card_id)
+        dlog.client_print("==== SetPendingNavigation: %s %s %s ====" % (main_card_id, sub_key, middle_card_id))
         self._ExecuteNavigation(main_card_id, sub_key, middle_card_id)
 
     def _ExecuteNavigation(self, main_card_id, sub_key, middle_card_id):
@@ -2220,14 +2146,14 @@ class SettingsScreenNode(ScreenNode):
         执行导航：选中主卡片 → 子卡片 → 中间卡片。
         若主卡片尚未创建（懒加载未完成），则延迟到 OnTick 重试。
         """
-        print "==== _ExecuteNavigation: %s %s %s ====" % (main_card_id, sub_key, middle_card_id)
+        dlog.client_print("==== _ExecuteNavigation: %s %s %s ====" % (main_card_id, sub_key, middle_card_id))
         if not main_card_id:
             return
         main_index = self.mCardIdToIndex.get(main_card_id)
         if main_index is None:
             # 主卡片尚未创建，存入待处理导航，由 OnTick 重试
             self.mPendingNavigation = (main_card_id, sub_key, middle_card_id)
-            print "==== _ExecuteNavigation: main_card_id '%s' not yet created, queued ====" % main_card_id
+            dlog.client_print("==== _ExecuteNavigation: main_card_id '%s' not yet created, queued ====" % main_card_id)
             return
         # 1. 选中主卡片
         self.SelectMainCard(main_index)
@@ -2250,15 +2176,15 @@ class SettingsScreenNode(ScreenNode):
         except ValueError:
             middle_index = -1
         if middle_index >= 0:
-            print "==== _TrySelectPendingMiddleCard: '%s' at index %d ====" % (
+            dlog.client_print("==== _TrySelectPendingMiddleCard: '%s' at index %d ====" % (
                 self.mPendingMiddleCardId, middle_index
-            )
+            ))
             self.SelectMiddleCard(middle_index)
             self.mPendingMiddleCardId = None
         else:
-            print "==== _TrySelectPendingMiddleCard: '%s' not yet loaded ====" % (
+            dlog.client_print("==== _TrySelectPendingMiddleCard: '%s' not yet loaded ====" % (
                 self.mPendingMiddleCardId
-            )
+            ))
 
     # ===== icon_backdrop 序列帧动画控制 =====
 
@@ -2334,9 +2260,51 @@ class SettingsScreenNode(ScreenNode):
         v = frame * self.mBackdropFrameSize
         imgCtrl.SetSpriteUV((0, v))
 
+    def ApplyServerLogSwitch(self, enabled, is_op):
+        """服务端下发全局日志开关状态：应用到服务端调试开关（未渲染则暂存）。"""
+        self.mServerLogPending = (bool(enabled), bool(is_op))
+        item_id = self.mServerLogSwitchItem
+        if not item_id:
+            return
+        switchCtrl = self.mRightSwitchCtrlMap.get(item_id)
+        if switchCtrl is None:
+            return  # 开关尚未渲染，等 OnTick 时应用暂存状态
+        self._ApplyServerLogSwitchToCtrl(switchCtrl, enabled, is_op)
+
+    def _ApplyServerLogSwitchToCtrl(self, switchCtrl, enabled, is_op):
+        """将全局日志开关值与锁定状态同步到指定开关控件（锁定由玩家是否 OP 决定）。"""
+        item_id = self.mServerLogSwitchItem
+        if not item_id:
+            return
+        try:
+            toggle = switchCtrl.asSwitchToggle()
+            if toggle and toggle.GetToggleState("/this_toggle") != bool(enabled):
+                toggle.SetToggleState(bool(enabled), "/this_toggle")
+                self.mRightSwitchStates[item_id] = bool(enabled)
+        except Exception as e:
+            dlog.client_print("==== ApplyServerLogSwitch value error: %s ====" % str(e))
+        # 非 OP 查看时锁定（禁用交互），OP 可正常切换
+        try:
+            switchCtrl.SetTouchEnable(bool(is_op))
+        except Exception as e:
+            dlog.client_print("==== ApplyServerLogSwitch lock error: %s ====" % str(e))
+
     def OnTick(self):
         # 处理主卡片状态渐隐
         self._UpdateMainCardFade()
+
+        # 服务端调试开关同步：渲染完成后请求全局值并应用（含待处理状态）
+        if self.mNeedServerLogRequest:
+            item_id = self.mServerLogSwitchItem
+            if item_id and item_id in self.mRightSwitchCtrlMap:
+                if self.mServerLogPending:
+                    pending_enabled, pending_is_op = self.mServerLogPending
+                    self._ApplyServerLogSwitchToCtrl(
+                        self.mRightSwitchCtrlMap[item_id], pending_enabled, pending_is_op)
+                    self.mServerLogPending = None
+                self.mNeedServerLogRequest = False
+                if _g_ClientSystem:
+                    _g_ClientSystem.SendServerLogRequest()
 
         # 主卡片懒加载：逐帧创建剩余卡片
         if self.mMainCardPending:
@@ -2532,12 +2500,12 @@ class SettingsScreenNode(ScreenNode):
                                     try:
                                         it.on_toggle(self, item_id, current_state)
                                     except Exception as e:
-                                        print "==== switch on_toggle error: %s ====" % str(e)
+                                        dlog.client_print("==== switch on_toggle error: %s ====" % str(e))
                                 break
                 # 更新状态记录
                 self.mRightSwitchStates[item_id] = current_state
             except Exception as e:
-                print "==== OnTick switch state check error: %s ====" % str(e)
+                dlog.client_print("==== OnTick switch state check error: %s ====" % str(e))
 
         # ===== 编辑框内容保存轮询 =====
         for item_id, editBoxCtrl in list(self.mRightEditBoxCtrlMap.items()):
@@ -2552,7 +2520,7 @@ class SettingsScreenNode(ScreenNode):
             try:
                 current_text = textEditBox.GetEditText()
             except Exception as e:
-                print "==== OnTick edit_box read error: %s ====" % str(e)
+                dlog.client_print("==== OnTick edit_box read error: %s ====" % str(e))
                 continue
             if self.mCurrentRightGroup:
                 items = GetContentItems(*self.mCurrentRightGroup)
@@ -2569,7 +2537,7 @@ class SettingsScreenNode(ScreenNode):
                                 try:
                                     on_change(self, item_id, current_text)
                                 except Exception as e:
-                                    print "==== edit_box on_value_change error: %s ====" % str(e)
+                                    dlog.client_print("==== edit_box on_value_change error: %s ====" % str(e))
                         break
 
         # ===== 滑块值轮询检测 =====
@@ -2611,11 +2579,11 @@ class SettingsScreenNode(ScreenNode):
                                         try:
                                             it.on_value_change(self, item_id, value)
                                         except Exception as e:
-                                            print "==== slider on_value_change error: %s ====" % str(e)
+                                            dlog.client_print("==== slider on_value_change error: %s ====" % str(e))
                                 break
                     self.mRightSliderStates[item_id] = current_visual
             except Exception as e:
-                print "==== OnTick slider state check error: %s ====" % str(e)
+                dlog.client_print("==== OnTick slider state check error: %s ====" % str(e))
 
     def ClearMiddleOptions(self):
         self.mPendingMiddleCards = []
@@ -2677,7 +2645,7 @@ class SettingsScreenNode(ScreenNode):
             return ViewRequest.Nothing
         self.mMiddlePressingIndex = index
         self.SetCardVisualState(self.mMiddleOptionCtrls[index], "pressing")
-        print "==== Settings middle card %d touch down ====" % index
+        dlog.client_print("==== Settings middle card %d touch down ====" % index)
         return ViewRequest.Nothing
 
     def OnMiddleCardTouchUp(self, args):
@@ -2711,7 +2679,7 @@ class SettingsScreenNode(ScreenNode):
         self.mMiddlePressingIndex = -1
         if index >= 0:
             self._RestoreMiddleCardVisual(index)
-            print "==== Settings middle card %d touch cancel ====" % index
+            dlog.client_print("==== Settings middle card %d touch cancel ====" % index)
         return ViewRequest.Nothing
 
     def SelectMiddleCard(self, index):
@@ -2723,7 +2691,7 @@ class SettingsScreenNode(ScreenNode):
                     nameCtrl.asLabel().SetTextColor([0.0, 0.0, 0.0])
             self.mMiddleSelectedIndex = index
             self._StartMiddleCardBackdropAnimation(index)
-            print "==== middle card %d selected ====" % index
+            dlog.client_print("==== middle card %d selected ====" % index)
         self.SetCardVisualState(self.mMiddleOptionCtrls[index], "selected")
         nameCtrl = self.mMiddleOptionCtrls[index].GetChildByName('name')
         if nameCtrl:
@@ -2736,10 +2704,10 @@ class SettingsScreenNode(ScreenNode):
 
     def OpenMiddlePanel(self):
         if not self.mMiddleCtrl:
-            print "==== OpenMiddlePanel: middle control not found ===="
+            dlog.client_print("==== OpenMiddlePanel: middle control not found ====")
             return
         if self.mMiddleOpen:
-            print "==== OpenMiddlePanel: already open ===="
+            dlog.client_print("==== OpenMiddlePanel: already open ====")
             return
         if self.mMiddleHasAnimation:
             self.mMiddleCtrl.StopAnimation("offset")
@@ -2749,11 +2717,11 @@ class SettingsScreenNode(ScreenNode):
         self.mMiddleCtrl.PlayAnimation("offset")
         self.mMiddleOpen = True
         self.mMiddleHasAnimation = True
-        print "==== middle panel enter animation played ===="
+        dlog.client_print("==== middle panel enter animation played ====")
 
     def HideMiddlePanel(self):
         if not self.mMiddleCtrl:
-            print "==== HideMiddlePanel: middle control not found ===="
+            dlog.client_print("==== HideMiddlePanel: middle control not found ====")
             return
         if not self.mMiddleOpen:
             return
@@ -2766,25 +2734,25 @@ class SettingsScreenNode(ScreenNode):
         self.mMiddleCtrl.SetAnimEndCallback("middle_exit", self.OnMiddleHidden)
         self.mMiddleCtrl.PlayAnimation("offset")
         self.mMiddleHasAnimation = True
-        print "==== middle panel exit animation played ===="
+        dlog.client_print("==== middle panel exit animation played ====")
 
     def OnMiddleHidden(self):
         if self.mMiddleOpen:
-            print "==== OnMiddleHidden skipped, panel reopened ===="
+            dlog.client_print("==== OnMiddleHidden skipped, panel reopened ====")
             return
         if self.mMiddleCtrl:
             self.mMiddleCtrl.SetVisible(False)
         if self.mMiddleHasAnimation:
             self.mMiddleCtrl.RemoveAnimation("offset")
             self.mMiddleHasAnimation = False
-        print "==== middle panel hidden ===="
+        dlog.client_print("==== middle panel hidden ====")
 
     def OpenRightPanel(self):
         if not self.mRightCtrl:
-            print "==== OpenRightPanel: right control not found ===="
+            dlog.client_print("==== OpenRightPanel: right control not found ====")
             return
         if self.mRightOpen:
-            print "==== OpenRightPanel: already open ===="
+            dlog.client_print("==== OpenRightPanel: already open ====")
             return
         if self.mRightHasAnimation:
             self.mRightCtrl.StopAnimation("offset")
@@ -2794,11 +2762,11 @@ class SettingsScreenNode(ScreenNode):
         self.mRightCtrl.PlayAnimation("offset")
         self.mRightOpen = True
         self.mRightHasAnimation = True
-        print "==== right panel enter animation played ===="
+        dlog.client_print("==== right panel enter animation played ====")
 
     def HideRightPanel(self):
         if not self.mRightCtrl:
-            print "==== HideRightPanel: right control not found ===="
+            dlog.client_print("==== HideRightPanel: right control not found ====")
             return
         if not self.mRightOpen:
             return
@@ -2809,7 +2777,7 @@ class SettingsScreenNode(ScreenNode):
                 from SettingState import SaveGroupSettings
                 SaveGroupSettings(old_group[0], old_group[1], old_group[2])
             except Exception as e:
-                print "==== HideRightPanel: save group error: %s ====" % str(e)
+                dlog.client_print("==== HideRightPanel: save group error: %s ====" % str(e))
         self.mRightOpen = False
         if self.mRightHasAnimation:
             self.mRightCtrl.StopAnimation("offset")
@@ -2818,11 +2786,11 @@ class SettingsScreenNode(ScreenNode):
         self.mRightCtrl.SetAnimEndCallback("right_exit", self.OnRightHidden)
         self.mRightCtrl.PlayAnimation("offset")
         self.mRightHasAnimation = True
-        print "==== right panel exit animation played ===="
+        dlog.client_print("==== right panel exit animation played ====")
 
     def OnRightHidden(self):
         if self.mRightOpen:
-            print "==== OnRightHidden skipped, panel reopened ===="
+            dlog.client_print("==== OnRightHidden skipped, panel reopened ====")
             return
         if self.mRightCtrl:
             self.mRightCtrl.SetVisible(False)
@@ -2858,7 +2826,7 @@ class SettingsScreenNode(ScreenNode):
         self.mRightContentDelayTimer = 0
         self.mRightShowPending = None
         self.mRightShowDelayTimer = 0
-        print "==== right panel hidden, content cleared ===="
+        dlog.client_print("==== right panel hidden, content cleared ====")
 
     def ClearRightContent(self):
         """清空右侧内容控件（淡出后移除）。切换前先保存当前分组的设置改动。"""
@@ -2869,7 +2837,7 @@ class SettingsScreenNode(ScreenNode):
                 from SettingState import SaveGroupSettings
                 SaveGroupSettings(old_group[0], old_group[1], old_group[2])
             except Exception as e:
-                print "==== ClearRightContent: save group error: %s ====" % str(e)
+                dlog.client_print("==== ClearRightContent: save group error: %s ====" % str(e))
         self.mRightPendingItems = []
         self.mRightContentDelayTimer = 0
         self.mRightShowPending = None
@@ -2912,11 +2880,22 @@ class SettingsScreenNode(ScreenNode):
         self.mCurrentRightGroup = (main_card_id, sub_key, middle_card_id)
         self.mRightFinishedStates.setdefault(self.mCurrentRightGroup, set())
         self.mRightFinishedStates[self.mCurrentRightGroup].clear()
+        # 服务端"调试"分类：标记需要向服务端请求全局日志开关状态（由 OnTick 同步）
+        self.mServerLogSwitchItem = None
+        self.mNeedServerLogRequest = False
+        if sub_key == "server":
+            try:
+                from setting import DEBUG_CATEGORY_ID, SWITCH_SERVER_LOG_OUTPUT
+                if NormalizeMiddleCardId(middle_card_id) == DEBUG_CATEGORY_ID:
+                    self.mServerLogSwitchItem = SWITCH_SERVER_LOG_OUTPUT
+                    self.mNeedServerLogRequest = True
+            except ImportError:
+                pass
         if not self.mRightScrollContent:
-            print "==== RebuildRightContent: scroll content not found ===="
+            dlog.client_print("==== RebuildRightContent: scroll content not found ====")
             return
         items = GetContentItems(main_card_id, sub_key, middle_card_id)
-        print "==== RebuildRightContent for %s/%s/%s: %d items ====" % (main_card_id, sub_key, middle_card_id, len(items))
+        dlog.client_print("==== RebuildRightContent for %s/%s/%s: %d items ====" % (main_card_id, sub_key, middle_card_id, len(items)))
         # 等旧内容淡出后立即开始逐项创建+淡入（与中间面板选中同步）
         self.mRightShowPending = list(items)
         self.mRightShowDelayTimer = 0
@@ -2928,7 +2907,7 @@ class SettingsScreenNode(ScreenNode):
         item = self.mRightPendingItems.pop(0)
         builder = _contentBuilders.get(item.type_name)
         if builder is None:
-            print "==== CreateNextRightContent: builder for type '%s' not found ====" % item.type_name
+            dlog.client_print("==== CreateNextRightContent: builder for type '%s' not found ====" % item.type_name)
             return
         try:
             builder(self, self.mRightScrollContent, item)
@@ -2938,7 +2917,7 @@ class SettingsScreenNode(ScreenNode):
                 self.SetRightContentAlpha(ctrl, 0.0)
                 self.mRightFadingInCtrls.append([ctrl, 0.0])
         except Exception as e:
-            print "==== CreateNextRightContent item '%s' error: %s ====" % (item.item_id, str(e))
+            dlog.client_print("==== CreateNextRightContent item '%s' error: %s ====" % (item.item_id, str(e)))
 
     def SetRightContentAlpha(self, ctrl, alpha):
         """设置右侧内容项内部所有 image/label 子控件的透明度（使用缓存引用，避免每帧递归查找）"""
@@ -3003,7 +2982,7 @@ class SettingsScreenNode(ScreenNode):
 
     def OnRightButtonClick(self, args, item_id):
         """右侧按钮点击回调：隐藏按钮文字，显示 finish 图标，并触发注册回调。"""
-        print "==== OnRightButtonClick: %s ====" % item_id
+        dlog.client_print("==== OnRightButtonClick: %s ====" % item_id)
         ctrl = self.mRightBtnCtrlMap.get(item_id)
         if not ctrl:
             return ViewRequest.Nothing
@@ -3032,16 +3011,16 @@ class SettingsScreenNode(ScreenNode):
                         try:
                             it.on_click(self, item_id)
                         except Exception as e:
-                            print "==== button on_click error: %s ====" % str(e)
+                            dlog.client_print("==== button on_click error: %s ====" % str(e))
                         break
         except Exception as e:
-            print "==== OnRightButtonClick error: %s ====" % str(e)
+            dlog.client_print("==== OnRightButtonClick error: %s ====" % str(e))
 
         return ViewRequest.Nothing
 
     def OnCollapsibleMenuClick(self, args, menu_id, item):
         """折叠菜单内容项按钮点击回调：弹出关联折叠菜单。"""
-        print "==== OnCollapsibleMenuClick: item_id=%s menu_id=%s ====" % (item.item_id, menu_id)
+        dlog.client_print("==== OnCollapsibleMenuClick: item_id=%s menu_id=%s ====" % (item.item_id, menu_id))
         global _g_ClientSystem
         if _g_ClientSystem:
             _g_ClientSystem.ShowCollapsibleMenu(menu_id, item)
@@ -3064,7 +3043,7 @@ class SettingsScreenNode(ScreenNode):
         :param item_id_or_path: 内容项 ID（AddButton/AddSwitch/AddEditBox 的 item_id）或 edit_box 控件完整路径
         :param locked:  True 锁定，False 解锁
         """
-        print "==== SetLocked: target=%s locked=%s ====" % (item_id_or_path, locked)
+        dlog.client_print("==== SetLocked: target=%s locked=%s ====" % (item_id_or_path, locked))
         item_id = item_id_or_path
         # 1. 更新右侧面板内容项数据层
         if self.mCurrentRightGroup:
@@ -3098,7 +3077,7 @@ class SettingsScreenNode(ScreenNode):
             try:
                 switchCtrl.SetTouchEnable(not locked)
             except Exception as e:
-                print "==== SetLocked: SetTouchEnable error: %s ====" % str(e)
+                dlog.client_print("==== SetLocked: SetTouchEnable error: %s ====" % str(e))
             return
         # 2b2. slider 锁定逻辑
         sliderCtrl = self.mRightSliderCtrlMap.get(item_id)
@@ -3106,7 +3085,7 @@ class SettingsScreenNode(ScreenNode):
             try:
                 sliderCtrl.SetTouchEnable(not locked)
             except Exception as e:
-                print "==== SetLocked: slider SetTouchEnable error: %s ====" % str(e)
+                dlog.client_print("==== SetLocked: slider SetTouchEnable error: %s ====" % str(e))
             # 锁定视觉由运行时动态创建的灰层(slider_lock_bg)+拦截层(lock_overlay)+柄内锁定贴图(slider_lock)驱动
             sliderBaseCtrl = self.mRightSliderBaseMap.get(item_id)
             bgCtrl = getattr(self, 'mRightSliderBgMap', {}).get(item_id)
@@ -3144,18 +3123,18 @@ class SettingsScreenNode(ScreenNode):
             if lockCtrl:
                 lockCtrl.SetVisible(locked)
             else:
-                print "==== SetLocked: edit_box lock child not found ===="
+                dlog.client_print("==== SetLocked: edit_box lock child not found ====")
             try:
                 editBoxCtrl.SetTouchEnable(not locked)
             except Exception as e:
-                print "==== SetLocked: edit_box SetTouchEnable error: %s ====" % str(e)
+                dlog.client_print("==== SetLocked: edit_box SetTouchEnable error: %s ====" % str(e))
             # 防御性：显式禁用/启用内部原生输入框
             inputCtrl = editBoxCtrl.GetChildByName('input')
             if inputCtrl:
                 try:
                     inputCtrl.SetTouchEnable(not locked)
                 except Exception as e:
-                    print "==== SetLocked: input SetTouchEnable error: %s ====" % str(e)
+                    dlog.client_print("==== SetLocked: input SetTouchEnable error: %s ====" % str(e))
             # 锁定层显示输入框当前文字
             if locked and inputCtrl:
                 teb = inputCtrl.asTextEditBox()
@@ -3174,19 +3153,19 @@ class SettingsScreenNode(ScreenNode):
                 if lockCtrl:
                     lockCtrl.SetVisible(locked)
                 else:
-                    print "==== SetLocked: edit_box lock child not found at %s ====" % item_id
+                    dlog.client_print("==== SetLocked: edit_box lock child not found at %s ====" % item_id)
                 # 禁用/启用编辑框交互
                 try:
                     editBoxCtrl.SetTouchEnable(not locked)
                 except Exception as e:
-                    print "==== SetLocked: edit_box SetTouchEnable error: %s ====" % str(e)
+                    dlog.client_print("==== SetLocked: edit_box SetTouchEnable error: %s ====" % str(e))
                 # 防御性：显式禁用/启用内部原生输入框
                 inputCtrl = editBoxCtrl.GetChildByName('input')
                 if inputCtrl:
                     try:
                         inputCtrl.SetTouchEnable(not locked)
                     except Exception as e:
-                        print "==== SetLocked: input SetTouchEnable error: %s ====" % str(e)
+                        dlog.client_print("==== SetLocked: input SetTouchEnable error: %s ====" % str(e))
                 # 锁定层显示输入框当前文字
                 if locked and inputCtrl:
                     teb = inputCtrl.asTextEditBox()
@@ -3196,13 +3175,13 @@ class SettingsScreenNode(ScreenNode):
                         except Exception:
                             pass
             else:
-                print "==== SetLocked: edit_box not found at %s ====" % item_id
+                dlog.client_print("==== SetLocked: edit_box not found at %s ====" % item_id)
             return
-        print "==== SetLocked: unknown target %s ====" % item_id
+        dlog.client_print("==== SetLocked: unknown target %s ====" % item_id)
 
     def OnSwitchToggle(self, args, item_id):
         """开关状态改变回调。"""
-        print "==== OnSwitchToggle: %s ====" % item_id
+        dlog.client_print("==== OnSwitchToggle: %s ====" % item_id)
         # 获取开关当前状态
         state = None
         switchCtrl = self.mRightSwitchCtrlMap.get(item_id)
@@ -3212,9 +3191,9 @@ class SettingsScreenNode(ScreenNode):
                 toggle_path = "/this_toggle"
                 try:
                     state = switchToggle.GetToggleState(toggle_path)
-                    print "==== OnSwitchToggle: %s -> %s ====" % (item_id, state)
+                    dlog.client_print("==== OnSwitchToggle: %s -> %s ====" % (item_id, state))
                 except Exception as e:
-                    print "==== OnSwitchToggle: GetToggleState error: %s ====" % str(e)
+                    dlog.client_print("==== OnSwitchToggle: GetToggleState error: %s ====" % str(e))
         # 触发 on_toggle 回调
         if self.mCurrentRightGroup and state is not None:
             items = GetContentItems(*self.mCurrentRightGroup)
@@ -3223,7 +3202,7 @@ class SettingsScreenNode(ScreenNode):
                     try:
                         it.on_toggle(self, item_id, state)
                     except Exception as e:
-                        print "==== switch on_toggle error: %s ====" % str(e)
+                        dlog.client_print("==== switch on_toggle error: %s ====" % str(e))
                     break
         return ViewRequest.Nothing
 
@@ -3235,7 +3214,7 @@ def RegisterContentBuilder(type_name, builder):
 def _SetLabelText(ctrl, text, logPrefix):
     """同时通过 PropertyBag 和 asLabel().SetText() 设置 label 文本，确保生效。"""
     if not ctrl:
-        print "==== %s: control is None ====" % logPrefix
+        dlog.client_print("==== %s: control is None ====" % logPrefix)
         return False
     try:
         # PropertyBag 中 key 为属性名 text（不带 $），覆盖变量绑定解析后的值
@@ -3245,13 +3224,13 @@ def _SetLabelText(ctrl, text, logPrefix):
             label.SetText(text)
         return True
     except Exception as e:
-        print "==== %s set text error: %s ====" % (logPrefix, str(e))
+        dlog.client_print("==== %s set text error: %s ====" % (logPrefix, str(e)))
         return False
 
 
 def BuildTextContent(screenNode, parent, item):
     """文本内容项 UI 创建。"""
-    print "==== BuildTextContent item_id=%s title=%s text=%s ====" % (item.item_id, item.title, item.text)
+    dlog.client_print("==== BuildTextContent item_id=%s title=%s text=%s ====" % (item.item_id, item.title, item.text))
     ctrl = screenNode.CreateChildControl(
         'setting.text_content',
         'rtext_' + item.item_id,
@@ -3259,7 +3238,7 @@ def BuildTextContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildTextContent: create control failed ===="
+        dlog.client_print("==== BuildTextContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现（默认 alpha=1.0，右侧面板滑动进入时可见）
     try:
@@ -3274,15 +3253,15 @@ def BuildTextContent(screenNode, parent, item):
             _SetLabelText(litleCtrl, item.title, "BuildTextContent.litle")
             litleCtrl.SetVisible(bool(item.title))  # 空标题隐藏，正文上移贴顶
         else:
-            print "==== BuildTextContent: litle child not found in panel ===="
+            dlog.client_print("==== BuildTextContent: litle child not found in panel ====")
         labelCtrl = panelCtrl.GetChildByName('label')
         if labelCtrl:
             _SetLabelText(labelCtrl, item.text, "BuildTextContent.label")
             labelCtrl.SetVisible(bool(item.text))  # 空正文防御性隐藏
         else:
-            print "==== BuildTextContent: label child not found in panel ===="
+            dlog.client_print("==== BuildTextContent: label child not found in panel ====")
     else:
-        print "==== BuildTextContent: panel child not found ===="
+        dlog.client_print("==== BuildTextContent: panel child not found ====")
     screenNode.mRightContentCtrls.append(ctrl)
 
 
@@ -3305,7 +3284,7 @@ def _UpdateSliderValueLabel(screenNode, item, value):
                 text = "%.0f%%" % (float(value) * 100)
         _SetLabelText(valueCtrl, text, "BuildSliderContent.value")
     except Exception as e:
-        print "==== UpdateSliderValueLabel error: %s ====" % str(e)
+        dlog.client_print("==== UpdateSliderValueLabel error: %s ====" % str(e))
 
 
 def _RestoreItemLocked(screenNode, item):
@@ -3323,15 +3302,15 @@ def _RestoreItemLocked(screenNode, item):
             item.locked = bool(locked)
         item._loaded = True
     except Exception as e:
-        print "==== RestoreItemLocked error %s: %s ====" % (item.item_id, str(e))
+        dlog.client_print("==== RestoreItemLocked error %s: %s ====" % (item.item_id, str(e)))
 
 
 def BuildButtonContent(screenNode, parent, item):
     """按钮内容项 UI 创建。"""
     _RestoreItemLocked(screenNode, item)
-    print "==== BuildButtonContent item_id=%s desc=%s button_text=%s litle=%s ====" % (
+    dlog.client_print("==== BuildButtonContent item_id=%s desc=%s button_text=%s litle=%s ====" % (
         item.item_id, item.desc, item.button_text, item.litle
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.button_content',
         'rbtn_' + item.item_id,
@@ -3339,7 +3318,7 @@ def BuildButtonContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildButtonContent: create control failed ===="
+        dlog.client_print("==== BuildButtonContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现（默认 alpha=1.0，右侧面板滑动进入时可见）
     try:
@@ -3360,13 +3339,13 @@ def BuildButtonContent(screenNode, parent, item):
             _SetLabelText(descCtrl, item.desc, "BuildButtonContent.desc")
             descCtrl.SetVisible(bool(item.desc))  # 空正文防御性隐藏
         else:
-            print "==== BuildButtonContent: desc child not found in panel ===="
+            dlog.client_print("==== BuildButtonContent: desc child not found in panel ====")
     else:
-        print "==== BuildButtonContent: panel child not found ===="
+        dlog.client_print("==== BuildButtonContent: panel child not found ====")
 
     buttonCtrl = ctrl.GetChildByName('button')
     if not buttonCtrl:
-        print "==== BuildButtonContent: button child not found ===="
+        dlog.client_print("==== BuildButtonContent: button child not found ====")
         return
 
     textLabel = buttonCtrl.GetChildByName('text')
@@ -3376,7 +3355,7 @@ def BuildButtonContent(screenNode, parent, item):
         _SetLabelText(textLabel, item.button_text, "BuildButtonContent.text")
         textLabel.SetVisible(True)
     else:
-        print "==== BuildButtonContent: text child not found ===="
+        dlog.client_print("==== BuildButtonContent: text child not found ====")
     if finishImg:
         finishImg.SetVisible(False)
 
@@ -3419,9 +3398,9 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
         item.SetSelected(stored_id, item._NameOf(stored_id))
     item.value = item.selected_id
     item._loaded = True
-    print "==== BuildCollapsibleMenuContent item_id=%s desc=%s menu_id=%s litle=%s selected=%s locked=%s ====" % (
+    dlog.client_print("==== BuildCollapsibleMenuContent item_id=%s desc=%s menu_id=%s litle=%s selected=%s locked=%s ====" % (
         item.item_id, item.desc, item.menu_id, item.litle, item.GetDisplayText(), item.locked
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.collapsible_menu_content',
         'rcm_' + item.item_id,
@@ -3429,7 +3408,7 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildCollapsibleMenuContent: create control failed ===="
+        dlog.client_print("==== BuildCollapsibleMenuContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现
     try:
@@ -3439,7 +3418,7 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
     # 子控件（litle 小标题 + desc 描述 + button）在 panel 内
     panelCtrl = ctrl.GetChildByName('panel')
     if not panelCtrl:
-        print "==== BuildCollapsibleMenuContent: panel child not found ===="
+        dlog.client_print("==== BuildCollapsibleMenuContent: panel child not found ====")
     else:
         litleCtrl = panelCtrl.GetChildByName('litle')
         if litleCtrl:
@@ -3453,7 +3432,7 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
         wrapCtrl = panelCtrl.GetChildByName('button_wrap')
         buttonCtrl = wrapCtrl.GetChildByName('button') if wrapCtrl else None
         if not buttonCtrl:
-            print "==== BuildCollapsibleMenuContent: button child not found ===="
+            dlog.client_print("==== BuildCollapsibleMenuContent: button child not found ====")
         else:
             textLabel = buttonCtrl.GetChildByName('text')
             if textLabel:
@@ -3482,9 +3461,9 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
 def BuildSwitchContent(screenNode, parent, item):
     """开关内容项 UI 创建。"""
     _RestoreItemLocked(screenNode, item)
-    print "==== BuildSwitchContent item_id=%s desc=%s default_value=%s locked=%s litle=%s ====" % (
+    dlog.client_print("==== BuildSwitchContent item_id=%s desc=%s default_value=%s locked=%s litle=%s ====" % (
         item.item_id, item.desc, item.default_value, item.locked, item.litle
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.switch_content',
         'rsw_' + item.item_id,
@@ -3492,7 +3471,7 @@ def BuildSwitchContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildSwitchContent: create control failed ===="
+        dlog.client_print("==== BuildSwitchContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现
     try:
@@ -3514,14 +3493,14 @@ def BuildSwitchContent(screenNode, parent, item):
             _SetLabelText(descCtrl, item.desc, "BuildSwitchContent.desc")
             descCtrl.SetVisible(bool(item.desc))  # 空正文防御性隐藏
         else:
-            print "==== BuildSwitchContent: desc child not found in panel ===="
+            dlog.client_print("==== BuildSwitchContent: desc child not found in panel ====")
     else:
-        print "==== BuildSwitchContent: panel child not found ===="
+        dlog.client_print("==== BuildSwitchContent: panel child not found ====")
 
     # 获取开关控件
     switchCtrl = ctrl.GetChildByName('switch')
     if not switchCtrl:
-        print "==== BuildSwitchContent: switch child not found ===="
+        dlog.client_print("==== BuildSwitchContent: switch child not found ====")
         return
 
     # 设置默认值（优先读持久化状态，无存储值时回退 default_value）
@@ -3541,13 +3520,13 @@ def BuildSwitchContent(screenNode, parent, item):
                 item.SetValue(bool(init_state))
             item._loaded = True
         except Exception as e:
-            print "==== BuildSwitchContent: SetToggleState error: %s ====" % str(e)
+            dlog.client_print("==== BuildSwitchContent: SetToggleState error: %s ====" % str(e))
 
     # 锁定处理：禁用交互（SetTouchEnable 是 BaseUIControl 的方法）
     try:
         switchCtrl.SetTouchEnable(not item.locked)
     except Exception as e:
-        print "==== BuildSwitchContent: SetTouchEnable error: %s ====" % str(e)
+        dlog.client_print("==== BuildSwitchContent: SetTouchEnable error: %s ====" % str(e))
 
     # 存储引用（存 switchCtrl 以调用 SetTouchEnable 等 BaseUIControl 方法）
     screenNode.mRightSwitchCtrlMap[item.item_id] = switchCtrl
@@ -3557,7 +3536,7 @@ def BuildSwitchContent(screenNode, parent, item):
         if toggle:
             screenNode.mRightSwitchStates[item.item_id] = toggle.GetToggleState("/this_toggle")
     except Exception as e:
-        print "==== BuildSwitchContent: init state error: %s ====" % str(e)
+        dlog.client_print("==== BuildSwitchContent: init state error: %s ====" % str(e))
     screenNode.mRightContentCtrls.append(ctrl)
 
 
@@ -3575,9 +3554,9 @@ def _SyncEditBoxLockText(screenNode, item_id, text):
 def BuildEditBoxContent(screenNode, parent, item):
     """编辑框内容项 UI 创建。"""
     _RestoreItemLocked(screenNode, item)
-    print "==== BuildEditBoxContent item_id=%s desc=%s default_value=%s placeholder=%s locked=%s litle=%s ====" % (
+    dlog.client_print("==== BuildEditBoxContent item_id=%s desc=%s default_value=%s placeholder=%s locked=%s litle=%s ====" % (
         item.item_id, item.desc, item.default_value, item.placeholder, item.locked, item.litle
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.edit_box_content',
         'redt_' + item.item_id,
@@ -3585,7 +3564,7 @@ def BuildEditBoxContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildEditBoxContent: create control failed ===="
+        dlog.client_print("==== BuildEditBoxContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现
     try:
@@ -3604,27 +3583,27 @@ def BuildEditBoxContent(screenNode, parent, item):
             _SetLabelText(descCtrl, item.desc, "BuildEditBoxContent.desc")
             descCtrl.SetVisible(bool(item.desc))  # 空正文防御性隐藏
         else:
-            print "==== BuildEditBoxContent: desc child not found in panel ===="
+            dlog.client_print("==== BuildEditBoxContent: desc child not found in panel ====")
     else:
-        print "==== BuildEditBoxContent: panel child not found ===="
+        dlog.client_print("==== BuildEditBoxContent: panel child not found ====")
 
     # 右侧编辑框包装器
     editBoxCtrl = ctrl.GetChildByName('edit_box')
     if not editBoxCtrl:
-        print "==== BuildEditBoxContent: edit_box child not found ===="
+        dlog.client_print("==== BuildEditBoxContent: edit_box child not found ====")
         return
 
     # 取真正的原生输入控件
     inputCtrl = editBoxCtrl.GetChildByName('input')
     if not inputCtrl:
-        print "==== BuildEditBoxContent: input child not found ===="
+        dlog.client_print("==== BuildEditBoxContent: input child not found ====")
         return
 
     # 设置 placeholder
     try:
         inputCtrl.SetPropertyBag({"place_holder_text": item.placeholder})
     except Exception as e:
-        print "==== BuildEditBoxContent: SetPropertyBag placeholder error: %s ====" % str(e)
+        dlog.client_print("==== BuildEditBoxContent: SetPropertyBag placeholder error: %s ====" % str(e))
 
     # 设置初始内容（优先读持久化状态，其次运行时 value，最后 default_value）
     textEditBox = inputCtrl.asTextEditBox()
@@ -3642,9 +3621,9 @@ def BuildEditBoxContent(screenNode, parent, item):
         try:
             textEditBox.SetEditText(item.value)
         except Exception as e:
-            print "==== BuildEditBoxContent: SetEditText error: %s ====" % str(e)
+            dlog.client_print("==== BuildEditBoxContent: SetEditText error: %s ====" % str(e))
     else:
-        print "==== BuildEditBoxContent: asTextEditBox failed ===="
+        dlog.client_print("==== BuildEditBoxContent: asTextEditBox failed ====")
 
     # 锁定处理：显示 lock 覆盖层并禁用整个包装器（连带 input）
     lockCtrl = editBoxCtrl.GetChildByName('lock')
@@ -3653,7 +3632,7 @@ def BuildEditBoxContent(screenNode, parent, item):
     try:
         editBoxCtrl.SetTouchEnable(not item.locked)
     except Exception as e:
-        print "==== BuildEditBoxContent: SetTouchEnable error: %s ====" % str(e)
+        dlog.client_print("==== BuildEditBoxContent: SetTouchEnable error: %s ====" % str(e))
 
     # 记录 lock_text 控件引用，锁定时显示输入框当前文字
     lockTextCtrl = None
@@ -3680,12 +3659,12 @@ def _ApplySliderLockVisual(sliderBaseCtrl, bgCtrl, overlayCtrl, value, locked):
         try:
             bgCtrl.SetVisible(bool(locked))
         except Exception as e:
-            print "==== _ApplySliderLockVisual: bg SetVisible error: %s ====" % str(e)
+            dlog.client_print("==== _ApplySliderLockVisual: bg SetVisible error: %s ====" % str(e))
     if overlayCtrl:
         try:
             overlayCtrl.SetVisible(bool(locked))
         except Exception as e:
-            print "==== _ApplySliderLockVisual: overlay SetVisible error: %s ====" % str(e)
+            dlog.client_print("==== _ApplySliderLockVisual: overlay SetVisible error: %s ====" % str(e))
     if sliderBaseCtrl:
         try:
             sliderBoxCtrl = sliderBaseCtrl.GetChildByName('slider_box')
@@ -3698,15 +3677,15 @@ def _ApplySliderLockVisual(sliderBaseCtrl, bgCtrl, overlayCtrl, value, locked):
                 if lockImg:
                     lockImg.SetVisible(bool(locked))
         except Exception as e:
-            print "==== _ApplySliderLockVisual: slider lock visual error: %s ====" % str(e)
+            dlog.client_print("==== _ApplySliderLockVisual: slider lock visual error: %s ====" % str(e))
 
 
 def BuildSliderContent(screenNode, parent, item):
     """滑块内容项 UI 创建（上面 litle+desc 文字，下面 slider）。"""
     _RestoreItemLocked(screenNode, item)
-    print "==== BuildSliderContent item_id=%s desc=%s value=%s steps=%s locked=%s litle=%s ====" % (
+    dlog.client_print("==== BuildSliderContent item_id=%s desc=%s value=%s steps=%s locked=%s litle=%s ====" % (
         item.item_id, item.desc, item.value, item.steps, item.locked, item.litle
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.slider_content',
         'rsl_' + item.item_id,
@@ -3714,7 +3693,7 @@ def BuildSliderContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildSliderContent: create control failed ===="
+        dlog.client_print("==== BuildSliderContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现
     try:
@@ -3734,22 +3713,22 @@ def BuildSliderContent(screenNode, parent, item):
             _SetLabelText(descCtrl, item.desc, "BuildSliderContent.desc")
             descCtrl.SetVisible(bool(item.desc))
     else:
-        print "==== BuildSliderContent: panel child not found ===="
+        dlog.client_print("==== BuildSliderContent: panel child not found ====")
     # 动态数值 label
     valueCtrl = ctrl.GetChildByName('value')
     if valueCtrl:
         screenNode.mRightSliderValueMap[item.item_id] = valueCtrl
     else:
-        print "==== BuildSliderContent: value child not found ===="
+        dlog.client_print("==== BuildSliderContent: value child not found ====")
 
     # 获取滑块控件
     sliderBaseCtrl = ctrl.GetChildByName('slider')
     if not sliderBaseCtrl:
-        print "==== BuildSliderContent: slider child not found ===="
+        dlog.client_print("==== BuildSliderContent: slider child not found ====")
         return
     sliderCtrl = sliderBaseCtrl.asSlider()
     if not sliderCtrl:
-        print "==== BuildSliderContent: asSlider failed ===="
+        dlog.client_print("==== BuildSliderContent: asSlider failed ====")
         return
 
     # 设置初始值（优先读持久化状态，无存储值时回退 item.value/default_value）
@@ -3777,7 +3756,7 @@ def BuildSliderContent(screenNode, parent, item):
     try:
         sliderCtrl.SetSliderValue(visual_value)
     except Exception as e:
-        print "==== BuildSliderContent: SetSliderValue error: %s ====" % str(e)
+        dlog.client_print("==== BuildSliderContent: SetSliderValue error: %s ====" % str(e))
     # 设置数值显示文本（供动态显示当前滑块值）
     _UpdateSliderValueLabel(screenNode, item, item.value)
 
@@ -3802,14 +3781,14 @@ def BuildSliderContent(screenNode, parent, item):
             if lockImg:
                 lockImg.SetVisible(item.locked)
     except Exception as e:
-        print "==== BuildSliderContent: create slider_lock error: %s ====" % str(e)
+        dlog.client_print("==== BuildSliderContent: create slider_lock error: %s ====" % str(e))
 
     # 锁定处理：lock_overlay 吞掉滑块区域输入（is_swallow，不用 modal 以免全屏输入卡死）+ 灰层，柄内 button_lock 贴图
     _ApplySliderLockVisual(sliderBaseCtrl, bgCtrl, lockOverlayCtrl, visual_value, item.locked)
     try:
         sliderCtrl.SetTouchEnable(not item.locked)
     except Exception as e:
-        print "==== BuildSliderContent: SetTouchEnable error: %s ====" % str(e)
+        dlog.client_print("==== BuildSliderContent: SetTouchEnable error: %s ====" % str(e))
 
     # 存储引用供 OnTick 轮询检测（记录视觉位置）
     screenNode.mRightSliderCtrlMap[item.item_id] = sliderCtrl
@@ -3817,7 +3796,7 @@ def BuildSliderContent(screenNode, parent, item):
     try:
         screenNode.mRightSliderStates[item.item_id] = visual_value
     except Exception as e:
-        print "==== BuildSliderContent: init state error: %s ====" % str(e)
+        dlog.client_print("==== BuildSliderContent: init state error: %s ====" % str(e))
     screenNode.mRightContentCtrls.append(ctrl)
 
 
@@ -3845,7 +3824,7 @@ def _ApplySettingToOpenUI(main_card_id, key, middle_card_id, item_id, value):
                     toggle.SetToggleState(new_state, "/this_toggle")
                     node.mRightSwitchStates[item_id] = new_state
             except Exception as e:
-                print "==== ApplySettingToOpenUI switch error: %s ====" % str(e)
+                dlog.client_print("==== ApplySettingToOpenUI switch error: %s ====" % str(e))
         it = GetContentItem(group[0], group[1], NormalizeMiddleCardId(group[2]), item_id)
         if it and hasattr(it, "SetValue"):
             it.SetValue(bool(value))
@@ -3868,7 +3847,7 @@ def _ApplySettingToOpenUI(main_card_id, key, middle_card_id, item_id, value):
                 sliderCtrl.SetSliderValue(visual)
                 node.mRightSliderStates[item_id] = visual
         except Exception as e:
-            print "==== ApplySettingToOpenUI slider error: %s ====" % str(e)
+            dlog.client_print("==== ApplySettingToOpenUI slider error: %s ====" % str(e))
         if it and hasattr(it, "SetValue"):
             it.SetValue(float(value))
             it._loaded = True
@@ -3885,7 +3864,7 @@ def _ApplySettingToOpenUI(main_card_id, key, middle_card_id, item_id, value):
                 if teb.GetEditText() != new_text:
                     teb.SetEditText(new_text)
             except Exception as e:
-                print "==== ApplySettingToOpenUI edit_box error: %s ====" % str(e)
+                dlog.client_print("==== ApplySettingToOpenUI edit_box error: %s ====" % str(e))
         it = GetContentItem(group[0], group[1], NormalizeMiddleCardId(group[2]), item_id)
         if it and hasattr(it, "SetValue"):
             it.SetValue(new_text)
@@ -3908,9 +3887,9 @@ def _ApplySettingToOpenUI(main_card_id, key, middle_card_id, item_id, value):
 
 def BuildResetContent(screenNode, parent, item):
     """重置按钮内容项 UI 创建（仅显示按钮，点击后弹出关联确认弹窗）。"""
-    print "==== BuildResetContent item_id=%s button_text=%s popup_id=%s ====" % (
+    dlog.client_print("==== BuildResetContent item_id=%s button_text=%s popup_id=%s ====" % (
         item.item_id, item.button_text, item.popup_id
-    )
+    ))
     ctrl = screenNode.CreateChildControl(
         'setting.reset_content',
         'rreset_' + item.item_id,
@@ -3918,7 +3897,7 @@ def BuildResetContent(screenNode, parent, item):
         True
     )
     if not ctrl:
-        print "==== BuildResetContent: create control failed ===="
+        dlog.client_print("==== BuildResetContent: create control failed ====")
         return
     # 立即设置透明，避免创建时闪现
     try:
@@ -3928,7 +3907,7 @@ def BuildResetContent(screenNode, parent, item):
 
     buttonCtrl = ctrl.GetChildByName('button')
     if not buttonCtrl:
-        print "==== BuildResetContent: button child not found ===="
+        dlog.client_print("==== BuildResetContent: button child not found ====")
         return
     textLabel = buttonCtrl.GetChildByName('text')
     if textLabel:
@@ -3952,7 +3931,7 @@ def BuildResetContent(screenNode, parent, item):
 
 def _OnResetButtonClick(screenNode, item_id):
     """reset 内容项按钮点击：打开关联弹窗并触发 on_click 回调。"""
-    print "==== _OnResetButtonClick: %s ====" % item_id
+    dlog.client_print("==== _OnResetButtonClick: %s ====" % item_id)
     if not _g_ClientSystem:
         return
     group = screenNode.mCurrentRightGroup
@@ -3965,7 +3944,7 @@ def _OnResetButtonClick(screenNode, item_id):
         try:
             it.on_click(screenNode, item_id)
         except Exception as e:
-            print "==== reset on_click error: %s ====" % str(e)
+            dlog.client_print("==== reset on_click error: %s ====" % str(e))
 
 
 # 注册内置内容项构建器
@@ -3987,21 +3966,36 @@ class PauseScreenProxy(CustomUIScreenProxy):
         CustomUIScreenProxy.__init__(self, screenName, screenNode)
 
     def OnCreate(self):
-        print "==== PauseScreenProxy OnCreate ===="
-        screen = self.GetScreenNode()
+        dlog.client_print("==== PauseScreenProxy OnCreate ====")
         basePath = "/variables_button_mappings_and_controls/safezone_screen_matrix/inner_matrix/safezone_screen_panel/root_screen_panel"
         btnPath = (
             basePath +
             "/pause_screen_main_panels/menu/the_rest_panel/pause_menu/"
             "menu_button_control/menu_background/button_panel/my_mod_settings_button"
         )
+        # 开关：未启用"注册到暂停菜单"则不注入设置入口
+        if not GetSettingValue("settings_config", "client", "display",
+                               "register_pause_menu", True):
+            # 按钮由资源包 JSON 静态注入，仅跳过代理仍会显示，需主动隐藏
+            try:
+                screen = self.GetScreenNode()
+                btnControl = screen.GetBaseUIControl(btnPath)
+                if btnControl:
+                    btnControl.SetVisible(False)
+                    dlog.client_print("==== pause menu entry disabled, button hidden ====")
+                else:
+                    dlog.client_print("==== pause menu entry disabled, button not found ====")
+            except Exception as e:
+                dlog.client_print("==== pause menu hide error: %s ====" % str(e))
+            return
+        screen = self.GetScreenNode()
         btnControl = screen.GetBaseUIControl(btnPath)
         if btnControl:
             screen.AddTouchEventHandler(btnPath, self.OnSettingsClick, None)
-            print "==== settings button touch handler bound ===="
+            dlog.client_print("==== settings button touch handler bound ====")
             return
 
-        print "==== my_mod_settings_button not found, try dynamic create ===="
+        dlog.client_print("==== my_mod_settings_button not found, try dynamic create ====")
         panelPath = (
             basePath +
             "/pause_screen_main_panels/menu/the_rest_panel/pause_menu/"
@@ -4009,11 +4003,11 @@ class PauseScreenProxy(CustomUIScreenProxy):
         )
         panelControl = screen.GetBaseUIControl(panelPath)
         if not panelControl:
-            print "==== button_panel not found, dump paths ===="
+            dlog.client_print("==== button_panel not found, dump paths ====")
             paths = screen.GetAllChildrenPath(basePath)
-            print "==== root %s count %d ====" % (basePath, len(paths))
+            dlog.client_print("==== root %s count %d ====" % (basePath, len(paths)))
             for p in paths[:30]:
-                print p
+                dlog.client_print(p)
             return
 
         screen.CreateChildControl(
@@ -4030,20 +4024,20 @@ class PauseScreenProxy(CustomUIScreenProxy):
             True
         )
         if not btnControl:
-            print "==== CreateChildControl failed ===="
+            dlog.client_print("==== CreateChildControl failed ====")
             return
 
         screen.AddTouchEventHandler(btnPath, self.OnSettingsClick, None)
-        print "==== settings button dynamically added ===="
+        dlog.client_print("==== settings button dynamically added ====")
 
     def OnSettingsClick(self, args):
         # 只响应松手事件（TouchUp）
         touchEvent = clientApi.GetMinecraftEnum().TouchEvent
         eventType = args.get('TouchEvent')
-        print "==== Pause OnSettingsClick: TouchEvent=%s ====" % str(eventType)
+        dlog.client_print("==== Pause OnSettingsClick: TouchEvent=%s ====" % str(eventType))
         if eventType != touchEvent.TouchUp:
             return
-        print "==== My Mod Settings clicked (TouchUp) ===="
+        dlog.client_print("==== My Mod Settings clicked (TouchUp) ====")
         if _g_ClientSystem:
             # 复用 OpenSettings：内部有 mSettingsUIOpen/ScreenNode 双重保护，避免重复 PushScreen
             _g_ClientSystem.OpenSettings()
@@ -4057,12 +4051,17 @@ class FoldMenuProxy(CustomUIScreenProxy):
         self.mBound = False
 
     def OnCreate(self):
-        print "==== FoldMenuProxy OnCreate ===="
+        dlog.client_print("==== FoldMenuProxy OnCreate ====")
+        # 开关：未启用"注册到折叠菜单"则不注入设置入口
+        if not GetSettingValue("settings_config", "client", "display",
+                               "register_fold_menu", True):
+            dlog.client_print("==== fold menu entry disabled by switch, skip ====")
+            return
         self.mBound = False
         screen = self.GetScreenNode()
         panelFold = screen.GetBaseUIControl("/panel_foldmenu")
         if not panelFold:
-            print "==== /panel_foldmenu not found ===="
+            dlog.client_print("==== /panel_foldmenu not found ====")
             return
         panelControl = screen.CreateChildControl(
             'Script_NeteaseMod9sPMlz0K.fold_menu_panel_template',
@@ -4071,7 +4070,7 @@ class FoldMenuProxy(CustomUIScreenProxy):
             True
         )
         if not panelControl:
-            print "==== CreateChildControl panel failed ===="
+            dlog.client_print("==== CreateChildControl panel failed ====")
             return
         btnControl = screen.CreateChildControl(
             'Script_NeteaseMod9sPMlz0K.fold_menu_settings_button',
@@ -4080,11 +4079,11 @@ class FoldMenuProxy(CustomUIScreenProxy):
             True
         )
         if not btnControl:
-            print "==== CreateChildControl button failed ===="
+            dlog.client_print("==== CreateChildControl button failed ====")
             return
         screen.AddTouchEventHandler("/panel_foldmenu/panel_my_settings/button_my_settings", self.OnSettingsClick, None)
         self.mBound = True
-        print "==== fold menu settings button created ===="
+        dlog.client_print("==== fold menu settings button created ====")
 
     def OnDestroy(self):
         self.mBound = False
@@ -4096,10 +4095,10 @@ class FoldMenuProxy(CustomUIScreenProxy):
         # 只响应松手事件（TouchUp）
         touchEvent = clientApi.GetMinecraftEnum().TouchEvent
         eventType = args.get('TouchEvent')
-        print "==== Fold OnSettingsClick: TouchEvent=%s ====" % str(eventType)
+        dlog.client_print("==== Fold OnSettingsClick: TouchEvent=%s ====" % str(eventType))
         if eventType != touchEvent.TouchUp:
             return
-        print "==== My Mod Settings clicked from fold menu (TouchUp) ===="
+        dlog.client_print("==== My Mod Settings clicked from fold menu (TouchUp) ====")
         if _g_ClientSystem:
             # 复用 OpenSettings：内部有 mSettingsUIOpen/ScreenNode 双重保护，避免重复 PushScreen
             _g_ClientSystem.OpenSettings()
@@ -4117,11 +4116,11 @@ class PopUpScreenNode(ScreenNode):
             _g_ClientSystem.mPopUpScreenNode = self
 
     def Create(self):
-        print "==== PopUpScreenNode.Create called ===="
+        dlog.client_print("==== PopUpScreenNode.Create called ====")
         self._ApplyPopUp()
 
     def OnActive(self):
-        print "==== PopUpScreenNode.OnActive called ===="
+        dlog.client_print("==== PopUpScreenNode.OnActive called ====")
         self._ApplyPopUp()
 
     def _GetContentPath(self):
@@ -4134,7 +4133,7 @@ class PopUpScreenNode(ScreenNode):
         if _g_ClientSystem:
             data = _g_ClientSystem.mCurrentPopUp
         if not data:
-            print "==== PopUpScreenNode: no popup data ===="
+            dlog.client_print("==== PopUpScreenNode: no popup data ====")
             return
         title = data.get("title", "")
         content = data.get("content", "")
@@ -4145,14 +4144,14 @@ class PopUpScreenNode(ScreenNode):
         if titleCtrl:
             _SetLabelText(titleCtrl, title, "PopUpScreenNode.title")
         else:
-            print "==== PopUpScreenNode: title ctrl not found ===="
+            dlog.client_print("==== PopUpScreenNode: title ctrl not found ====")
 
         # 2. 内容
         contentCtrl = self.GetBaseUIControl(self._GetContentPath())
         if contentCtrl:
             _SetLabelText(contentCtrl, content, "PopUpScreenNode.content")
         else:
-            print "==== PopUpScreenNode: content ctrl not found ===="
+            dlog.client_print("==== PopUpScreenNode: content ctrl not found ====")
 
         # 3. 底部按钮（仅首次创建）
         if not self.mButtonsCreated:
@@ -4161,7 +4160,7 @@ class PopUpScreenNode(ScreenNode):
                 self._CreateButtons(panelCtrl, buttons)
                 self.mButtonsCreated = True
             else:
-                print "==== PopUpScreenNode: under stack_panel not found ===="
+                dlog.client_print("==== PopUpScreenNode: under stack_panel not found ====")
 
         # 4. 返回按钮（仅绑定一次）
         if not self.mBackBound:
@@ -4173,7 +4172,7 @@ class PopUpScreenNode(ScreenNode):
                     btn.SetButtonTouchUpCallback(lambda args: self._OnBackClick())
                     self.mBackBound = True
             else:
-                print "==== PopUpScreenNode: back button not found ===="
+                dlog.client_print("==== PopUpScreenNode: back button not found ====")
 
     @staticmethod
     def _EstimateTextHeight(text):
@@ -4198,7 +4197,7 @@ class PopUpScreenNode(ScreenNode):
                 True
             )
             if not btnCtrl:
-                print "==== PopUpScreenNode: create button %d failed ====" % i
+                dlog.client_print("==== PopUpScreenNode: create button %d failed ====" % i)
                 continue
             labelCtrl = btnCtrl.GetChildByName('label')
             if labelCtrl:
@@ -4219,7 +4218,7 @@ class PopUpScreenNode(ScreenNode):
                 if ret is False:
                     close = False
             except Exception as e:
-                print "==== PopUpScreenNode button callback error: %s ====" % str(e)
+                dlog.client_print("==== PopUpScreenNode button callback error: %s ====" % str(e))
         if close and _g_ClientSystem:
             _g_ClientSystem.ClosePopUp()
 
@@ -4266,11 +4265,11 @@ class CollapsibleMenuScreenNode(ScreenNode):
             _g_ClientSystem.mCollapsibleMenuScreenNode = self
 
     def Create(self):
-        print "==== CollapsibleMenuScreenNode.Create called ===="
+        dlog.client_print("==== CollapsibleMenuScreenNode.Create called ====")
         self._ApplyMenu()
 
     def OnActive(self):
-        print "==== CollapsibleMenuScreenNode.OnActive called ===="
+        dlog.client_print("==== CollapsibleMenuScreenNode.OnActive called ====")
         self._ApplyMenu()
 
     def _ApplyMenu(self):
@@ -4279,7 +4278,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
         if _g_ClientSystem:
             data = _g_ClientSystem.mCurrentCollapsibleMenu
         if not data:
-            print "==== CollapsibleMenuScreenNode: no menu data ===="
+            dlog.client_print("==== CollapsibleMenuScreenNode: no menu data ====")
             return
         title = data.get("title", "")
         cards = data.get("cards", []) or []
@@ -4289,12 +4288,12 @@ class CollapsibleMenuScreenNode(ScreenNode):
         if titleCtrl:
             _SetLabelText(titleCtrl, title, "CollapsibleMenuScreenNode.title")
         else:
-            print "==== CollapsibleMenuScreenNode: title ctrl not found ===="
+            dlog.client_print("==== CollapsibleMenuScreenNode: title ctrl not found ====")
 
         # 2. 中间卡片（仅首次创建，后续刷新仅更新选中态）
         middleCtrl = self.GetBaseUIControl("/backdrop/stack_panel/middle")
         if not middleCtrl:
-            print "==== CollapsibleMenuScreenNode: middle ctrl not found ===="
+            dlog.client_print("==== CollapsibleMenuScreenNode: middle ctrl not found ====")
             return
         if not self.mCardsCreated:
             self._CreateCards(middleCtrl, cards)
@@ -4312,7 +4311,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
                     btn.SetButtonTouchUpCallback(lambda args: self._OnBackClick())
                     self.mBackBound = True
             else:
-                print "==== CollapsibleMenuScreenNode: back button not found ===="
+                dlog.client_print("==== CollapsibleMenuScreenNode: back button not found ====")
 
     def _CreateCards(self, middleCtrl, cards):
         """在 middle 区域按注册顺序创建卡片，恢复当前选中态。"""
@@ -4335,7 +4334,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
                 True
             )
             if not ctrl:
-                print "==== CollapsibleMenuScreenNode: create card %d failed ====" % i
+                dlog.client_print("==== CollapsibleMenuScreenNode: create card %d failed ====" % i)
                 continue
             # 卡片文字（button_label，模板左对齐）
             labelCtrl = ctrl.GetChildByName('button_label')
@@ -4367,7 +4366,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
 
     def _OnCardClick(self, card_id):
         """卡片点击：更新选中态、触发回调、同步按钮文字并关闭弹窗。"""
-        print "==== CollapsibleMenuScreenNode._OnCardClick: %s ====" % card_id
+        dlog.client_print("==== CollapsibleMenuScreenNode._OnCardClick: %s ====" % card_id)
         item = None
         if _g_ClientSystem:
             item = _g_ClientSystem.mCurrentCollapsibleItem
@@ -4389,7 +4388,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
                         sn = _g_ClientSystem.mSettingsScreenNode
                     item.on_select(sn, item.item_id, card_id)
                 except Exception as e:
-                    print "==== CollapsibleMenuScreenNode on_select error: %s ====" % str(e)
+                    dlog.client_print("==== CollapsibleMenuScreenNode on_select error: %s ====" % str(e))
         # 更新所有卡片 selected 图层
         self._RefreshCardSelected()
         # 同步设置界面按钮文字（实时显示当前选择项）
@@ -4399,7 +4398,7 @@ class CollapsibleMenuScreenNode(ScreenNode):
                     item.item_id, item.GetDisplayText()
                 )
             except Exception as e:
-                print "==== CollapsibleMenuScreenNode update button text error: %s ====" % str(e)
+                dlog.client_print("==== CollapsibleMenuScreenNode update button text error: %s ====" % str(e))
         # 关闭折叠菜单弹窗
         if _g_ClientSystem:
             _g_ClientSystem.CloseCollapsibleMenu()

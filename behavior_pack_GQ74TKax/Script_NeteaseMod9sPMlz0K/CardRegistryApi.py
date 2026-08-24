@@ -60,7 +60,14 @@ from CardRegistry import (
     # 弹窗事件常量
     PopUpOpenEvent,
     PopUpCloseEvent,
+    # 跳转标准事件常量 + 跳转拦截 API
+    SettingsNavigateEvent,
+    RegNavigateBlockCallback,
+    UnregNavigateBlockCallback,
+    IsNavigateBlocked,
 )
+
+from DebugLog import dlog
 
 # ────────────────── Client（UI 构建器注册、导航 API） ──────────────────
 
@@ -105,8 +112,7 @@ def OpenSettings(main_card_id=None, sub_key=None, middle_card_id=None):
     if _g_ClientSystem:
         _g_ClientSystem.OpenSettings(main_card_id, sub_key, middle_card_id)
     else:
-        print "==== CardRegistryApi.OpenSettings: ClientSystem not ready ===="
-
+        dlog.client_print("==== CardRegistryApi.OpenSettings: ClientSystem not ready ====")
 
 def SetLocked(item_id_or_path, locked):
     """
@@ -122,7 +128,7 @@ def SetLocked(item_id_or_path, locked):
     if _g_ClientSystem:
         _g_ClientSystem.SetLocked(item_id_or_path, locked)
     else:
-        print "==== CardRegistryApi.SetLocked: ClientSystem not ready ===="
+        dlog.client_print("==== CardRegistryApi.SetLocked: ClientSystem not ready ====")
 
 
 def ShowPopUp(popup_id, force_scroll=None):
@@ -137,7 +143,7 @@ def ShowPopUp(popup_id, force_scroll=None):
     """
     if _g_ClientSystem:
         return _g_ClientSystem.ShowPopUp(popup_id, force_scroll)
-    print "==== CardRegistryApi.ShowPopUp: ClientSystem not ready ===="
+    dlog.client_print("==== CardRegistryApi.ShowPopUp: ClientSystem not ready ====")
     return False
 
 
@@ -146,7 +152,7 @@ def ClosePopUp():
     if _g_ClientSystem:
         _g_ClientSystem.ClosePopUp()
     else:
-        print "==== CardRegistryApi.ClosePopUp: ClientSystem not ready ===="
+        dlog.client_print("==== CardRegistryApi.ClosePopUp: ClientSystem not ready ====")
 
 
 def ShowCollapsibleMenu(menu_id, item):
@@ -160,7 +166,7 @@ def ShowCollapsibleMenu(menu_id, item):
     """
     if _g_ClientSystem:
         return _g_ClientSystem.ShowCollapsibleMenu(menu_id, item)
-    print "==== CardRegistryApi.ShowCollapsibleMenu: ClientSystem not ready ===="
+    dlog.client_print("==== CardRegistryApi.ShowCollapsibleMenu: ClientSystem not ready ====")
     return False
 
 
@@ -169,4 +175,4 @@ def CloseCollapsibleMenu():
     if _g_ClientSystem:
         _g_ClientSystem.CloseCollapsibleMenu()
     else:
-        print "==== CardRegistryApi.CloseCollapsibleMenu: ClientSystem not ready ===="
+        dlog.client_print("==== CardRegistryApi.CloseCollapsibleMenu: ClientSystem not ready ====")

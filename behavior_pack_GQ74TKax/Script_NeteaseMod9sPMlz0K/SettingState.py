@@ -16,6 +16,7 @@ except ImportError:
     clientApi = None  # 防御：SDK 环境缺失时降级为内存字典
 
 from CardRegistry import NormalizeMiddleCardId, GetContentItem, GetAllContentGroups, GetContentItems
+from DebugLog import dlog
 
 # 配置文件名：只能包含字母、数字和下划线，加 addon 命名空间前缀避免冲突
 _CONFIG_NAME = "Script_NeteaseMod9sPMlz0K_setting_state"
@@ -56,9 +57,9 @@ def LoadSettingData():
             data = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
             if isinstance(data, dict):
                 _memStore = dict(data)
-                print "==== SettingState loaded %d entries ====" % len(_memStore)
+                dlog.client_print("==== SettingState loaded %d entries ====" % len(_memStore))
         except Exception as e:
-            print "==== SettingState load error: %s ====" % str(e)
+            dlog.client_print("==== SettingState load error: %s ====" % str(e))
     return _memStore
 
 
@@ -75,7 +76,7 @@ def _Write(key, value):
         try:
             comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
         except Exception as e:
-            print "==== SettingState write error: %s ====" % str(e)
+            dlog.client_print("==== SettingState write error: %s ====" % str(e))
     return True
 
 
@@ -141,7 +142,7 @@ def SetSettingValue(main_card_id, key, middle_card_id, item_id, value):
         try:
             _uiChangedCallback(main_card_id, key, middle_card_id, item_id, value)
         except Exception as e:
-            print "==== SettingState notify error: %s ====" % str(e)
+            dlog.client_print("==== SettingState notify error: %s ====" % str(e))
     return True
 
 
@@ -191,7 +192,7 @@ def ResetGroupSettings(main_card_id, key, middle_card_id):
         try:
             comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
         except Exception as e:
-            print "==== SettingState reset group error: %s ====" % str(e)
+            dlog.client_print("==== SettingState reset group error: %s ====" % str(e))
     return count
 
 
@@ -228,7 +229,7 @@ def SaveGroupSettings(main_card_id, key, middle_card_id):
         try:
             comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
         except Exception as e:
-            print "==== SettingState save group error: %s ====" % str(e)
+            dlog.client_print("==== SettingState save group error: %s ====" % str(e))
     return len(changes)
 
 

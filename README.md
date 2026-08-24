@@ -21,7 +21,7 @@
 | **官方设置入口** | 暂停菜单 → 模组 → 本模组 → 点"打开设置"按钮，关闭官方界面并打开本模组设置界面 |
 | **导航 API** | 外部模组可直接调用 `OpenSettings(main_card_id, sub_key, middle_card_id)` 打开并导航到指定卡片，详见[导航 API](API_客户端.md#导航-api) |
 
-> 若要在游戏内以指令方式打开/导航（如给指定玩家或管理员操作），仍可使用 `/setting_open` 命令，详见[服务端 API](API_服务端.md)。
+> 若要在游戏内以指令方式打开/导航自己的设置界面，可使用 `/setting_open` 命令（对所有成员可用，但只作用于调用者自己），详见[服务端 API](API_服务端.md)。
 
 ## 目录结构
 
@@ -35,6 +35,8 @@
 │   │   ├── Client.py                     # MyClientSystem + 设置界面/弹窗/暂停界面等 UI 实现
 │   │   ├── Server.py                     # 服务端系统，处理 /setting_open 指令
 │   │   ├── SettingState.py               # 设置项持久化（ConfigCompClient 本地存储）
+│   │   ├── DebugLog.py                   # 调试日志开关（客户端/服务端独立控制）
+│   │   ├── setting.py                    # 框架自带"设置配置"卡片注册
 │   │   └── Toast.py                      # Toast 提示系统
 │   └── netease_commands/                 # 自定义指令定义（setting_open）
 ├── resource_pack_nka0OOhF/

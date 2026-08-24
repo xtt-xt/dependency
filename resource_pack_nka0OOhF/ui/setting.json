@@ -637,7 +637,23 @@
     "main@common.base_screen": {
         "$screen_bg_content": "setting.below_bg",
         "$screen_content": "setting.main_content",
+        "$additional_screen_content": "setting.under_toast_layer",
         "render_only_when_topmost": true
+    },
+    "under_toast_layer": {
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "controls": [
+            {
+                "under_toast@toast.toast_under": {
+                    "$text": "",
+                    "visible": false
+                }
+            }
+        ]
     },
     "main_content": {
         "type": "panel",

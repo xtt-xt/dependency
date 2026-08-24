@@ -17,6 +17,8 @@
         .AddButton("btn", "启用功能", "启用")
 """
 
+from DebugLog import dlog
+
 _cards = {}       # unique_id -> {"name": str, "icon": str}   (中间卡片信息)
 _defaultIcon = "textures/ui/icon_setting"
 
@@ -634,7 +636,7 @@ class ContentSettingInst(object):
             return self
         factory = _contentFactories.get(type_name)
         if factory is None:
-            print "==== ContentItem type '%s' not registered ====" % type_name
+            dlog.client_print("==== ContentItem type '%s' not registered ====" % type_name)
             return self
         self._lst.append(factory.CreateItem(item_id, **kwargs))
         _NotifyContentChanged((self._main_card_id, self._key, self._middle_card_id))
@@ -741,7 +743,7 @@ def _NotifyCardChanged():
         try:
             _cardChangedCallback()
         except Exception as e:
-            print "==== card changed callback error: %s ====" % str(e)
+            dlog.client_print("==== card changed callback error: %s ====" % str(e))
 
 
 def _NotifyContentChanged(group):
@@ -750,7 +752,7 @@ def _NotifyContentChanged(group):
         try:
             listener(group)
         except Exception as e:
-            print "==== content listener error: %s ====" % str(e)
+            dlog.client_print("==== content listener error: %s ====" % str(e))
 
 
 # ============================================================
@@ -764,6 +766,10 @@ SettingsUIOpenEvent = "Script_NeteaseMod9sPMlz0K_SettingsUIOpen"
 # 设置 UI 关闭事件，由 MyClientSystem 在 PopScreen 时抛出
 # 事件数据: {"playerId": str}
 SettingsUICloseEvent = "Script_NeteaseMod9sPMlz0K_SettingsUIClose"
+
+# 设置跳转前置事件，由 MyClientSystem 响应 /setting_open 命令、执行跳转前抛出
+# 事件数据: {"playerId": str, "main_card_id": str, "sub_key": str, "middle_card_id": str}
+SettingsNavigateEvent = "Script_NeteaseMod9sPMlz0K_SettingsNavigate"
 
 
 # ============================================================
@@ -881,3 +887,53 @@ PopUpOpenEvent = "Script_NeteaseMod9sPMlz0K_PopUpOpen"
 # 弹窗关闭事件，由 MyClientSystem 在 PopScreen 时抛出
 # 事件数据: {"playerId": str}
 PopUpCloseEvent = "Script_NeteaseMod9sPMlz0K_PopUpClose"
+
+
+# ============================================================
+# 跳转拦截注册表
+# ============================================================
+
+# 跳转拦截回调列表。回调签名:
+#   callback(playerId, main_card_id, sub_key, middle_card_id) -> bool / str / None
+# 返回 True 表示拦截（默认文案）；返回字符串表示拦截并使用该字符串作为自定义
+# 提示文案；返回 False / None 表示放行。
+_navigateBlockCallbacks = []
+
+
+def RegNavigateBlockCallback(callback):
+    """注册跳转拦截回调，返回 True/字符串 拦截 /setting_open 跳转。回调不可重复注册。"""
+    if callback is None:
+        return False
+    if callback not in _navigateBlockCallbacks:
+        _navigateBlockCallbacks.append(callback)
+    return True
+
+
+def UnregNavigateBlockCallback(callback):
+    """取消已注册的跳转拦截回调。"""
+    try:
+        _navigateBlockCallbacks.remove(callback)
+    except ValueError:
+        pass
+
+
+def IsNavigateBlocked(playerId, main_card_id, sub_key, middle_card_id, default_msg="跳转已被拦截"):
+    """依次调用所有拦截回调，任一表示拦截即返回 (True, 文案)。
+
+    返回值约定：
+      - 回调返回 True      -> 拦截，使用 default_msg
+      - 回调返回字符串     -> 拦截，使用该字符串作为自定义文案
+      - 回调返回 False/None -> 放行
+
+    :returns: (is_blocked, message)
+    """
+    for cb in list(_navigateBlockCallbacks):
+        try:
+            result = cb(playerId, main_card_id, sub_key, middle_card_id)
+            if result is True:
+                return True, default_msg
+            if isinstance(result, basestring):
+                return True, result
+        except Exception as e:
+            dlog.client_print("==== IsNavigateBlocked callback error: %s ====" % str(e))
+    return False, default_msg
