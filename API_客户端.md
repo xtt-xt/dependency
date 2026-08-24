@@ -652,7 +652,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。
 
-### ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0)
+全参数：`ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0, enter_sound=None, exit_sound=None, background=None, nine_slice=None)`
 
 显示一个 toast 提示。
 
@@ -666,6 +666,20 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | item_aux | int | 否 | 物品附加值，默认 0 |
 | is_enchanted | bool | 否 | 是否显示附魔效果，默认 False |
 | duration | float | 否 | 停留时长（秒），默认 3 |
+| enter_sound | str | 否 | 自定义入场音效名；`None` 用位置默认，空串 `""` 不播（见下方音效表） |
+| exit_sound | str | 否 | 自定义出场音效名；`None` 用位置默认，空串 `""` 不播（见下方音效表） |
+| background | str | 否 | 自定义背景贴图路径（从 textures 开始，如 `"textures/ui/xxx"`）；`None` 用 JSON 默认背景 |
+| nine_slice | tuple | 否 | 背景九宫格剪裁 `(左, 右, 上, 下)`，启用原版九宫格拉伸；`None` 不启用 |
+
+#### 音效规则
+
+未指定 `enter_sound` / `exit_sound`（传 `None`）时按位置使用默认音效；传空串 `""` 则强制不播放；传入具体音效名则播放该音效。
+
+| 位置 | 默认入场音效 | 默认出场音效 |
+|------|--------------|--------------|
+| `ToastTop`（顶部） | `random.toast` | 无 |
+| `ToastTopRight`（右上角） | `random.toast_recipe_unlocking_in` | `random.toast_recipe_unlocking_out` |
+| `ToastUnder`（底部） | `random.toast` | 无 |
 
 #### 图层显隐规则
 
@@ -688,8 +702,13 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 ```python
 def OnUIInitFinished(self, args):
     try:
-        from Script_NeteaseMod9sPMlz0K.CardRegistryApi import ShowToast, ToastTop
+        from Script_NeteaseMod9sPMlz0K.CardRegistryApi import ShowToast, ToastTop, ToastTopRight
+        # 基础用法：默认音效，自定义文字颜色 + 物品层
         ShowToast(ToastTop, "自定义文字", color=(1.0, 0.0, 0.0), item_name="minecraft:diamond")
+        # 自定义入场/出场音效与背景（含九宫格剪裁）
+        ShowToast(ToastTopRight, "获得成就", background="textures/ui/achievement_banner",
+                  nine_slice=(20, 20, 20, 20), enter_sound="random.toast",
+                  exit_sound="random.toast_recipe_unlocking_out")
     except ImportError:
         pass
 ```

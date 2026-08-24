@@ -35,6 +35,14 @@ _POSITION_MAP = {
                  "/under", "toast_under_shadow_enter", "toast_under_shadow_exit"),
 }
 
+# 位置 -> (入场默认音效, 出场默认音效)；出场默认音效为 "" 表示不播。
+# 右上角用原版配方解锁弹窗音效（进 in / 出 out），上面与下面用默认 toast 音效，出场不播。
+_DEFAULT_SOUNDS = {
+    ToastTop: ("random.toast", ""),
+    ToastTopRight: ("random.toast_recipe_unlocking_in", "random.toast_recipe_unlocking_out"),
+    ToastUnder: ("random.toast", ""),
+}
+
 # ────────────────── 模块级状态 ──────────────────
 _registered = False        # UI 是否已注册
 _screens = {}              # 位置 -> ScreenNode 实例
@@ -82,6 +90,7 @@ class ToastScreenNode(ScreenNode):
         self.image_ctrl = None    # 图片控件（top/top_right）
         self.duration = 3.0       # 停留时长（秒）
         self._anim_set = False    # 是否已设置过 offset 动画（首次播放无需清理）
+        self._exit_sound = ""     # 本帧出场音效（为空则不播）
 
     def Create(self):
         """UI 创建时缓存控件引用，初始隐藏。"""
@@ -133,6 +142,18 @@ class ToastScreenNode(ScreenNode):
         self._ApplyContent(cfg)
         self._PlayAnim(self.enter_anim, self.shadow_enter_anim, self._OnEnterEnd)
         self.SetScreenVisible(True)
+        # 入场音效：cfg 未指定则用该位置默认；空串表示不播
+        default_enter, default_exit = _DEFAULT_SOUNDS[self.position]
+        enter_sound = cfg.get("enter_sound")
+        if enter_sound is None:
+            enter_sound = default_enter
+        if enter_sound:
+            self._PlayUiSound(enter_sound)
+        # 出场音效：cfg 未指定则用该位置默认（右上角有，其余为不播）；空串表示不播
+        exit_sound = cfg.get("exit_sound")
+        if exit_sound is None:
+            exit_sound = default_exit
+        self._exit_sound = exit_sound
 
     def _OnEnterEnd(self):
         """入场动画结束，开始停留计时。"""
@@ -140,8 +161,16 @@ class ToastScreenNode(ScreenNode):
         game_comp.AddTimer(self.duration, self._StartExit)
 
     def _StartExit(self):
-        """开始退场动画。"""
+        """开始退场动画；如本帧配了出场音效则播放。"""
         self._PlayAnim(self.exit_anim, self.shadow_exit_anim, self._OnExitEnd)
+        if self._exit_sound:
+            self._PlayUiSound(self._exit_sound)
+
+    @staticmethod
+    def _PlayUiSound(sound_name):
+        """播放一个 UI 音效（客户端本地播放，不打断游戏）。"""
+        comp = clientApi.GetEngineCompFactory().CreateCustomAudio(clientApi.GetLevelId())
+        comp.PlayCustomUIMusic(sound_name, 1.0, 1.0, False)
 
     def _PlayAnim(self, anim_name, shadow_anim, end_callback):
         """先清理旧动画（仅当已设置过），再设置并播放指定 offset 动画（含阴影同步）。"""
@@ -164,12 +193,28 @@ class ToastScreenNode(ScreenNode):
         ctrl.RemoveAnimation("offset")
 
     def _OnExitEnd(self):
-        """退场动画结束，隐藏并播放下一个。"""
+        """退场动画结束，销毁节点并播放下一个。
+
+        这里直接 SetRemove 并从缓存移除，而不是在 _PlayNext 重建前才移除：
+        这样下一个 toast 创建时该位置没有同 uiKey 的残留节点，
+        可以安全地同步（非延迟）重建，避免"当前 UI + 1000"层级上下文丢失。
+        """
         self.SetScreenVisible(False)
+        self.SetRemove()
+        _screens.pop(self.position, None)
         _PlayNext(self.position)
 
     def _ApplyContent(self, cfg):
-        """应用内容配置：文字/颜色、物品层、图片层。"""
+        """应用内容配置：背景、文字/颜色、物品层、图片层。"""
+        # 背景贴图：cfg 传 background 则换贴图（需以 textures/ 开头），否则保持 JSON 默认
+        background = cfg.get("background")
+        if background:
+            self.target_ctrl.asImage().SetSprite(background)
+        # 背景九宫格剪裁：cfg 传 nine_slice=(左,右,上,下) 则启用原版九宫格适配
+        nine_slice = cfg.get("nine_slice")
+        if nine_slice:
+            self.target_ctrl.asImage().SetImageAdaptionType("originNineSlice", nine_slice)
+
         # 文字
         text = cfg.get("text", "")
         if self.label_ctrl:
@@ -199,7 +244,8 @@ class ToastScreenNode(ScreenNode):
 
 
 def ShowToast(position, text="", color=None, icon=None, item_name=None,
-              item_aux=0, is_enchanted=False, duration=3.0):
+              item_aux=0, is_enchanted=False, duration=3.0, enter_sound=None,
+              exit_sound=None, background=None, nine_slice=None):
     """
     显示一个 toast 提示（外部调用入口）。
 
@@ -211,6 +257,12 @@ def ShowToast(position, text="", color=None, icon=None, item_name=None,
     :param item_aux:     物品附加值
     :param is_enchanted: 是否显示附魔效果
     :param duration:     停留时长（秒），默认 3
+    :param enter_sound:  自定义入场音效名；None 用位置默认（上面/下面 random.toast，
+                         右上角 random.toast_recipe_unlocking_in），空串 "" 不播
+    :param exit_sound:   自定义出场音效名；None 用位置默认（仅右上角 random.toast_recipe_unlocking_out，
+                         其余不播），空串 "" 不播
+    :param background:   自定义背景贴图路径（需以 textures/ 开头）；None 用 JSON 默认
+    :param nine_slice:   背景九宫格剪裁 (左,右,上,下)；None 不启用
     """
     if position not in _POSITION_MAP:
         print "==== ShowToast: invalid position %s ====" % position
@@ -223,6 +275,10 @@ def ShowToast(position, text="", color=None, icon=None, item_name=None,
         "item_aux": item_aux,
         "is_enchanted": is_enchanted,
         "duration": duration,
+        "enter_sound": enter_sound,
+        "exit_sound": exit_sound,
+        "background": background,
+        "nine_slice": nine_slice,
     }
     _queue[position].append(cfg)
     if not _playing[position]:
@@ -239,20 +295,32 @@ def _PlayNext(position):
     cfg = _queue[position].pop(0)
 
     ui_key = _POSITION_MAP[position][0]
-    screen_node = _screens.get(position)
-    if screen_node is None:
-        # 懒创建叠加 UI（不传 isHud，即 isHud=0，会在比当前 UI 层级大 1000 处生成，
-        # 从而显示在背包等已打开界面的上方）
-        screen_node = clientApi.CreateUI("Script_NeteaseMod9sPMlz0K", ui_key,
-                                         {"position": position})
-        if screen_node:
-            # 层级在创建时已锁定（保持高位，仍显示在其他 UI 上方），
-            # SetIsHud(1) 只解除操作屏蔽，不影响层级
-            screen_node.SetIsHud(1)
-        else:
-            print "==== _PlayNext: create UI %s failed ====" % ui_key
-            _playing[position] = False
-            return
-        _screens[position] = screen_node
+
+    # 为何每次都要重建？CreateUI 不传 isHud（即 isHud=0）时，层级在创建那一刻
+    # 被锁定为"当前 UI + 1000"，之后 SetIsHud 无法再修改层级。若沿用缓存的旧实例，
+    # 其层级会停留在首次创建时的值——若首次是在纯游戏画面下创建，层级偏低，
+    # 之后打开设置/背包等界面就会被盖住。所以每次显示都重建，使层级始终锁定为
+    # "触发那一刻的当前 UI + 1000"，顶部与底部保持一致的最上层。
+    # 创建必须同步进行（不要 AddTimer 延迟），否则触发时的"当前 UI"上下文会丢失，
+    # 导致层级偏低、顶部 toast 被已打开界面盖住。
+    old_node = _screens.get(position)
+    if old_node is not None:
+        old_node.SetRemove()
+        _screens.pop(position, None)
+
+    screen_node = clientApi.CreateUI("Script_NeteaseMod9sPMlz0K", ui_key,
+                                     {"position": position})
+    if not screen_node:
+        print "==== _PlayNext: create UI %s failed ====" % ui_key
+        _playing[position] = False
+        return
+    # SetIsHud(1) 只解除操作屏蔽，不影响层级（层级在创建时已锁定为高位）
+    screen_node.SetIsHud(1)
+    # 用 SetLayer 把整个界面基础层级抬到最大值，尽量压过原生 hud 的头部按键。
+    # 文档注明 SetLayer 可调整"整个 JSON 的基础层级"。
+    root_ctrl = screen_node.GetBaseUIControl("/")
+    if root_ctrl:
+        root_ctrl.SetLayer(1000)
+    _screens[position] = screen_node
 
     screen_node.Play(cfg)

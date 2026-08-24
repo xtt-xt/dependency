@@ -106,6 +106,7 @@
     },
     "toast_top": {
         "type": "panel",
+        "layer": 1000,
         "size": [
             "100%",
             "100%"
@@ -183,6 +184,7 @@
     },
     "toast_top_right": {
         "type": "panel",
+        "layer": 1000,
         "size": [
             "100%",
             "100%"
@@ -262,6 +264,7 @@
     },
     "toast_under": {
         "type": "panel",
+        "layer": 1000,
         "size": [
             "100%",
             "100%"
