@@ -2498,6 +2498,18 @@ class SettingsScreenNode(ScreenNode):
                 state["frame"] = nextFrame
                 self._ApplyMiddleCardBackdropFrame(index, nextFrame)
 
+        # 右侧控件轮询（开关/编辑框/滑块）：每 3 帧执行一次，降低低端设备上
+        # 每帧读取原生控件状态带来的 CPU 压力，从而缓解右侧卡片加载时的卡顿
+        self._rightPollTick = getattr(self, "_rightPollTick", 0) + 1
+        if self._rightPollTick % 3 == 0:
+            self._PollRightControlsUi()
+
+    def _PollRightControlsUi(self):
+        """低频轮询右侧原生控件状态（开/关、编辑框、滑块），间隔 3 帧由 OnTick 触发。
+
+        原版控件交互（拖滑块、输入文本）的帧级响应由引擎自身保证，这里仅仅用于
+        把 UI 上的改动同步回 item 运行时值并触发回调，3 帧一次的频率足够且大幅省开销。
+        """
         # ===== 开关状态轮询检测 =====
         for item_id, switchCtrl in list(self.mRightSwitchCtrlMap.items()):
             if not switchCtrl:
@@ -2601,8 +2613,7 @@ class SettingsScreenNode(ScreenNode):
                                         except Exception as e:
                                             print "==== slider on_value_change error: %s ====" % str(e)
                                 break
-                # 更新状态记录（视觉位置）
-                self.mRightSliderStates[item_id] = current_visual
+                    self.mRightSliderStates[item_id] = current_visual
             except Exception as e:
                 print "==== OnTick slider state check error: %s ====" % str(e)
 
