@@ -135,6 +135,24 @@ def GetSettingLocked(main_card_id, key, middle_card_id, item_id, default=False):
     return str(stored).lower() in ("1", "true", "yes", "on")
 
 
+def ClearSettingLocked(main_card_id, key, middle_card_id, item_id):
+    """清除指定设置项持久化的锁定状态（::locked 键）。
+
+    用于服务端按玩家 OP 实时决定的鉴权项：避免 OP 曾解锁被保存成过期
+    解锁态后，下次（哪怕是其他权限、包括非 OP）打开时误用旧状态而穿透鉴权。
+    """
+    mid = NormalizeMiddleCardId(middle_card_id)
+    locked_key = MakeSettingKey(main_card_id, key, mid, item_id) + "::locked"
+    if locked_key in _memStore:
+        del _memStore[locked_key]
+    comp = _GetComp()
+    if comp is not None:
+        try:
+            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
+        except Exception as e:
+            dlog.client_print("==== SettingState clear lock error: %s ====" % str(e))
+
+
 def SetSettingValue(main_card_id, key, middle_card_id, item_id, value):
     """修改设置值：写存储 + 通知 UI 刷新（applier 幂等，UI 无变化时自动跳过）。"""
     _Write(MakeSettingKey(main_card_id, key, middle_card_id, item_id), value)

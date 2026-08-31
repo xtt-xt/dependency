@@ -961,12 +961,12 @@ class SettingsScreenNode(ScreenNode):
         self.mMainCardSnapshot = None  # 主卡片注册表快照，用于打开时跳过无变化的重建
         self.mMainCardFadingIn = []  # [(wrapper, current_alpha), ...] 主卡片淡入队列
         self.mMainCardFadeInSpeed = 0.3  # 主卡片快速淡入速度
-        # "优化"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
+        # "显示"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
         self.mEnableFadeAnim = True
         try:
-            from setting import OPTIMIZE_CATEGORY_ID, SWITCH_FADE_ANIM
+            from setting import DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM
             self.mEnableFadeAnim = bool(GetSettingValue(
-                "settings_config", "client", OPTIMIZE_CATEGORY_ID, SWITCH_FADE_ANIM,
+                "settings_config", "client", DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM,
                 default=True))
         except Exception:
             self.mEnableFadeAnim = True
@@ -2937,6 +2937,15 @@ class SettingsScreenNode(ScreenNode):
                     self.mServerLogSwitchItem = SWITCH_SERVER_LOG_OUTPUT
                     self.mServerLockItems = [SERVER_COPY_COUNT, SERVER_COPY_BTN]
                     self.mNeedServerLogRequest = True
+                    # 服务端调试项锁定由服务端按玩家 OP 实时下发；清除持久化的旧锁定态，
+                    # 避免 OP 曾解锁被保存后，下次(哪怕是其他权限)打开误用旧状态而穿透鉴权。
+                    try:
+                        from SettingState import ClearSettingLocked
+                        for iid in (SWITCH_SERVER_LOG_OUTPUT,
+                                    SERVER_COPY_COUNT, SERVER_COPY_BTN):
+                            ClearSettingLocked(main_card_id, sub_key, middle_card_id, iid)
+                    except Exception:
+                        pass
             except ImportError:
                 pass
         if not self.mRightScrollContent:
@@ -4077,6 +4086,9 @@ class PauseScreenProxy(CustomUIScreenProxy):
         screen = self.GetScreenNode()
         btnControl = screen.GetBaseUIControl(btnPath)
         if btnControl:
+            # 恢复可见性：关闭注册时曾 SetVisible(False)，可能跨会话保留，
+            # 重新开启时必须重新显示，否则按钮一直隐藏直到重启才恢复。
+            btnControl.SetVisible(True)
             screen.AddTouchEventHandler(btnPath, self.OnSettingsClick, None)
             dlog.client_print("==== settings button touch handler bound ====")
             return

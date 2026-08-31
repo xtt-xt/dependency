@@ -47,8 +47,7 @@ DEBUG_CATEGORY_ID = "debug"
 SWITCH_LOG_OUTPUT = "log_output"    # 客户端日志输出
 SWITCH_SERVER_LOG_OUTPUT = "server_log_output"  # 服务端全局日志输出
 
-# "优化"分类下的开关项 id
-OPTIMIZE_CATEGORY_ID = "optimize"      # 优化分类
+# "显示"分类下的缓入/缓出动画开关项 id
 SWITCH_FADE_ANIM = "enable_fade_anim"  # 设置项与中间卡片的缓入/缓出动画
 
 # "简介"分类下的项 id（内容由用户自行填写）
@@ -61,10 +60,11 @@ INFO_TEXT = "感谢使用通用模组前置\n本模组前置仅为其他模组�
 INFO_BUTTON_ID = "info_btn"                  # 自定义按钮 id
 INFO_POPUP_ID = "info_popup"                 # 弹窗 id
 INFO_POPUP_TITLE = "关于通用模组前置"
-INFO_POPUP_CONTENT = ("本模组是开源模组，开源链接https://github.com/xtt-xt/dependency\n"
-                      "你可以提出自己的意见，帮助修改代码，或是接入自己的模组\n"
+INFO_POPUP_CONTENT = ("本模组是开源模组\n"
+                      "开源链接https://github.com/xtt-xt/dependency\n"
+                      "开源协议参见仓库内LICENSE文件\n"
                       "本模组前置仅为其他模组提供基础功能，不包含任何游戏内容。\n"
-                      "版本：0.0.1\n作者：星天xt")
+                      "版本：0.0.1  作者：星天xt")
 
 # 日志导出（复制）相关项 id
 CLIENT_COPY_COUNT = "copy_client_count"  # 客户端导出数量（折叠菜单）
@@ -158,9 +158,9 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                        icon="textures/ui/icon_alex")
 
     # 顶部介绍（测试文字，可自行填充）
-    INTRO_TEXT = "这里可以设置设置的入口位置，如果你把设置项全部关闭，你可以使用以下方法进入\n1.点击主菜单模组按钮-选中通用模组前置-打开设置按钮\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
+    INTRO_TEXT = "这里可以设置设置的入口位置和部分其他内容，如果你把入口设置项全部关闭，你可以使用以下方法进入\n1.点击主菜单模组按钮-选中通用模组前置-打开设置按钮\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
 
-    # 内容项顺序：介绍(顶) -> 两个开关 -> 重置按钮(底，使用框架内置 reset 控件)
+    # 内容项顺序：介绍(顶) -> 三个开关 -> 重置按钮(底，使用框架内置 reset 控件)
     # 注意：AddSwitch 参数顺序为 (item_id, desc, default_value, locked, on_toggle, litle)，
     #       说明文字请放在 litle 小标题，不要放在 default_value 位置。
     CreateContentInst(main_card_id, "client", DISPLAY_CATEGORY_ID) \
@@ -171,6 +171,9 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_PAUSE_MENU, "注册到暂停界面，默认true",
                     default_value=True, on_toggle=_OnDisplaySwitchToggle,
                     litle="注册到暂停菜单") \
+        .AddSwitch(SWITCH_FADE_ANIM, "开启设置项与中间卡片的缓入/缓出动画，默认true",
+                   default_value=True, on_toggle=_OnOptimizeSwitchToggle,
+                   litle="缓入/缓出动画") \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # "调试"分类（客户端中间卡片，图标 debug）
@@ -204,16 +207,6 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                             default_selected_id=_DEFAULT_EXPORT_COUNT, locked=True) \
         .AddButton(SERVER_COPY_BTN, "复制服务端调试日志到剪贴板",
                    "复制日志", on_click=_OnCopyServerLog, locked=True)
-
-    # "优化"分类（客户端中间卡片，图标 gear）：设置项与中间卡片的缓入/缓出动画开关
-    RegisterMiddleCard(main_card_id, "client", OPTIMIZE_CATEGORY_ID, "优化",
-                       icon="textures/ui/icon_multiplayer")
-    CreateContentInst(main_card_id, "client", OPTIMIZE_CATEGORY_ID) \
-        .AddText("optimize_intro", "简介",
-                 "性能优化相关设置。\n关闭缓入/缓出动画可减少低端设备卡顿\n也许...会吧...?") \
-        .AddSwitch(SWITCH_FADE_ANIM, "开启设置项与中间卡片的缓入/缓出动画，默认true",
-                   default_value=True, on_toggle=_OnOptimizeSwitchToggle,
-                   litle="缓入/缓出动画")
 
     # 注册"复制数量"折叠菜单（供上述两个下拉项共用）
     RegisterCollapsibleMenu(EXPORT_COUNT_MENU, "导出数量", _EXPORT_COUNT_OPTIONS)
