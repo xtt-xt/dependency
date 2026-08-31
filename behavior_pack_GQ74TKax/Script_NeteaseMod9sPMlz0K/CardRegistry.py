@@ -250,10 +250,16 @@ class ResetContentItem(BaseContentItem):
         self.button_text = "重置分页数据"  # 按钮文字固定，不可自定义
         self.popup_id = popup_id    # 关联的弹窗 ID（须先 RegisterPopUp 注册）
         self.on_click = on_click    # 额外点击回调，签名 on_click(screenNode, item_id)（可选）
+        self.locked = False         # 是否锁定（支持动态锁定，外部模组可设置）
+        self._default_locked = False  # 注册默认锁定（重置时恢复）
 
     def SetPopupId(self, popup_id):
         """动态修改关联的弹窗 ID。"""
         self.popup_id = popup_id
+
+    def SetLocked(self, locked):
+        """动态修改锁定状态。"""
+        self.locked = locked
 
 
 class SliderContentItem(BaseContentItem):

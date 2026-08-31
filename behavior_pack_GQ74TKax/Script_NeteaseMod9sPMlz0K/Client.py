@@ -3233,9 +3233,19 @@ class SettingsScreenNode(ScreenNode):
                         btn.SetButtonTouchUpCallback(lambda args: None)
                     else:
                         btn.AddTouchEventParams({})
-                        btn.SetButtonTouchUpCallback(
-                            lambda args, iid=item_id: self.OnRightButtonClick(args, iid)
-                        )
+                        _itm = None
+                        if self.mCurrentRightGroup:
+                            _itm = GetContentItem(self.mCurrentRightGroup[0],
+                                                  self.mCurrentRightGroup[1],
+                                                  self.mCurrentRightGroup[2], item_id)
+                        if _itm is not None and _itm.type_name == "reset":
+                            btn.SetButtonTouchUpCallback(
+                                lambda args, iid=item_id: _OnResetButtonClick(self, iid)
+                            )
+                        else:
+                            btn.SetButtonTouchUpCallback(
+                                lambda args, iid=item_id: self.OnRightButtonClick(args, iid)
+                            )
             return
         # 2b. 开关锁定逻辑
         switchCtrl = self.mRightSwitchCtrlMap.get(item_id)
@@ -4084,15 +4094,26 @@ def BuildResetContent(screenNode, parent, item):
     if finishImg:
         finishImg.SetVisible(False)
 
-    # 绑定点击：打开关联弹窗 + 触发额外回调
-    btn = buttonCtrl.asButton()
-    if btn:
-        btn.AddTouchEventParams({})
-        btn.SetButtonTouchUpCallback(
-            lambda args, iid=item.item_id: _OnResetButtonClick(screenNode, iid)
-        )
+    # 锁定处理：显示 lock 图层并禁止点击
+    lockCtrl = buttonCtrl.GetChildByName('lock')
+    if item.locked:
+        if lockCtrl:
+            lockCtrl.SetVisible(True)
+    else:
+        if lockCtrl:
+            lockCtrl.SetVisible(False)
+        btn = buttonCtrl.asButton()
+        if btn:
+            btn.AddTouchEventParams({})
+            btn.SetButtonTouchUpCallback(
+                lambda args, iid=item.item_id: _OnResetButtonClick(screenNode, iid)
+            )
+    # 存储 lock 控件引用，用于动态更新锁定状态
+    if lockCtrl:
+        screenNode.mRightLockCtrlMap[item.item_id] = lockCtrl
 
     screenNode.mRightContentCtrls.append(ctrl)
+    screenNode.mRightBtnCtrlMap[item.item_id] = ctrl
 
 
 def _OnResetButtonClick(screenNode, item_id):
@@ -4104,6 +4125,10 @@ def _OnResetButtonClick(screenNode, item_id):
     if not group:
         return
     it = GetContentItem(group[0], group[1], NormalizeMiddleCardId(group[2]), item_id)
+    if it is None:
+        return
+    if getattr(it, "locked", False):
+        return  # 锁定状态不可点击
     if it and getattr(it, "popup_id", None):
         _g_ClientSystem.ShowPopUp(it.popup_id)
     if it and getattr(it, "on_click", None):
