@@ -880,7 +880,7 @@
                 "middle": {
                     "type": "image",
                     "offset": [
-                        "-24%+0px",
+                        "-9.35%+0px",
                         "5%+0px"
                     ],
                     "size": [
@@ -958,7 +958,7 @@
                 "right": {
                     "type": "image",
                     "offset": [
-                        "7%+0px",
+                        "24%+0px",
                         "5%+0px"
                     ],
                     "size": [

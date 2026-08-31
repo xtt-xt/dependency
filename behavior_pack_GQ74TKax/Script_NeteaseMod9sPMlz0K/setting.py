@@ -49,6 +49,7 @@ SWITCH_SERVER_LOG_OUTPUT = "server_log_output"  # 服务端全局日志输出
 
 # "显示"分类下的缓入/缓出动画开关项 id
 SWITCH_FADE_ANIM = "enable_fade_anim"  # 设置项与中间卡片的缓入/缓出动画
+SWITCH_ENTER_ANIM = "enable_enter_anim"  # 中间/右边面板的滑入进入动画
 
 # "简介"分类下的项 id（内容由用户自行填写）
 INFO_CATEGORY_ID = "info"
@@ -129,6 +130,12 @@ def _OnOptimizeSwitchToggle(screenNode, item_id, state):
         screenNode.SetFadeAnimEnabled(bool(state))
 
 
+def _OnEnterAnimToggle(screenNode, item_id, state):
+    """面板滑入动画开关回调：立即启用/禁用中间/右边面板的滑入进入动画。"""
+    if screenNode and hasattr(screenNode, "SetEnterAnimEnabled"):
+        screenNode.SetEnterAnimEnabled(bool(state))
+
+
 def _OnInfoButtonClick(screenNode, item_id):
     """简介页自定义按钮：打开自定义普通（不滚动）弹窗。"""
     from CardRegistryApi import ShowPopUp
@@ -174,6 +181,9 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_FADE_ANIM, "开启设置项与中间卡片的缓入/缓出动画，默认true",
                    default_value=True, on_toggle=_OnOptimizeSwitchToggle,
                    litle="缓入/缓出动画") \
+        .AddSwitch(SWITCH_ENTER_ANIM, "开启切换子卡片时中间/右边面板的滑入进入动画，默认true",
+                   default_value=True, on_toggle=_OnEnterAnimToggle,
+                   litle="面板滑入动画") \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # "调试"分类（客户端中间卡片，图标 debug）

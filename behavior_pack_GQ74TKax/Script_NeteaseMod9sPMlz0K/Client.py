@@ -963,13 +963,18 @@ class SettingsScreenNode(ScreenNode):
         self.mMainCardFadeInSpeed = 0.3  # 主卡片快速淡入速度
         # "显示"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
         self.mEnableFadeAnim = True
+        self.mEnableEnterAnim = True   # 中间/右边面板的滑入进入动画（默认开）
         try:
-            from setting import DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM
+            from setting import (DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM, SWITCH_ENTER_ANIM)
             self.mEnableFadeAnim = bool(GetSettingValue(
                 "settings_config", "client", DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM,
                 default=True))
+            self.mEnableEnterAnim = bool(GetSettingValue(
+                "settings_config", "client", DISPLAY_CATEGORY_ID, SWITCH_ENTER_ANIM,
+                default=True))
         except Exception:
             self.mEnableFadeAnim = True
+            self.mEnableEnterAnim = True
         self.mMiddleCardSeq = 0    # 中间卡片控件名序列号
         self.mPendingNavigation = None      # (main_card_id, sub_key, middle_card_id)
         self.mPendingMiddleCardId = None    # 待选中的中间卡片 ID
@@ -2752,10 +2757,14 @@ class SettingsScreenNode(ScreenNode):
             self.mMiddleCtrl.StopAnimation("offset")
             self.mMiddleCtrl.RemoveAnimation("offset")
         self.mMiddleCtrl.SetVisible(True)
-        self.mMiddleCtrl.SetAnimation("offset", "setting", "middle_enter")
-        self.mMiddleCtrl.PlayAnimation("offset")
+        if self.mEnableEnterAnim:
+            self.mMiddleCtrl.SetAnimation("offset", "setting", "middle_enter")
+            self.mMiddleCtrl.PlayAnimation("offset")
+            self.mMiddleHasAnimation = True
+        else:
+            # 关闭滑入动画：直接显示在最终位置，不播放动画
+            self.mMiddleHasAnimation = False
         self.mMiddleOpen = True
-        self.mMiddleHasAnimation = True
         dlog.client_print("==== middle panel enter animation played ====")
 
     def HideMiddlePanel(self):
@@ -2797,10 +2806,14 @@ class SettingsScreenNode(ScreenNode):
             self.mRightCtrl.StopAnimation("offset")
             self.mRightCtrl.RemoveAnimation("offset")
         self.mRightCtrl.SetVisible(True)
-        self.mRightCtrl.SetAnimation("offset", "setting", "right_enter")
-        self.mRightCtrl.PlayAnimation("offset")
+        if self.mEnableEnterAnim:
+            self.mRightCtrl.SetAnimation("offset", "setting", "right_enter")
+            self.mRightCtrl.PlayAnimation("offset")
+            self.mRightHasAnimation = True
+        else:
+            # 关闭滑入动画：直接显示在最终位置，不播放动画
+            self.mRightHasAnimation = False
         self.mRightOpen = True
-        self.mRightHasAnimation = True
         dlog.client_print("==== right panel enter animation played ====")
 
     def HideRightPanel(self):
@@ -2978,6 +2991,32 @@ class SettingsScreenNode(ScreenNode):
                     self.SetRightContentAlpha(ctrl, 1.0)
         except Exception as e:
             dlog.client_print("==== CreateNextRightContent item '%s' error: %s ====" % (item.item_id, str(e)))
+
+    def SetEnterAnimEnabled(self, enabled):
+        """开启/禁用中间/右边面板的滑入进入动画（"显示"分类开关回调）。
+
+        关闭时正在播放的进入动画立即停止并回落到最终位置（移除 offset 动画）。
+        """
+        disabled_now = self.mEnableEnterAnim and not bool(enabled)
+        self.mEnableEnterAnim = bool(enabled)
+        if not disabled_now:
+            return
+        # 关闭动画：若面板正在滑入播放中，立即停掉并移除 offset，回到最终位置
+        try:
+            if self.mMiddleOpen and self.mMiddleHasAnimation:
+                self.mMiddleCtrl.StopAnimation("offset")
+                self.mMiddleCtrl.RemoveAnimation("offset")
+                self.mMiddleHasAnimation = False
+        except Exception as e:
+            dlog.client_print("==== SetEnterAnimEnabled middle error: %s ====" % str(e))
+        try:
+            if self.mRightOpen and self.mRightHasAnimation:
+                self.mRightCtrl.StopAnimation("offset")
+                self.mRightCtrl.RemoveAnimation("offset")
+                self.mRightHasAnimation = False
+        except Exception as e:
+            dlog.client_print("==== SetEnterAnimEnabled right error: %s ====" % str(e))
+        dlog.client_print("==== 面板滑入进入动画已禁用 ====")
 
     def SetFadeAnimEnabled(self, enabled):
         """开启/禁用设置项与中间卡片的缓入/缓出动画（"优化"分类开关回调）。"""
