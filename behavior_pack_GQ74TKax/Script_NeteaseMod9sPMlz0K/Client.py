@@ -975,6 +975,7 @@ class SettingsScreenNode(ScreenNode):
         except Exception:
             self.mEnableFadeAnim = True
             self.mEnableEnterAnim = True
+        self.mNavInstant = None    # 导航定位到中间卡片时的"本次打开不播动画"一次性标志
         self.mMiddleCardSeq = 0    # 中间卡片控件名序列号
         self.mPendingNavigation = None      # (main_card_id, sub_key, middle_card_id)
         self.mPendingMiddleCardId = None    # 待选中的中间卡片 ID
@@ -2178,6 +2179,8 @@ class SettingsScreenNode(ScreenNode):
         self.SelectMainCard(main_index)
         # 2. 如果指定了子卡片，选中子卡片
         if sub_key in ("client", "server"):
+            # 定位到子卡片：本次打开中间/右边面板不播进入动画（仅这一次），之后按设置
+            self.mNavInstant = True
             self.SelectSubCard(main_index, sub_key)
             # 3. 如果指定了中间卡片，记录待选（异步创建，需等待）
             if middle_card_id:
@@ -2775,6 +2778,18 @@ class SettingsScreenNode(ScreenNode):
             return
         self.mMiddleOpen = False
         self.ClearMiddleOptions()
+        if not self.mEnableEnterAnim:
+            # 关闭滑入动画：面板直接隐藏，不播滑出动画
+            try:
+                if self.mMiddleHasAnimation:
+                    self.mMiddleCtrl.StopAnimation("offset")
+                    self.mMiddleCtrl.RemoveAnimation("offset")
+            except Exception:
+                pass
+            self.mMiddleCtrl.SetVisible(False)
+            self.mMiddleHasAnimation = False
+            dlog.client_print("==== middle panel hidden (enter anim off) ====")
+            return
         if self.mMiddleHasAnimation:
             self.mMiddleCtrl.StopAnimation("offset")
             self.mMiddleCtrl.RemoveAnimation("offset")
@@ -2800,13 +2815,18 @@ class SettingsScreenNode(ScreenNode):
             dlog.client_print("==== OpenRightPanel: right control not found ====")
             return
         if self.mRightOpen:
+            # 面板已开，本次不涉及"打开动画"，消费一次性标志防止残留
+            if self.mNavInstant:
+                self.mNavInstant = None
             dlog.client_print("==== OpenRightPanel: already open ====")
             return
         if self.mRightHasAnimation:
             self.mRightCtrl.StopAnimation("offset")
             self.mRightCtrl.RemoveAnimation("offset")
         self.mRightCtrl.SetVisible(True)
-        if self.mEnableEnterAnim:
+        suppress = self.mNavInstant
+        self.mNavInstant = None  # 消费一次性导航"不播动画"：仅本次打开有效
+        if self.mEnableEnterAnim and not suppress:
             self.mRightCtrl.SetAnimation("offset", "setting", "right_enter")
             self.mRightCtrl.PlayAnimation("offset")
             self.mRightHasAnimation = True
@@ -2831,6 +2851,18 @@ class SettingsScreenNode(ScreenNode):
             except Exception as e:
                 dlog.client_print("==== HideRightPanel: save group error: %s ====" % str(e))
         self.mRightOpen = False
+        if not self.mEnableEnterAnim:
+            # 关闭滑入动画：面板直接隐藏，不播滑出动画
+            try:
+                if self.mRightHasAnimation:
+                    self.mRightCtrl.StopAnimation("offset")
+                    self.mRightCtrl.RemoveAnimation("offset")
+            except Exception:
+                pass
+            self.mRightCtrl.SetVisible(False)
+            self.mRightHasAnimation = False
+            dlog.client_print("==== right panel hidden (enter anim off) ====")
+            return
         if self.mRightHasAnimation:
             self.mRightCtrl.StopAnimation("offset")
             self.mRightCtrl.RemoveAnimation("offset")
