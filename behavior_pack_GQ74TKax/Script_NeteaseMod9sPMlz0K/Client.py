@@ -50,6 +50,10 @@ class MyClientSystem(ClientSystem):
         self.mCollapsibleMenuScreenNode = None  # 折叠菜单 ScreenNode 引用
         self.mCurrentCollapsibleMenu = None  # 当前折叠菜单数据 {"title": str, "cards": [(card_id, name), ...]}
         self.mCurrentCollapsibleItem = None  # 关联的 CollapsibleMenuContentItem（用于读写选中状态）
+        self.mCardToggleOpen = False       # 组合开关弹窗是否在场景栈中
+        self.mCardToggleScreenNode = None  # 组合开关 ScreenNode 引用
+        self.mCurrentCardToggle = None     # 当前组合开关数据集 {"title","mode","buttons","options"}
+        self.mCurrentToggleId = ""         # 当前组合开关 toggle_id
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
         self.ListenForEvent(
@@ -169,6 +173,11 @@ class MyClientSystem(ClientSystem):
             self.mCurrentCollapsibleMenu = None
             self.mCurrentCollapsibleItem = None
             self.mReturningFromPopUp = False
+        elif screenDef == 'pop_up.card_toggle_panel':
+            self.mCardToggleOpen = False
+            self.mCurrentCardToggle = None
+            self.mCurrentToggleId = ""
+            self.mReturningFromPopUp = False
 
     def OnKeyPressInGame(self, args):
         keyValue = int(args.get('key', 0))
@@ -179,6 +188,9 @@ class MyClientSystem(ClientSystem):
             if self.mCollapsibleMenuOpen:
                 dlog.client_print("==== ESC pressed, close CollapsibleMenu ====")
                 self.CloseCollapsibleMenu()
+            elif self.mCardToggleOpen:
+                dlog.client_print("==== ESC pressed, close CardToggle ====")
+                self.CloseCardToggle()
             elif self.mPopUpOpen:
                 dlog.client_print("==== ESC pressed, close PopUp only ====")
                 self.ClosePopUp()
@@ -375,6 +387,14 @@ class MyClientSystem(ClientSystem):
         )
         dlog.client_print("==== CollapsibleMenuUI registered ====")
 
+        clientApi.RegisterUI(
+            'Script_NeteaseMod9sPMlz0K',
+            'CardToggleUI',
+            'Script_NeteaseMod9sPMlz0K.Client.CardToggleScreenNode',
+            'pop_up.card_toggle_panel'
+        )
+        dlog.client_print("==== CardToggleUI registered ====")
+
         # 注册 Toast 系统
         try:
             from Toast import RegisterToastScreens
@@ -564,6 +584,47 @@ class MyClientSystem(ClientSystem):
         if self.mCollapsibleMenuOpen:
             clientApi.PopScreen()
             self.mCollapsibleMenuOpen = False
+
+    def OpenCardToggle(self, toggle_id):
+        """打开组合开关弹窗。供普通按钮 on_click / 外部模组调用。
+
+        数据集须先用 RegisterCardToggle/AddCardToggleOption 注册。
+        """
+        from CardRegistry import GetCardToggle
+        data = GetCardToggle(toggle_id)
+        dlog.client_print("==== OpenCardToggle invoked: toggle=%s data=%s mOpen=%s ====" % (
+            toggle_id, bool(data), self.mCardToggleOpen))
+        if not data:
+            dlog.client_print("==== OpenCardToggle: toggle '%s' not registered ====" % toggle_id)
+            return False
+        self.mCurrentCardToggle = data
+        self.mCurrentToggleId = toggle_id
+        if self.mCardToggleOpen:
+            # 已打开：复用现有 ScreenNode 刷新内容
+            dlog.client_print("==== OpenCardToggle: already open, refresh ====")
+            if self.mCardToggleScreenNode:
+                try:
+                    self.mCardToggleScreenNode._ApplyPanel()
+                except Exception as e:
+                    dlog.client_print("==== OpenCardToggle refresh error: %s ====" % str(e))
+            return True
+        # 组合开关即将压栈：设置界面将失去栈顶，标记"弹窗会话"
+        self.mReturningFromPopUp = True
+        clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'CardToggleUI')
+        self.mCardToggleOpen = True
+        return True
+
+    def CloseCardToggle(self):
+        """关闭当前组合开关弹窗（PopScreen 返回上一层）。关闭前先持久化当前开关状态。"""
+        if self.mCardToggleOpen:
+            # 弹窗子 screen 不保证 OnTick 被调用，故在关闭时一次性读当前状态写入存储
+            if self.mCardToggleScreenNode:
+                try:
+                    self.mCardToggleScreenNode._PersistStates()
+                except Exception as e:
+                    dlog.client_print("==== CloseCardToggle persist error: %s ====" % str(e))
+            clientApi.PopScreen()
+            self.mCardToggleOpen = False
 
     def SetLocked(self, item_id_or_path, locked):
         """
@@ -3537,6 +3598,8 @@ def BuildButtonContent(screenNode, parent, item):
 
     # 锁定处理：显示 lock 图层并禁止点击
     lockCtrl = buttonCtrl.GetChildByName('lock')
+    dlog.client_print("==== BuildButton: item=%s locked=%s bindCb=%s ====" % (
+        item.item_id, item.locked, not item.locked))
     if item.locked:
         if lockCtrl:
             lockCtrl.SetVisible(True)
@@ -4609,6 +4672,239 @@ class CollapsibleMenuScreenNode(ScreenNode):
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mCollapsibleMenuScreenNode is self:
             _g_ClientSystem.mCollapsibleMenuScreenNode = None
+        try:
+            ScreenNode.Destroy(self)
+        except Exception:
+            pass
+
+
+class CardToggleScreenNode(ScreenNode):
+    """组合开关弹窗 ScreenNode：标题 + 中间多行开关卡片 + 底部自定义按钮。
+
+    每行卡片复用 setting.card_toggle（物品渲染 + 描述 + 开关），支持单选/多选模式。
+    用 OnTick 轮询原生开关值来捕获用户改动并持久化（对齐 slider 的既有轮询模式）。
+    """
+
+    def __init__(self, namespace, name, param):
+        ScreenNode.__init__(self, namespace, name, param)
+        self.mPanelApplied = False
+        self.mBackBound = False
+        self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl), ...]
+        self.mStates = {}            # option_id -> bool（缓存当前开关状态）
+        self.mToggleId = ""
+        self.mMode = "multi"
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mCardToggleScreenNode = self
+
+    def Create(self):
+        dlog.client_print("==== CardToggleScreenNode.Create called ====")
+        self._ApplyPanel()
+
+    def OnActive(self):
+        dlog.client_print("==== CardToggleScreenNode.OnActive called ====")
+        self._ApplyPanel()
+
+    def _ApplyPanel(self):
+        data = None
+        if _g_ClientSystem:
+            data = _g_ClientSystem.mCurrentCardToggle
+            self.mToggleId = _g_ClientSystem.mCurrentToggleId
+        if not data:
+            dlog.client_print("==== CardToggleScreenNode: no toggle data ====")
+            return
+        self.mMode = data.get("mode", "multi")
+        options = data.get("options", []) or []
+        # 1. 标题
+        titleCtrl = self.GetBaseUIControl("/backdrop/stack_panel/top/litle")
+        if titleCtrl:
+            _SetLabelText(titleCtrl, data.get("title", ""), "CardToggleScreenNode.title")
+        # 2. 返回按钮（仅绑定一次）
+        if not self.mBackBound:
+            backCtrl = self.GetBaseUIControl("/backdrop/stack_panel/top/back")
+            if backCtrl:
+                btn = backCtrl.asButton()
+                if btn:
+                    btn.AddTouchEventParams({})
+                    btn.SetButtonTouchUpCallback(lambda args: self._OnBackClick())
+                    self.mBackBound = True
+        # 3. 中间多行开关卡片
+        middleStack = self.GetBaseUIControl("/backdrop/stack_panel/middle/stack_panel")
+        dlog.client_print("==== CardToggle _ApplyPanel: mode=%s options=%d middleStack=%s ====" % (
+            self.mMode, len(options), bool(middleStack)))
+        if not middleStack:
+            dlog.client_print("==== CardToggleScreenNode: middle stack not found ====")
+            return
+        self._ClearRows()
+        from SettingState import GetCardToggleState
+        for i, (option_id, item_name, item_aux, desc, default_on) in enumerate(options):
+            ctrl = self.CreateChildControl(
+                'setting.card_toggle',
+                'tog_%d' % i,
+                middleStack,
+                True
+            )
+            if not ctrl:
+                dlog.client_print("==== CardToggleScreenNode: create row %d failed ====" % i)
+                continue
+            # card_toggle 结构为 panel > image > (item_renderer/label/switch)，
+            # GetChildByName 只查直接子，故先取 image 再取内部子控件
+            base = ctrl.GetChildByName('image') or ctrl
+            # 物品图标渲染
+            itemCtrl = base.GetChildByName('item_renderer')
+            if itemCtrl:
+                try:
+                    it = itemCtrl.asItemRenderer()
+                    if it:
+                        it.SetUiItem(item_name, item_aux, False)
+                except Exception as e:
+                    dlog.client_print("==== CardToggleScreenNode item render error: %s ====" % str(e))
+            # 自定义描述文字
+            labelCtrl = base.GetChildByName('label')
+            if labelCtrl:
+                _SetLabelText(labelCtrl, desc, "CardToggleScreenNode.label")
+            # 开关：初始化状态 + 记录（存转换后的 SwitchToggleUIControl，供 Get/SetToggleState 使用）
+            switchCtrl = base.GetChildByName('switch')
+            state = GetCardToggleState(self.mToggleId, option_id, default_on)
+            self.mStates[option_id] = bool(state)
+            toggleObj = None
+            if switchCtrl:
+                try:
+                    toggleObj = switchCtrl.asSwitchToggle()
+                    if toggleObj:
+                        toggleObj.SetToggleState(bool(state), "/this_toggle")
+                except Exception as e:
+                    dlog.client_print("==== CardToggleScreenNode switch init error: %s ====" % str(e))
+            self.mRowCtrls.append((option_id, toggleObj, ctrl))
+        self.mPanelApplied = True
+        dlog.client_print("==== CardToggle applied: rows=%d/%d ====" % (len(self.mRowCtrls), len(options)))
+        # 4. 底部自定义按钮
+        self._BuildButtons(data.get("buttons", []) or [])
+
+    def _ClearRows(self):
+        for _oid, _sc, ctrl in self.mRowCtrls:
+            try:
+                self.RemoveChildControl(ctrl)
+            except Exception:
+                pass
+        self.mRowCtrls = []
+        self.mStates = {}
+
+    def _BuildButtons(self, buttons):
+        underStack = self.GetBaseUIControl("/backdrop/stack_panel/under/stack_panel")
+        if not underStack:
+            dlog.client_print("==== CardToggleScreenNode: under stack not found ====")
+            return
+        for i, (text, callback) in enumerate(buttons):
+            btnCtrl = self.CreateChildControl(
+                'pop_up.pop_up_button',
+                'btn_%d' % i,
+                underStack,
+                True
+            )
+            if not btnCtrl:
+                continue
+            # 按钮文字：label 子控件
+            try:
+                labelCtrl = btnCtrl.GetChildByName('label')
+                if labelCtrl:
+                    _SetLabelText(labelCtrl, text, "CardToggleScreenNode.btn_label")
+            except Exception:
+                pass
+            btn = btnCtrl.asButton()
+            if btn:
+                btn.AddTouchEventParams({})
+                btn.SetButtonTouchUpCallback(
+                    lambda args, cb=callback: self._OnCustomButton(cb)
+                )
+
+    def _OnCustomButton(self, callback):
+        """底部自定义按钮点击：先同步最新开关状态再回调。"""
+        try:
+            dlog.client_print("==== CardToggle custom button CALLED, toggle=%s ====" % self.mToggleId)
+            self._PersistStates()
+            sn = None
+            if _g_ClientSystem:
+                sn = _g_ClientSystem.mSettingsScreenNode
+            callback(sn, self.mToggleId, dict(self.mStates))
+        except Exception as e:
+            dlog.client_print("==== CardToggleScreenNode button callback error: %s ====" % str(e))
+
+    def _OnBackClick(self):
+        """返回按钮：关闭组合开关弹窗。"""
+        if _g_ClientSystem:
+            _g_ClientSystem.CloseCardToggle()
+
+    def _PersistStates(self):
+        """读取当前所有开关原生状态并写入持久化（供关闭弹窗时调用，不依赖 OnTick）。"""
+        if not self.mToggleId:
+            return
+        from SettingState import SetCardToggleState
+        raw = []
+        changed = False
+        for option_id, switchCtrl, _ in self.mRowCtrls:
+            if switchCtrl is None:
+                raw.append((option_id, "NOCTRL"))
+                continue
+            try:
+                cur = switchCtrl.GetToggleState("/this_toggle")
+            except Exception as e:
+                raw.append((option_id, "ERR:" + str(e)))
+                continue
+            try:
+                cur_bool = bool(cur)
+            except Exception:
+                cur_bool = None
+            raw.append((option_id, cur))
+            if cur_bool is not None and cur_bool != self.mStates.get(option_id, False):
+                self.mStates[option_id] = cur_bool
+                SetCardToggleState(self.mToggleId, option_id, cur_bool)
+                changed = True
+        dlog.client_print("==== CardToggle persist raw: %s changed=%s ====" % (raw, changed))
+
+    def OnTick(self):
+        """轮询原生开关值：捕获用户改动 → 持久化；单选模式开一关余。"""
+        if not self.mPanelApplied or not self.mToggleId:
+            return
+        from SettingState import SetCardToggleState
+        changed = False
+        for option_id, switchCtrl, _ in self.mRowCtrls:
+            if switchCtrl is None:
+                continue
+            try:
+                cur = switchCtrl.GetToggleState("/this_toggle")
+            except Exception:
+                cur = None
+            if cur is None:
+                continue
+            cur = bool(cur)
+            if cur == self.mStates.get(option_id, False):
+                continue
+            self.mStates[option_id] = cur
+            SetCardToggleState(self.mToggleId, option_id, cur)
+            changed = True
+            # 单选互斥：开了当前项则关闭其余
+            if self.mMode == "single" and cur:
+                for oid2, sc2, _ in self.mRowCtrls:
+                    if oid2 == option_id or sc2 is None:
+                        continue
+                    try:
+                        sc2.SetToggleState(False, "/this_toggle")
+                    except Exception:
+                        pass
+                    self.mStates[oid2] = False
+                    SetCardToggleState(self.mToggleId, oid2, False)
+        if changed:
+            dlog.client_print("==== CardToggleScreenNode: toggle states updated ====")
+
+    def Destroy(self):
+        self.mPanelApplied = False
+        self.mBackBound = False
+        self.mRowCtrls = []
+        self.mStates = {}
+        global _g_ClientSystem
+        if _g_ClientSystem and _g_ClientSystem.mCardToggleScreenNode is self:
+            _g_ClientSystem.mCardToggleScreenNode = None
         try:
             ScreenNode.Destroy(self)
         except Exception:

@@ -14,6 +14,9 @@ from CardRegistryApi import (
     RegisterPopUp,
     ResetGroupSettings,
     GetSettingValue,
+    RegisterCardToggle,
+    AddCardToggleOption,
+    OpenCardToggle,
 )
 from DebugLog import dlog
 
@@ -142,6 +145,28 @@ def _OnInfoButtonClick(screenNode, item_id):
     ShowPopUp(INFO_POPUP_ID, force_scroll=False)
 
 
+def _OpenCardToggleClick(screenNode, item_id):
+    """打开组合开关弹窗（普通 button 触发）。"""
+    OpenCardToggle("demo_card_toggles")
+
+
+def _OnDemoToggleDone(screenNode, toggle_id, state_dict):
+    """组合开关底部按钮回调：打印当前开关状态。"""
+    dlog.client_print("==== demo card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
+
+
+def _RegisterCardToggleDemo():
+    """注册组合开关演示数据集（multi 多选）。"""
+    RegisterCardToggle("demo_card_toggles", "演示组合开关", mode="multi",
+                       buttons=[("打印状态", _OnDemoToggleDone)])
+    AddCardToggleOption("demo_card_toggles", "diamond", "minecraft:diamond",
+                        desc="点亮钻石")
+    AddCardToggleOption("demo_card_toggles", "apple", "minecraft:apple",
+                        desc="吃个苹果", default_on=True)
+    AddCardToggleOption("demo_card_toggles", "emerald", "minecraft:emerald",
+                        desc="绿宝石闪光")
+
+
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                            icon="textures/ui/xtt_dependency"):
     """注册"设置配置"主卡片及其"显示"分类下的开关项，返回主卡片是否注册成功。
@@ -186,6 +211,13 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                    litle="面板滑入动画") \
         .AddResetButton("reset", on_click=_OnResetClick)
 
+    # "组合开关"分类（客户端中间卡片，演示 card_toggle 弹窗）
+    CARD_TOGGLE_CAT = "card_toggle_demo"
+    RegisterMiddleCard(main_card_id, "client", CARD_TOGGLE_CAT, "组合开关")
+    CreateContentInst(main_card_id, "client", CARD_TOGGLE_CAT) \
+        .AddText("ct_intro", "简介", "点击下方按钮打开组合开关弹窗\n弹窗内每行是物品+描述+开关，支持单选/多选") \
+        .AddButton("ct_open", "打开组合开关弹窗", "打开", on_click=_OpenCardToggleClick)
+
     # "调试"分类（客户端中间卡片，图标 debug）
     RegisterMiddleCard(main_card_id, "client", DEBUG_CATEGORY_ID, "调试",
                        icon="textures/ui/icon/debug")
@@ -226,6 +258,8 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         GetSettingValue(main_card_id, "client", DEBUG_CATEGORY_ID, SWITCH_LOG_OUTPUT,
                         default=False)
     )
+    # 注册组合开关演示数据集
+    _RegisterCardToggleDemo()
     return ok
 
 

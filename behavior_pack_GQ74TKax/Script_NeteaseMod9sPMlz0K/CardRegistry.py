@@ -883,6 +883,103 @@ def GetCollapsibleMenuCards(menu_id):
 
 
 # ============================================================
+# CardToggle（组合开关弹窗）注册表
+# ============================================================
+# toggle_id -> {"title": str, "mode": str("multi"/"single"),
+#               "buttons": [(text, callback), ...],
+#               "options": [(option_id, item_name, item_aux, desc, default_on), ...]}
+# 数据层纯注册表，不 import 引擎模块；状态读写走 SettingState 的独立 key。
+
+_cardToggles = {}
+
+
+def RegisterCardToggle(toggle_id, title, mode="multi", buttons=None):
+    """
+    注册一个组合开关弹窗数据集（同 id 覆盖旧数据）。
+
+    :param toggle_id: 唯一标识符
+    :param title:     弹窗标题
+    :param mode:      "multi" 多选独立 / "single" 单选互斥
+    :param buttons:   底部自定义按钮 [(text, callback), ...]，callback(screenNode, toggle_id, state_dict)
+    :returns:         True 成功；False 参数无效
+    """
+    if not toggle_id or not title:
+        return False
+    _cardToggles[toggle_id] = {
+        "title": title,
+        "mode": mode if mode == "single" else "multi",
+        "buttons": list(buttons or []),
+        "options": [],
+    }
+    return True
+
+
+def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
+                        desc="", default_on=False):
+    """
+    向已注册的组合开关追加一个选项；toggle_id 不存在时自动初始化。
+    同一 option_id 重复追加会覆盖（更新物品/描述/默认值）。
+
+    :param toggle_id:  组合开关 ID
+    :param option_id:  选项唯一标识符
+    :param item_name:  物品渲染所用名称（如 "minecraft:diamond"）
+    :param item_aux:   物品附加值
+    :param desc:       该行左 label 描述文字
+    :param default_on: 默认是否开启
+    :returns:          True 成功；False 参数无效
+    """
+    if not toggle_id or not option_id or not item_name:
+        return False
+    menu = _cardToggles.setdefault(toggle_id, {
+        "title": "", "mode": "multi", "buttons": [], "options": []})
+    for i, op in enumerate(menu["options"]):
+        if op[0] == option_id:
+            menu["options"][i] = (option_id, item_name, item_aux, desc, default_on)
+            return True
+    menu["options"].append((option_id, item_name, item_aux, desc, default_on))
+    return True
+
+
+def AddCardToggleButton(toggle_id, text, callback):
+    """
+    向已注册的组合开关追加一个底部自定义按钮；toggle_id 不存在时自动初始化。
+
+    :param toggle_id: 组合开关 ID
+    :param text:      按钮显示文字
+    :param callback:  回调 callback(screenNode, toggle_id, state_dict)
+    :returns:         True 成功；False 参数无效
+    """
+    if not toggle_id or not text:
+        return False
+    menu = _cardToggles.setdefault(toggle_id, {
+        "title": "", "mode": "multi", "buttons": [], "options": []})
+    menu["buttons"].append((text, callback))
+    return True
+
+
+def GetCardToggle(toggle_id):
+    """
+    获取组合开关数据集 {"title", "mode", "buttons", "options"} 或 None。
+    options 元素为 (option_id, item_name, item_aux, desc, default_on)。
+    """
+    return _cardToggles.get(toggle_id)
+
+
+def GetCardToggleOptions(toggle_id):
+    """获取选项列表；数据集不存在返回 []。"""
+    menu = _cardToggles.get(toggle_id)
+    return menu["options"] if menu else []
+
+
+def GetCardToggleOptionIds(toggle_id):
+    """获取选项 id 列表；数据集不存在返回 []。"""
+    menu = _cardToggles.get(toggle_id)
+    if not menu:
+        return []
+    return [op[0] for op in menu["options"]]
+
+
+# ============================================================
 # 弹窗事件常量
 # ============================================================
 

@@ -648,6 +648,90 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ---
 
+## 组合开关（CardToggle）API
+
+组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片（每行 = **物品图标 + 自定义描述文字 + 开关**），支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项开关状态独立持久化（不挂靠任何内容项/分组）。
+
+先注册数据集（标题、模式、选项、底部按钮），再通过任意按钮用 `OpenCardToggle(toggle_id)` 打开。
+
+### RegisterCardToggle(toggle_id, title, mode="multi", buttons=None)
+
+注册一个组合开关数据集；同 `toggle_id` 覆盖旧数据。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| toggle_id | str | 是 | 组合开关唯一标识符 |
+| title | str | 是 | 弹窗标题 |
+| mode | str | 否 | `"multi"` 多选独立（默认）；`"single"` 单选互斥 |
+| buttons | list | 否 | 底部自定义按钮 `[(text, callback), ...]`，`callback(screenNode, toggle_id, state_dict)` |
+
+### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False)
+
+向已注册的组合开关追加一个选项；`option_id` 重复追加会覆盖旧选项。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| toggle_id | str | 是 | 组合开关 ID |
+| option_id | str | 是 | 选项唯一标识符 |
+| item_name | str | 是 | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标 |
+| item_aux | int | 否 | 物品附加值 |
+| desc | str | 否 | 该行自定义描述文字 |
+| default_on | bool | 否 | 默认是否开启 |
+
+### AddCardToggleButton(toggle_id, text, callback)
+
+向已注册的组合开关追加一个底部自定义按钮；`text` 为显示文字，`callback(screenNode, toggle_id, state_dict)`。
+
+### GetCardToggle(toggle_id)
+
+获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on)`。
+
+### GetCardToggleOptions(toggle_id) / GetCardToggleOptionIds(toggle_id)
+
+获取选项列表 / 选项 id 列表。
+
+### 状态持久化
+
+| API | 说明 |
+|-----|------|
+| `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项开关状态 |
+| `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项开关状态并持久化 |
+| `ResetCardToggleStates(toggle_id)` | 清除该 toggle 全部持久化状态（回退 `default_on`） |
+
+状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。
+
+### OpenCardToggle(toggle_id) / CloseCardToggle()
+
+- `OpenCardToggle(toggle_id)`：打开组合开关弹窗（数据集须先注册）。可在任意 `AddButton` 的 `on_click` 中调用，也可由外部模组（通过 `CardRegistryApi.OpenCardToggle`）调用。
+- `CloseCardToggle()`：关闭当前组合开关弹窗（返回/ESC 亦可关闭）。
+
+### 完整示例
+
+```python
+from CardRegistryApi import (
+    RegisterCardToggle, AddCardToggleOption, AddCardToggleButton,
+    OpenCardToggle, CreateContentInst,
+)
+
+def OnPrint(sn, toggle_id, state_dict):
+    print "组合开关", toggle_id, state_dict
+
+# 1. 注册数据集（multi 多选 + 底部自定义按钮）
+RegisterCardToggle("my_toggles", "我的组合", mode="multi")
+AddCardToggleOption("my_toggles", "a", "minecraft:diamond", desc="点亮钻石", default_on=True)
+AddCardToggleOption("my_toggles", "b", "minecraft:apple", desc="吃个苹果")
+AddCardToggleButton("my_toggles", "打印状态", OnPrint)
+
+# 2. 普通按钮打开弹窗
+CreateContentInst("basic_settings", "client", "opt_main")\
+    .AddButton("open_toggles", "打开组合开关", "打开",
+               on_click=lambda sn, iid: OpenCardToggle("my_toggles"))
+```
+
+> 单选模式（`mode="single"`）：打开某一项会自动关闭其他项。弹窗开关的增删改实时持久化，无需手动保存。
+
+---
+
 ## Toast 提示 API
 
 轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。

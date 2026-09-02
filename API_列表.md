@@ -45,6 +45,11 @@ from CardRegistryApi import (
     RegisterCollapsibleMenu, AddCollapsibleMenuCard,
     GetCollapsibleMenu, GetCollapsibleMenuCards,
     ShowCollapsibleMenu, CloseCollapsibleMenu,
+    # 组合开关（CardToggle）
+    RegisterCardToggle, AddCardToggleOption, AddCardToggleButton,
+    GetCardToggle, GetCardToggleOptions, GetCardToggleOptionIds,
+    GetCardToggleState, SetCardToggleState, ResetCardToggleStates,
+    OpenCardToggle, CloseCardToggle,
     # 弹窗事件常量
     PopUpOpenEvent, PopUpCloseEvent,
     # 跳转事件常量 + 跳转拦截 API
@@ -80,6 +85,7 @@ from CardRegistryApi import (
 | 内容项扩展 | `RegisterContentItemType` `GetContentItemFactory` `RegisterContentBuilder` `RegisterContentListener` `UnregisterContentListener` |
 | 弹窗 | `RegisterPopUp` `UnregisterPopUp` `GetPopUp` `GetAllPopUpIds` `ShowPopUp` `ClosePopUp` |
 | 折叠菜单 | `RegisterCollapsibleMenu` `AddCollapsibleMenuCard` `GetCollapsibleMenu` `GetCollapsibleMenuCards` `ShowCollapsibleMenu` `CloseCollapsibleMenu` |
+| 组合开关 | `RegisterCardToggle` `AddCardToggleOption` `AddCardToggleButton` `GetCardToggle` `GetCardToggleOptions` `GetCardToggleOptionIds` `GetCardToggleState` `SetCardToggleState` `ResetCardToggleStates` `OpenCardToggle` `CloseCardToggle` |
 | 锁定 | `SetLocked` |
 | 设置项状态 | `MakeSettingKey` `GetSettingValue` `GetSettingLocked` `SetSettingValue` `ResetSettingValue` `ResetAllSettings` `ResetGroupSettings` `SaveGroupSettings` `SaveAllSettings` |
 | 导航 | `OpenSettings` |

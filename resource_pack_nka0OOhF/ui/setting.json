@@ -422,6 +422,292 @@
             }
         ]
     },
+    "card_toggle": {
+        "type": "panel",
+        "size": [
+            "default",
+            30.0
+        ],
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "size": [
+                        "default",
+                        "100%+-2px"
+                    ],
+                    "layer": 1,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0
+                    ],
+                    "texture": "textures/ui/card_toggle_under",
+                    "controls": [
+                        {
+                            "item_renderer": {
+                                "type": "custom",
+                                "renderer": "inventory_item_renderer",
+                                "offset": [
+                                    "-35%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%y+0px",
+                                    "60%+0px"
+                                ],
+                                "layer": 1,
+                                "property_bag": {
+                                    "#item_id_aux": 131072
+                                }
+                            }
+                        },
+                        {
+                            "label": {
+                                "type": "label",
+                                "size": [
+                                    "60%+0px",
+                                    "default"
+                                ],
+                                "font_type": "default",
+                                "text": "Hello World!"
+                            }
+                        },
+                        {
+                            "switch@setting.switch": {
+                                "offset": [
+                                    "35%+0px",
+                                    0
+                                ],
+                                "size": [
+                                    "15%+0px",
+                                    "60%+0px"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "collapsible_menu_button@setting.button": {
+        "$coler": [
+            0,
+            0,
+            0
+        ],
+        "$text": "",
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$normal"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "layer": 2,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$hover"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "layer": 3,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "$pressing"
+                }
+            },
+            {
+                "lock": {
+                    "type": "image",
+                    "$lock|default": "",
+                    "layer": 4,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "$lock"
+                }
+            },
+            {
+                "text": {
+                    "type": "label",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "offset": [
+                        "5px",
+                        0
+                    ],
+                    "size": [
+                        "65%+0px",
+                        "default"
+                    ],
+                    "layer": 6,
+                    "color": "$coler",
+                    "font_size": "$size",
+                    "font_type": "normal",
+                    "text": "$text",
+                    "text_alignment": "left"
+                }
+            },
+            {
+                "arrow": {
+                    "type": "image",
+                    "anchor_from": "right_middle",
+                    "anchor_to": "right_middle",
+                    "offset": [
+                        "-5px",
+                        0
+                    ],
+                    "size": [
+                        "10px",
+                        "10px"
+                    ],
+                    "layer": 6,
+                    "texture": "textures/ui/icon/arrow"
+                }
+            }
+        ]
+    },
+    "collapsible_menu_content": {
+        "type": "image",
+        "$desc_text": "",
+        "$litle": "",
+        "$text": "",
+        "size": [
+            "default",
+            "100%cm+10px"
+        ],
+        "layer": 1,
+        "keep_ratio": false,
+        "nineslice_size": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+        ],
+        "texture": "textures/ui/content",
+        "controls": [
+            {
+                "panel": {
+                    "type": "stack_panel",
+                    "offset": [
+                        0.0,
+                        "0%+0px"
+                    ],
+                    "size": [
+                        "90%+0px",
+                        "100%c+4px"
+                    ],
+                    "orientation": "vertical",
+                    "controls": [
+                        {
+                            "litle": {
+                                "type": "label",
+                                "$litle|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    0.0,
+                                    "0px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "font_scale_factor": 1.1,
+                                "font_type": "default",
+                                "text": "$litle"
+                            }
+                        },
+                        {
+                            "desc": {
+                                "type": "label",
+                                "$desc_text|default": "",
+                                "anchor_from": "top_left",
+                                "anchor_to": "top_left",
+                                "offset": [
+                                    "0%+0px",
+                                    "4px"
+                                ],
+                                "size": [
+                                    "100%+0px",
+                                    "default"
+                                ],
+                                "layer": 5,
+                                "color": [
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ],
+                                "font_size": "normal",
+                                "font_type": "default",
+                                "text": "$desc_text",
+                                "text_alignment": "left"
+                            }
+                        },
+                        {
+                            "button_wrap": {
+                                "type": "panel",
+                                "size": [
+                                    "100%+0px",
+                                    24
+                                ],
+                                "controls": [
+                                    {
+                                        "button@setting.collapsible_menu_button": {
+                                            "anchor_from": "center",
+                                            "anchor_to": "center",
+                                            "offset": [
+                                                0,
+                                                0
+                                            ],
+                                            "size": [
+                                                "80%+0px",
+                                                24
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
     "edit_box": {
         "type": "panel",
         "size": [
@@ -635,25 +921,10 @@
         ]
     },
     "main@common.base_screen": {
+        "$additional_screen_content": "setting.under_toast_layer",
         "$screen_bg_content": "setting.below_bg",
         "$screen_content": "setting.main_content",
-        "$additional_screen_content": "setting.under_toast_layer",
         "render_only_when_topmost": true
-    },
-    "under_toast_layer": {
-        "type": "panel",
-        "size": [
-            "100%",
-            "100%"
-        ],
-        "controls": [
-            {
-                "under_toast@toast.toast_under": {
-                    "$text": "",
-                    "visible": false
-                }
-            }
-        ]
     },
     "main_content": {
         "type": "panel",
@@ -1322,221 +1593,6 @@
             }
         ]
     },
-    "collapsible_menu_button@setting.button": {
-        "$coler": [
-            0,
-            0,
-            0
-        ],
-        "$text": "",
-        "controls": [
-            {
-                "normal": {
-                    "type": "image",
-                    "layer": 1,
-                    "keep_ratio": false,
-                    "nineslice_size": [
-                        2.0,
-                        2.0,
-                        2.0,
-                        4.0
-                    ],
-                    "texture": "$normal"
-                }
-            },
-            {
-                "hover": {
-                    "type": "image",
-                    "layer": 2,
-                    "visible": false,
-                    "keep_ratio": false,
-                    "nineslice_size": [
-                        2.0,
-                        2.0,
-                        2.0,
-                        4.0
-                    ],
-                    "texture": "$hover"
-                }
-            },
-            {
-                "pressing": {
-                    "type": "image",
-                    "layer": 3,
-                    "visible": false,
-                    "keep_ratio": false,
-                    "nineslice_size": [
-                        2.0,
-                        4.0,
-                        2.0,
-                        2.0
-                    ],
-                    "texture": "$pressing"
-                }
-            },
-            {
-                "lock": {
-                    "type": "image",
-                    "$lock|default": "",
-                    "layer": 4,
-                    "visible": false,
-                    "keep_ratio": false,
-                    "nineslice_size": [
-                        2.0,
-                        2.0,
-                        2.0,
-                        4.0
-                    ],
-                    "texture": "$lock"
-                }
-            },
-            {
-                "text": {
-                    "type": "label",
-                    "anchor_from": "left_middle",
-                    "anchor_to": "left_middle",
-                    "offset": [
-                        "5px",
-                        0
-                    ],
-                    "size": [
-                        "65%+0px",
-                        "default"
-                    ],
-                    "layer": 6,
-                    "color": "$coler",
-                    "font_size": "$size",
-                    "font_type": "normal",
-                    "text": "$text",
-                    "text_alignment": "left"
-                }
-            },
-            {
-                "arrow": {
-                    "type": "image",
-                    "anchor_from": "right_middle",
-                    "anchor_to": "right_middle",
-                    "offset": [
-                        "-5px",
-                        0
-                    ],
-                    "size": [
-                        "10px",
-                        "10px"
-                    ],
-                    "layer": 6,
-                    "texture": "textures/ui/icon/arrow"
-                }
-            }
-        ]
-    },
-    "collapsible_menu_content": {
-        "type": "image",
-        "$desc_text": "",
-        "$litle": "",
-        "$text": "",
-        "size": [
-            "default",
-            "100%cm+10px"
-        ],
-        "layer": 1,
-        "keep_ratio": false,
-        "nineslice_size": [
-            1.0,
-            1.0,
-            1.0,
-            1.0
-        ],
-        "texture": "textures/ui/content",
-        "controls": [
-            {
-                "panel": {
-                    "type": "stack_panel",
-                    "offset": [
-                        0.0,
-                        "0%+0px"
-                    ],
-                    "size": [
-                        "90%+0px",
-                        "100%c+4px"
-                    ],
-                    "orientation": "vertical",
-                    "controls": [
-                        {
-                            "litle": {
-                                "type": "label",
-                                "$litle|default": "",
-                                "anchor_from": "top_left",
-                                "anchor_to": "top_left",
-                                "offset": [
-                                    0.0,
-                                    "0px"
-                                ],
-                                "size": [
-                                    "100%+0px",
-                                    "default"
-                                ],
-                                "font_scale_factor": 1.1,
-                                "font_type": "default",
-                                "text": "$litle"
-                            }
-                        },
-                        {
-                            "desc": {
-                                "type": "label",
-                                "$desc_text|default": "",
-                                "anchor_from": "top_left",
-                                "anchor_to": "top_left",
-                                "offset": [
-                                    "0%+0px",
-                                    "4px"
-                                ],
-                                "size": [
-                                    "100%+0px",
-                                    "default"
-                                ],
-                                "layer": 5,
-                                "color": [
-                                    1.0,
-                                    1.0,
-                                    1.0
-                                ],
-                                "font_size": "normal",
-                                "font_type": "default",
-                                "text": "$desc_text",
-                                "text_alignment": "left"
-                            }
-                        },
-                        {
-                            "button_wrap": {
-                                "type": "panel",
-                                "size": [
-                                    "100%+0px",
-                                    24
-                                ],
-                                "controls": [
-                                    {
-                                        "button@setting.collapsible_menu_button": {
-                                            "anchor_from": "center",
-                                            "anchor_to": "center",
-                                            "offset": [
-                                                0,
-                                                0
-                                            ],
-                                            "size": [
-                                                "80%+0px",
-                                                24
-                                            ]
-                                        }
-                                    }
-                                ]
-                            }
-                        }
-                    ]
-                }
-            }
-        ]
-    },
     "right_enter": {
         "anim_type": "offset",
         "duration": 0.06,
@@ -1737,25 +1793,6 @@
         ],
         "texture": "textures/ui/button_lock"
     },
-    "slider_lock_bg": {
-        "type": "image",
-        "size": [
-            "100%",
-            "100%"
-        ],
-        "layer": 3,
-        "keep_ratio": false,
-        "texture": "textures/ui/slider/slider_lock_bg"
-    },
-    "slider_lock_overlay": {
-        "type": "input_panel",
-        "size": [
-            "100%",
-            "100%"
-        ],
-        "layer": 6,
-        "is_swallow": true
-    },
     "slider_content": {
         "type": "image",
         "$desc_text": "",
@@ -1875,6 +1912,25 @@
                 }
             }
         ]
+    },
+    "slider_lock_bg": {
+        "type": "image",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 3,
+        "keep_ratio": false,
+        "texture": "textures/ui/slider/slider_lock_bg"
+    },
+    "slider_lock_overlay": {
+        "type": "input_panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 6,
+        "is_swallow": true
     },
     "slider_progress": {
         "type": "image",
@@ -2237,6 +2293,21 @@
                             }
                         }
                     ]
+                }
+            }
+        ]
+    },
+    "under_toast_layer": {
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "controls": [
+            {
+                "under_toast@toast.toast_under": {
+                    "$text": "",
+                    "visible": false
                 }
             }
         ]

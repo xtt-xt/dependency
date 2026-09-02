@@ -272,3 +272,45 @@ def SetSettingChangedCallback(cb):
     """
     global _uiChangedCallback
     _uiChangedCallback = cb
+
+
+# ────────────────── CardToggle（组合开关）状态持久化 ──────────────────
+# 独立于内容项/分组的存储，按 toggle_id 存一份 {option_id: bool} 字典。
+# key = "cardtoggle.<toggle_id>"。
+
+def _CardToggleKey(toggle_id):
+    return "cardtoggle.%s" % toggle_id
+
+
+def GetCardToggleState(toggle_id, option_id, default_on=False):
+    """读取某选项开关状态；无存储或未记录时返回 default_on。"""
+    states = _Read(_CardToggleKey(toggle_id))
+    if isinstance(states, dict):
+        val = states.get(option_id)
+        if val is not None:
+            return bool(val)
+    return bool(default_on)
+
+
+def SetCardToggleState(toggle_id, option_id, state):
+    """写入某选项开关状态并持久化整个 toggle 状态字典。"""
+    key = _CardToggleKey(toggle_id)
+    states = _Read(key)
+    if not isinstance(states, dict):
+        states = {}
+    states[option_id] = bool(state)
+    return _Write(key, states)
+
+
+def ResetCardToggleStates(toggle_id):
+    """清除该 toggle 的全部持久化状态（回退各选项 default_on）。"""
+    key = _CardToggleKey(toggle_id)
+    if key in _memStore:
+        del _memStore[key]
+    comp = _GetComp()
+    if comp is not None:
+        try:
+            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
+        except Exception as e:
+            dlog.client_print("==== SettingState reset cardtoggle error: %s ====" % str(e))
+    return True

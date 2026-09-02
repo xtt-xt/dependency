@@ -57,6 +57,13 @@ from CardRegistry import (
     AddCollapsibleMenuCard,
     GetCollapsibleMenu,
     GetCollapsibleMenuCards,
+    # 组合开关注册表
+    RegisterCardToggle,
+    AddCardToggleOption,
+    AddCardToggleButton,
+    GetCardToggle,
+    GetCardToggleOptions,
+    GetCardToggleOptionIds,
     # 弹窗事件常量
     PopUpOpenEvent,
     PopUpCloseEvent,
@@ -88,6 +95,10 @@ from SettingState import (
     ResetGroupSettings,
     SaveGroupSettings,
     SaveAllSettings,
+    # 组合开关状态
+    GetCardToggleState,
+    SetCardToggleState,
+    ResetCardToggleStates,
 )
 
 # ────────────────── Toast 提示系统 ──────────────────
@@ -129,6 +140,26 @@ def SetLocked(item_id_or_path, locked):
         _g_ClientSystem.SetLocked(item_id_or_path, locked)
     else:
         dlog.client_print("==== CardRegistryApi.SetLocked: ClientSystem not ready ====")
+
+
+def OpenCardToggle(toggle_id):
+    """
+    打开组合开关弹窗。供普通按钮 on_click / 外部模组调用。
+    数据集须先用 RegisterCardToggle/AddCardToggleOption 注册。
+
+    :param toggle_id: 组合开关唯一标识
+    :returns:         True 打开成功；False 未注册或 ClientSystem 未就绪
+    """
+    if _g_ClientSystem:
+        return bool(_g_ClientSystem.OpenCardToggle(toggle_id))
+    dlog.client_print("==== CardRegistryApi.OpenCardToggle: ClientSystem not ready ====")
+    return False
+
+
+def CloseCardToggle():
+    """关闭当前组合开关弹窗（若打开）。"""
+    if _g_ClientSystem:
+        _g_ClientSystem.CloseCardToggle()
 
 
 def ShowPopUp(popup_id, force_scroll=None):
