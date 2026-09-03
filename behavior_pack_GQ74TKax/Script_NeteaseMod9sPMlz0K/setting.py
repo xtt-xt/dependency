@@ -14,9 +14,6 @@ from CardRegistryApi import (
     RegisterPopUp,
     ResetGroupSettings,
     GetSettingValue,
-    RegisterCardToggle,
-    AddCardToggleOption,
-    OpenCardToggle,
 )
 from DebugLog import dlog
 
@@ -258,8 +255,6 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         GetSettingValue(main_card_id, "client", DEBUG_CATEGORY_ID, SWITCH_LOG_OUTPUT,
                         default=False)
     )
-    # 注册组合开关演示数据集
-    _RegisterCardToggleDemo()
     return ok
 
 
