@@ -915,28 +915,39 @@ def RegisterCardToggle(toggle_id, title, mode="multi", buttons=None):
 
 
 def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
-                        desc="", default_on=False):
+                        desc="", default_on=False, ctrl_type="toggle", locked=False):
     """
     向已注册的组合开关追加一个选项；toggle_id 不存在时自动初始化。
     同一 option_id 重复追加会覆盖（更新物品/描述/默认值）。
 
     :param toggle_id:  组合开关 ID
     :param option_id:  选项唯一标识符
-    :param item_name:  物品渲染所用名称（如 "minecraft:diamond"）
+    :param item_name:  物品渲染所用名称（如 "minecraft:diamond"），
+                       ctrl_type 为 "toggle_text" 时传 "" 即可
     :param item_aux:   物品附加值
-    :param desc:       该行左 label 描述文字
+    :param desc:       该行 label 描述文字
     :param default_on: 默认是否开启
+    :param ctrl_type:  行控件类型："toggle"（物品+文字+开关，默认）/
+                       "toggle_text"（纯文字+开关）
+    :param locked:     是否锁定（锁定后该行开关不可交互，显示锁定图标）
     :returns:          True 成功；False 参数无效
     """
-    if not toggle_id or not option_id or not item_name:
+    if not toggle_id or not option_id:
         return False
+    if ctrl_type not in ("toggle", "toggle_text"):
+        ctrl_type = "toggle"
+    if ctrl_type == "toggle" and not item_name:
+        return False
+    if not item_name:
+        item_name = ""
     menu = _cardToggles.setdefault(toggle_id, {
         "title": "", "mode": "multi", "buttons": [], "options": []})
+    entry = (option_id, item_name, item_aux, desc, default_on, ctrl_type, bool(locked))
     for i, op in enumerate(menu["options"]):
         if op[0] == option_id:
-            menu["options"][i] = (option_id, item_name, item_aux, desc, default_on)
+            menu["options"][i] = entry
             return True
-    menu["options"].append((option_id, item_name, item_aux, desc, default_on))
+    menu["options"].append(entry)
     return True
 
 

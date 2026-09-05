@@ -54,6 +54,7 @@ class MyClientSystem(ClientSystem):
         self.mCardToggleScreenNode = None  # 组合开关 ScreenNode 引用
         self.mCurrentCardToggle = None     # 当前组合开关数据集 {"title","mode","buttons","options"}
         self.mCurrentToggleId = ""         # 当前组合开关 toggle_id
+        self.mPendingCloseSettings = False  # 确认关闭动画后：OnActive 时立即关闭设置界面
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
         self.ListenForEvent(
@@ -1020,6 +1021,10 @@ class SettingsScreenNode(ScreenNode):
         self.mMainCardPending = []  # [(name, icon, card_id), ...] 待懒加载创建的主卡片数据
         self.mMainCardPerTick = 4  # 每帧创建的主卡片数量（加速进入）
         self.mMainCardSnapshot = None  # 主卡片注册表快照，用于打开时跳过无变化的重建
+        # 面板滑入动画延迟播放：首次显示时刚 SetVisible 的控件立即 PlayAnimation
+        # 会停在 from（初始位），改为 SetAnimation 后下一帧 OnTick 再 Play
+        self.mMiddlePendingPlay = False
+        self.mRightPendingPlay = False
         self.mMainCardFadingIn = []  # [(wrapper, current_alpha), ...] 主卡片淡入队列
         self.mMainCardFadeInSpeed = 0.3  # 主卡片快速淡入速度
         # "显示"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
@@ -1344,6 +1349,12 @@ class SettingsScreenNode(ScreenNode):
         if _g_ClientSystem and _g_ClientSystem.mReturningFromPopUp:
             _g_ClientSystem.mReturningFromPopUp = False
             dlog.client_print("==== OnActive: returning from popup, keep detail ====")
+            # 确认"关闭面板滑入动画"后：立即关闭设置界面（下次打开生效）
+            if _g_ClientSystem.mPendingCloseSettings:
+                _g_ClientSystem.mPendingCloseSettings = False
+                dlog.client_print("==== OnActive: close settings (enter anim disabled) ====")
+                clientApi.PopScreen()
+                _g_ClientSystem.mSettingsUIOpen = False
             return
         # 从 MyClientSystem 获取待执行导航参数
         if _g_ClientSystem and _g_ClientSystem.mPendingNavigation:
@@ -2431,6 +2442,20 @@ class SettingsScreenNode(ScreenNode):
             except Exception:
                 self.mMainCardFadingIn.pop(i)
 
+        # 面板滑入动画延迟播放（首帧 SetVisible 后，次帧布局完成再 Play）
+        if self.mMiddlePendingPlay and self.mMiddleCtrl:
+            self.mMiddlePendingPlay = False
+            try:
+                self.mMiddleCtrl.PlayAnimation("offset")
+            except Exception as e:
+                dlog.client_print("==== middle pending play error: %s ====" % str(e))
+        if self.mRightPendingPlay and self.mRightCtrl:
+            self.mRightPendingPlay = False
+            try:
+                self.mRightCtrl.PlayAnimation("offset")
+            except Exception as e:
+                dlog.client_print("==== right pending play error: %s ====" % str(e))
+
         # 中间卡片淡入
         for i in range(len(self.mMiddleFadingInCtrls) - 1, -1, -1):
             ctrl, curAlpha = self.mMiddleFadingInCtrls[i]
@@ -2826,7 +2851,14 @@ class SettingsScreenNode(ScreenNode):
             self.mMiddleCtrl.PlayAnimation("offset")
             self.mMiddleHasAnimation = True
         else:
-            # 关闭滑入动画：直接显示在最终位置，不播放动画
+            # 关闭滑入动画：清理残留动画（否则 offset 会停在动画初始位），
+            # 移除后面板回落到 json 默认 offset（结束位置）
+            try:
+                if self.mMiddleHasAnimation:
+                    self.mMiddleCtrl.StopAnimation("offset")
+                    self.mMiddleCtrl.RemoveAnimation("offset")
+            except Exception:
+                pass
             self.mMiddleHasAnimation = False
         self.mMiddleOpen = True
         dlog.client_print("==== middle panel enter animation played ====")
@@ -2884,15 +2916,25 @@ class SettingsScreenNode(ScreenNode):
         if self.mRightHasAnimation:
             self.mRightCtrl.StopAnimation("offset")
             self.mRightCtrl.RemoveAnimation("offset")
+        dlog.client_print("==== OpenRightPanel: anim=%s hasAnim=%s open=%s ====" % (
+            self.mEnableEnterAnim, self.mRightHasAnimation, self.mRightOpen))
         self.mRightCtrl.SetVisible(True)
         suppress = self.mNavInstant
         self.mNavInstant = None  # 消费一次性导航"不播动画"：仅本次打开有效
         if self.mEnableEnterAnim and not suppress:
             self.mRightCtrl.SetAnimation("offset", "setting", "right_enter")
-            self.mRightCtrl.PlayAnimation("offset")
+            # 延迟到下一帧 Play：刚 SetVisible 的控件立即 PlayAnimation 会停在 from
+            self.mRightPendingPlay = True
             self.mRightHasAnimation = True
         else:
-            # 关闭滑入动画：直接显示在最终位置，不播放动画
+            # 关闭滑入动画：清理残留动画（否则 offset 会停在动画初始位），
+            # 移除后面板回落到 json 默认 offset（结束位置）
+            try:
+                if self.mRightHasAnimation:
+                    self.mRightCtrl.StopAnimation("offset")
+                    self.mRightCtrl.RemoveAnimation("offset")
+            except Exception:
+                pass
             self.mRightHasAnimation = False
         self.mRightOpen = True
         dlog.client_print("==== right panel enter animation played ====")
@@ -4737,9 +4779,19 @@ class CardToggleScreenNode(ScreenNode):
             return
         self._ClearRows()
         from SettingState import GetCardToggleState
-        for i, (option_id, item_name, item_aux, desc, default_on) in enumerate(options):
+        for i, op in enumerate(options):
+            # options 元素兼容 5 元组(旧) / 7 元组(新: 含 ctrl_type, locked)
+            if len(op) >= 7:
+                option_id, item_name, item_aux, desc, default_on, ctrl_type, locked = op[:7]
+            else:
+                option_id, item_name, item_aux, desc, default_on = op[:5]
+                ctrl_type = "toggle"
+                locked = False
+            if ctrl_type != "toggle_text":
+                ctrl_type = "toggle"
+            template = 'setting.card_toggle_text' if ctrl_type == "toggle_text" else 'setting.card_toggle'
             ctrl = self.CreateChildControl(
-                'setting.card_toggle',
+                template,
                 'tog_%d' % i,
                 middleStack,
                 True
@@ -4747,12 +4799,12 @@ class CardToggleScreenNode(ScreenNode):
             if not ctrl:
                 dlog.client_print("==== CardToggleScreenNode: create row %d failed ====" % i)
                 continue
-            # card_toggle 结构为 panel > image > (item_renderer/label/switch)，
+            # card_toggle 结构为 panel > image > (item_renderer/label/switch/lock)，
             # GetChildByName 只查直接子，故先取 image 再取内部子控件
             base = ctrl.GetChildByName('image') or ctrl
-            # 物品图标渲染
+            # 物品图标渲染（toggle_text 无 item_renderer，自动跳过）
             itemCtrl = base.GetChildByName('item_renderer')
-            if itemCtrl:
+            if itemCtrl and item_name:
                 try:
                     it = itemCtrl.asItemRenderer()
                     if it:
@@ -4773,9 +4825,12 @@ class CardToggleScreenNode(ScreenNode):
                     toggleObj = switchCtrl.asSwitchToggle()
                     if toggleObj:
                         toggleObj.SetToggleState(bool(state), "/this_toggle")
+                        # 锁定：禁用交互；视觉由 switch 内置锁定贴图
+                        # （$checked_locked_texture / $unchecked_locked_texture）自动呈现
+                        toggleObj.SetTouchEnable(not locked)
                 except Exception as e:
                     dlog.client_print("==== CardToggleScreenNode switch init error: %s ====" % str(e))
-            self.mRowCtrls.append((option_id, toggleObj, ctrl))
+            self.mRowCtrls.append((option_id, toggleObj, ctrl, locked))
         self.mPanelApplied = True
         dlog.client_print("==== CardToggle applied: rows=%d/%d ====" % (len(self.mRowCtrls), len(options)))
         # 4. 底部自定义按钮
@@ -4842,9 +4897,9 @@ class CardToggleScreenNode(ScreenNode):
         from SettingState import SetCardToggleState
         raw = []
         changed = False
-        for option_id, switchCtrl, _ in self.mRowCtrls:
-            if switchCtrl is None:
-                raw.append((option_id, "NOCTRL"))
+        for option_id, switchCtrl, _, locked in self.mRowCtrls:
+            if switchCtrl is None or locked:
+                raw.append((option_id, "SKIP" if locked else "NOCTRL"))
                 continue
             try:
                 cur = switchCtrl.GetToggleState("/this_toggle")
@@ -4868,8 +4923,8 @@ class CardToggleScreenNode(ScreenNode):
             return
         from SettingState import SetCardToggleState
         changed = False
-        for option_id, switchCtrl, _ in self.mRowCtrls:
-            if switchCtrl is None:
+        for option_id, switchCtrl, _, locked in self.mRowCtrls:
+            if switchCtrl is None or locked:
                 continue
             try:
                 cur = switchCtrl.GetToggleState("/this_toggle")
@@ -4885,8 +4940,8 @@ class CardToggleScreenNode(ScreenNode):
             changed = True
             # 单选互斥：开了当前项则关闭其余
             if self.mMode == "single" and cur:
-                for oid2, sc2, _ in self.mRowCtrls:
-                    if oid2 == option_id or sc2 is None:
+                for oid2, sc2, _, locked2 in self.mRowCtrls:
+                    if oid2 == option_id or sc2 is None or locked2:
                         continue
                     try:
                         sc2.SetToggleState(False, "/this_toggle")

@@ -650,7 +650,11 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ## 组合开关（CardToggle）API
 
-组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片（每行 = **物品图标 + 自定义描述文字 + 开关**），支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项开关状态独立持久化（不挂靠任何内容项/分组）。
+组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**两种行控件**：
+- `toggle`（默认）：**物品图标 + 自定义描述文字 + 开关**
+- `toggle_text`：**纯文字 + 开关**（无物品图标）
+
+同一弹窗可**任意混合**两种行控件；每行可单独**锁定**（锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项开关状态独立持久化（不挂靠任何内容项/分组）。
 
 先注册数据集（标题、模式、选项、底部按钮），再通过任意按钮用 `OpenCardToggle(toggle_id)` 打开。
 
@@ -665,7 +669,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | mode | str | 否 | `"multi"` 多选独立（默认）；`"single"` 单选互斥 |
 | buttons | list | 否 | 底部自定义按钮 `[(text, callback), ...]`，`callback(screenNode, toggle_id, state_dict)` |
 
-### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False)
+### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False)
 
 向已注册的组合开关追加一个选项；`option_id` 重复追加会覆盖旧选项。
 
@@ -673,10 +677,15 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 |------|------|------|------|
 | toggle_id | str | 是 | 组合开关 ID |
 | option_id | str | 是 | 选项唯一标识符 |
-| item_name | str | 是 | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标 |
+| item_name | str | 否* | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标；`ctrl_type="toggle_text"` 时传 `""` |
 | item_aux | int | 否 | 物品附加值 |
 | desc | str | 否 | 该行自定义描述文字 |
 | default_on | bool | 否 | 默认是否开启 |
+| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关） |
+| locked | bool | 否 | 是否锁定：锁定后该行开关不可交互并显示锁定图标 |
+
+> \* `ctrl_type="toggle"` 时 `item_name` 必填；`ctrl_type="toggle_text"` 时可省略（传 `""`）。
+> 同一弹窗内可**任意混合**两种行控件。
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
@@ -684,7 +693,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### GetCardToggle(toggle_id)
 
-获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on)`。
+获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked)`（旧版 5 元组数据同样兼容）。
 
 ### GetCardToggleOptions(toggle_id) / GetCardToggleOptionIds(toggle_id)
 
@@ -716,10 +725,14 @@ from CardRegistryApi import (
 def OnPrint(sn, toggle_id, state_dict):
     print "组合开关", toggle_id, state_dict
 
-# 1. 注册数据集（multi 多选 + 底部自定义按钮）
+# 1. 注册数据集（multi 多选 + 混合行控件 + 底部自定义按钮）
 RegisterCardToggle("my_toggles", "我的组合", mode="multi")
+# 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
 AddCardToggleOption("my_toggles", "a", "minecraft:diamond", desc="点亮钻石", default_on=True)
-AddCardToggleOption("my_toggles", "b", "minecraft:apple", desc="吃个苹果")
+# ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
+AddCardToggleOption("my_toggles", "b", "", desc="吃个苹果", ctrl_type="toggle_text")
+# 锁定行：开关不可交互，显示锁定图标
+AddCardToggleOption("my_toggles", "c", "minecraft:emerald", desc="绿宝石（锁定）", locked=True)
 AddCardToggleButton("my_toggles", "打印状态", OnPrint)
 
 # 2. 普通按钮打开弹窗

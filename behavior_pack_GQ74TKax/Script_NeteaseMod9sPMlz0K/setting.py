@@ -14,6 +14,12 @@ from CardRegistryApi import (
     RegisterPopUp,
     ResetGroupSettings,
     GetSettingValue,
+    SetSettingValue,
+    # 组合开关测试（临时，注释掉）
+    # RegisterCardToggle,
+    # AddCardToggleOption,
+    # AddCardToggleButton,
+    # OpenCardToggle,
 )
 from DebugLog import dlog
 
@@ -131,15 +137,89 @@ def _OnOptimizeSwitchToggle(screenNode, item_id, state):
 
 
 def _OnEnterAnimToggle(screenNode, item_id, state):
-    """面板滑入动画开关回调：立即启用/禁用中间/右边面板的滑入进入动画。"""
-    if screenNode and hasattr(screenNode, "SetEnterAnimEnabled"):
-        screenNode.SetEnterAnimEnabled(bool(state))
+    """面板滑入动画开关回调。
+
+    开启：立即生效并写存储。
+    关闭：运行时切换动画会导致面板停在动画初始位，故弹确认框——
+    取消则恢复开启；确认退出设置则关闭动画并立即关闭设置界面（下次打开生效）。
+    """
+    if state:
+        if screenNode and hasattr(screenNode, "SetEnterAnimEnabled"):
+            screenNode.SetEnterAnimEnabled(True)
+        SetSettingValue("settings_config", "client", DISPLAY_CATEGORY_ID,
+                        SWITCH_ENTER_ANIM, True)
+        return
+    _ConfirmDisableEnterAnim(screenNode, item_id)
+
+
+def _ConfirmDisableEnterAnim(screenNode, item_id):
+    """关闭"面板滑入动画"的确认弹窗：取消恢复开启；确认则关闭动画并关闭设置界面。"""
+    from CardRegistryApi import (RegisterPopUp, ShowPopUp, GetContentItem,
+                                 _g_ClientSystem)
+
+    def _OnCancel():
+        # 恢复为开启：item 值 + 存储 + 重建当前分组（弹窗打开时设置界面在后台，
+        # 直接 SetToggleState 不刷新，重建从存储读回 True 才可靠）
+        item = GetContentItem(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id)
+        if item is not None:
+            item.value = True
+        SetSettingValue(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id, True)
+        group = getattr(screenNode, "mCurrentRightGroup", None)
+        if group and len(group) == 3:
+            try:
+                screenNode.RebuildRightContent(*group)
+            except Exception as e:
+                dlog.client_print("==== confirm cancel rebuild error: %s ====" % str(e))
+        return True
+
+    def _OnConfirmClose():
+        # 关闭动画 + 写存储 + 标记关闭设置界面（OnActive 时 PopScreen）
+        if screenNode and hasattr(screenNode, "SetEnterAnimEnabled"):
+            screenNode.SetEnterAnimEnabled(False)
+        item = GetContentItem(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id)
+        if item is not None:
+            item.value = False
+        SetSettingValue(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id, False)
+        if _g_ClientSystem:
+            _g_ClientSystem.mPendingCloseSettings = True
+        return True
+
+    RegisterPopUp("confirm_disable_enter_anim", "关闭面板滑入动画",
+                  "关闭面板滑入动画需要重启设置界面才能生效\n"
+                  "确定后设置界面将立即关闭，下次打开设置时生效",
+                  buttons=[("取消", _OnCancel), ("退出设置", _OnConfirmClose)])
+    ShowPopUp("confirm_disable_enter_anim", force_scroll=False)
 
 
 def _OnInfoButtonClick(screenNode, item_id):
     """简介页自定义按钮：打开自定义普通（不滚动）弹窗。"""
     from CardRegistryApi import ShowPopUp
     ShowPopUp(INFO_POPUP_ID, force_scroll=False)
+
+
+def _OnTestToggleOpen(screenNode, item_id):
+    """打开组合开关测试弹窗（普通 button 触发）。"""
+    OpenCardToggle("test_card_toggles")
+
+
+def _OnTestTogglePrint(screenNode, toggle_id, state_dict):
+    """组合开关测试：打印当前开关状态。"""
+    dlog.client_print("==== test card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
+
+
+def _RegisterCardToggleTest():
+    """注册组合开关测试数据集：混合两种行控件 + 锁定行。"""
+    RegisterCardToggle("test_card_toggles", "组合开关测试", mode="multi",
+                       buttons=[("打印状态", _OnTestTogglePrint)])
+    # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
+    AddCardToggleOption("test_card_toggles", "diamond", "minecraft:diamond",
+                        desc="点亮钻石", default_on=True)
+    # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
+    AddCardToggleOption("test_card_toggles", "apple", "", desc="吃个苹果",
+                        ctrl_type="toggle_text")
+    # 锁定行：开关不可交互，显示 switch 内置锁定贴图
+    AddCardToggleOption("test_card_toggles", "emerald", "minecraft:emerald",
+                        desc="绿宝石（锁定）", locked=True)
 
 
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
@@ -181,10 +261,17 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_FADE_ANIM, "开启设置项与中间卡片的缓入/缓出动画，默认true",
                    default_value=True, on_toggle=_OnOptimizeSwitchToggle,
                    litle="缓入/缓出动画") \
-        .AddSwitch(SWITCH_ENTER_ANIM, "开启切换子卡片时中间/右边面板的滑入进入动画，默认true",
+        .AddSwitch(SWITCH_ENTER_ANIM, "开启切换子卡片时中间/右边面板的滑入进入动画，默认true\n关闭需重启设置界面生效",
                    default_value=True, on_toggle=_OnEnterAnimToggle,
                    litle="面板滑入动画") \
         .AddResetButton("reset", on_click=_OnResetClick)
+
+    # "组合开关测试"分类（客户端中间卡片，临时测试，注释掉）
+    # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
+    # CreateContentInst(main_card_id, "client", "card_toggle_test") \
+    #     .AddText("ct_intro", "简介",
+    #              "测试组合开关：物品行 + 纯文字行 + 锁定行混合\n点击下方按钮打开弹窗") \
+    #     .AddButton("ct_open", "打开组合开关测试弹窗", "打开", on_click=_OnTestToggleOpen)
 
     # "调试"分类（客户端中间卡片，图标 debug）
     RegisterMiddleCard(main_card_id, "client", DEBUG_CATEGORY_ID, "调试",
@@ -226,6 +313,8 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         GetSettingValue(main_card_id, "client", DEBUG_CATEGORY_ID, SWITCH_LOG_OUTPUT,
                         default=False)
     )
+    # 注册组合开关测试数据集
+    _RegisterCardToggleTest()
     return ok
 
 
