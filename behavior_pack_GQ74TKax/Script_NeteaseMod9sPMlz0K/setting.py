@@ -38,13 +38,21 @@ def _OnDisplaySwitchToggle(screenNode, item_id, state):
 
 
 def _OnResetClick(screenNode, item_id):
-    """重置当前分类下所有设置项为默认值，并刷新右侧面板。"""
+    """重置当前分类下所有设置项为默认值，并刷新右侧面板。
+
+    服务端分组额外通知服务端重置权威默认值并广播全服（参考飞行之羽模组的
+    "服务端权威重置 + 全局广播"方法），保证其他在线玩家 UI 同步。
+    """
     group = getattr(screenNode, "mCurrentRightGroup", None)
     if not group or len(group) < 3:
         return
     main_card_id, sub_key, middle_card_id = group
     ResetGroupSettings(main_card_id, sub_key, middle_card_id)
     screenNode.RebuildRightContent(main_card_id, sub_key, middle_card_id)
+    if sub_key == "server":
+        from CardRegistryApi import _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.NotifyResetGroup(sub_key, middle_card_id)
     dlog.client_print("==== reset group %s/%s/%s ====" % (main_card_id, sub_key, middle_card_id))
 
 
@@ -52,6 +60,7 @@ def _OnResetClick(screenNode, item_id):
 DEBUG_CATEGORY_ID = "debug"
 SWITCH_LOG_OUTPUT = "log_output"    # 客户端日志输出
 SWITCH_SERVER_LOG_OUTPUT = "server_log_output"  # 服务端全局日志输出
+SERVER_RESET_ID = "reset_server_debug"  # 服务端调试页"重置本页"按钮（重置服务端权威默认值）
 
 # "显示"分类下的缓入/缓出动画开关项 id
 SWITCH_FADE_ANIM = "enable_fade_anim"  # 设置项与中间卡片的缓入/缓出动画
@@ -197,29 +206,39 @@ def _OnInfoButtonClick(screenNode, item_id):
     ShowPopUp(INFO_POPUP_ID, force_scroll=False)
 
 
-def _OnTestToggleOpen(screenNode, item_id):
-    """打开组合开关测试弹窗（普通 button 触发）。"""
-    OpenCardToggle("test_card_toggles")
+# ==================== 组合开关测试（临时，注释掉） ====================
+
+# def _OnTestToggleOpen(screenNode, item_id):
+#     """打开组合开关测试弹窗（普通 button 触发）。"""
+#     OpenCardToggle("test_card_toggles")
 
 
-def _OnTestTogglePrint(screenNode, toggle_id, state_dict):
-    """组合开关测试：打印当前开关状态。"""
-    dlog.client_print("==== test card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
+# def _OnTestTogglePrint(screenNode, toggle_id, state_dict):
+#     """组合开关测试：打印当前开关状态。"""
+#     dlog.client_print("==== test card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
 
 
-def _RegisterCardToggleTest():
-    """注册组合开关测试数据集：混合两种行控件 + 锁定行。"""
-    RegisterCardToggle("test_card_toggles", "组合开关测试", mode="multi",
-                       buttons=[("打印状态", _OnTestTogglePrint)])
-    # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
-    AddCardToggleOption("test_card_toggles", "diamond", "minecraft:diamond",
-                        desc="点亮钻石", default_on=True)
-    # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
-    AddCardToggleOption("test_card_toggles", "apple", "", desc="吃个苹果",
-                        ctrl_type="toggle_text")
-    # 锁定行：开关不可交互，显示 switch 内置锁定贴图
-    AddCardToggleOption("test_card_toggles", "emerald", "minecraft:emerald",
-                        desc="绿宝石（锁定）", locked=True)
+# def _RegisterCardToggleTest():
+#     """注册组合开关测试数据集：混合三种行控件 + 锁定行。"""
+#     RegisterCardToggle("test_card_toggles", "组合开关测试", mode="multi",
+#                        buttons=[("打印状态", _OnTestTogglePrint)])
+#     # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
+#     AddCardToggleOption("test_card_toggles", "diamond", "minecraft:diamond",
+#                         desc="点亮钻石", default_on=True)
+#     # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
+#     AddCardToggleOption("test_card_toggles", "apple", "", desc="吃个苹果",
+#                         ctrl_type="toggle_text")
+#     # ctrl_type="toggle_edit_box"：物品图标 + 文字 + 编辑框（default_value 为初始文本）
+#     AddCardToggleOption("test_card_toggles", "paper", "minecraft:paper",
+#                         desc="输入数量", ctrl_type="toggle_edit_box",
+#                         default_value="16")
+#     # 锁定行：开关不可交互，显示 switch 内置锁定贴图
+#     AddCardToggleOption("test_card_toggles", "emerald", "minecraft:emerald",
+#                         desc="绿宝石（锁定）", locked=True)
+#     # 锁定的编辑框行：不可输入，显示 edit_box 内置 lock 覆盖层
+#     AddCardToggleOption("test_card_toggles", "locked_paper", "minecraft:book",
+#                         desc="锁定输入框", ctrl_type="toggle_edit_box",
+#                         default_value="只读", locked=True)
 
 
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
@@ -270,7 +289,7 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
     # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
     # CreateContentInst(main_card_id, "client", "card_toggle_test") \
     #     .AddText("ct_intro", "简介",
-    #              "测试组合开关：物品行 + 纯文字行 + 锁定行混合\n点击下方按钮打开弹窗") \
+    #              "测试组合开关：物品行 + 纯文字行 + 编辑框行 + 锁定行混合\n点击下方按钮打开弹窗") \
     #     .AddButton("ct_open", "打开组合开关测试弹窗", "打开", on_click=_OnTestToggleOpen)
 
     # "调试"分类（客户端中间卡片，图标 debug）
@@ -303,7 +322,8 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                             EXPORT_COUNT_MENU, litle="复制数量",
                             default_selected_id=_DEFAULT_EXPORT_COUNT, locked=True) \
         .AddButton(SERVER_COPY_BTN, "复制服务端调试日志到剪贴板",
-                   "复制日志", on_click=_OnCopyServerLog, locked=True)
+                   "复制日志", on_click=_OnCopyServerLog, locked=True) \
+        .AddResetButton(SERVER_RESET_ID, on_click=_OnResetClick)
 
     # 注册"复制数量"折叠菜单（供上述两个下拉项共用）
     RegisterCollapsibleMenu(EXPORT_COUNT_MENU, "导出数量", _EXPORT_COUNT_OPTIONS)
@@ -313,8 +333,8 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         GetSettingValue(main_card_id, "client", DEBUG_CATEGORY_ID, SWITCH_LOG_OUTPUT,
                         default=False)
     )
-    # 注册组合开关测试数据集
-    _RegisterCardToggleTest()
+    # 注册组合开关测试数据集（临时，注释掉）
+    # _RegisterCardToggleTest()
     return ok
 
 

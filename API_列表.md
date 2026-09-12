@@ -12,8 +12,8 @@
 | `SettingState.py` | 设置项持久化（`ConfigCompClient` 本地存储） | [API_客户端.md](API_客户端.md#设置项状态系统-api) |
 | `Toast.py` | Toast 提示系统（叠加层显示、排队播放） | [API_客户端.md](API_客户端.md#toast-提示-api) |
 | `DebugLog.py` | 调试日志开关（客户端/服务端独立控制，单例 `dlog`） | [API_客户端.md](API_客户端.md#客户端调试日志开关) |
-| `setting.py` | 框架自带"设置配置"卡片注册（含客户端/服务端"调试>日志输出"开关） | [API_服务端.md](API_服务端.md#服务端全局调试日志开关) |
-| `Server.py` | 服务端系统：处理 `/setting_open` 自定义指令 + 全局日志开关（OP 鉴权/同步） | [API_服务端.md](API_服务端.md) |
+| `setting.py` | 框架自带"设置配置"卡片注册（含客户端/服务端"调试>日志输出"开关、重置按钮） | [API_服务端.md](API_服务端.md#服务端全局调试日志开关) |
+| `Server.py` | 服务端系统：处理 `/setting_open` 自定义指令 + 全局日志开关（OP 鉴权/同步）+ 重置本页（服务端权威重置 + 广播全服） | [API_服务端.md](API_服务端.md) |
 
 ## 导入方式
 

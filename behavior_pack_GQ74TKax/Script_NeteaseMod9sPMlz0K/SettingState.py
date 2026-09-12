@@ -283,22 +283,28 @@ def _CardToggleKey(toggle_id):
 
 
 def GetCardToggleState(toggle_id, option_id, default_on=False):
-    """读取某选项开关状态；无存储或未记录时返回 default_on。"""
+    """读取某选项状态；无存储或未记录时返回 default_on。
+
+    开关选项返回 bool，编辑框选项返回文本字符串（原样存储，不做类型转换）。
+    """
     states = _Read(_CardToggleKey(toggle_id))
     if isinstance(states, dict):
         val = states.get(option_id)
         if val is not None:
-            return bool(val)
-    return bool(default_on)
+            return val
+    return default_on
 
 
 def SetCardToggleState(toggle_id, option_id, state):
-    """写入某选项开关状态并持久化整个 toggle 状态字典。"""
+    """写入某选项状态并持久化整个 toggle 状态字典。
+
+    开关选项传 bool，编辑框选项传文本字符串（原样存储）。
+    """
     key = _CardToggleKey(toggle_id)
     states = _Read(key)
     if not isinstance(states, dict):
         states = {}
-    states[option_id] = bool(state)
+    states[option_id] = state
     return _Write(key, states)
 
 

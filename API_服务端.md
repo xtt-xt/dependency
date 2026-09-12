@@ -72,3 +72,15 @@
   - `ReqServerLogEvent`（client → server）：客户端请求当前全局值 + 自身 OP 状态。
   - `SetServerLogEvent`（client → server）：客户端请求修改全局值；**非 OP 的修改会被忽略**，并向该客户端回发当前值纠正 UI。
   - `ServerLogSyncEvent`（server → client）：服务端下发当前全局值 + 该客户端各自的 OP 状态（用于 UI 锁定）。
+
+## 重置本页（服务端权威）
+
+服务端「调试」分组（`middle_card_id="debug"`）的"重置本页"按钮采用**服务端权威重置 + 全局广播**方法（参考飞行之羽模组 FlyArmor）：
+
+1. **客户端**（`setting.py` `_OnResetClick`）：先本地 `ResetGroupSettings` 重置该分组存储并刷新 UI；若 `sub_key == "server"`，再调用 `MyClientSystem.NotifyResetGroup(sub_key, middle_card_id)`。
+2. **服务端**（`Server.py` `OnResetGroup`，事件 `ResetGroupEvent` / `Script_NeteaseMod9sPMlz0K_ResetGroup`）：
+   - 按 `_SERVER_GROUP_DEFAULT_KEYS`（当前含 `debug` → `server_log_output`）找到该分组默认键。
+   - **仅 OP 可执行**；非 OP 请求被忽略（该页控件本就对非 OP 锁定）。
+   - 将服务端权威默认值写回并持久化（当前即 `mServerLogEnabled=False`），随后 `_BroadcastServerLog` 向所有在线玩家广播，各客户端 `ServerLogSyncEvent` 同步刷新全局日志开关 UI。
+
+> 目前服务端权威设置仅"调试"分组的全局日志开关；后续若框架新增服务端设置项，只需在 `_SERVER_GROUP_DEFAULT_KEYS` 中补充默认键。

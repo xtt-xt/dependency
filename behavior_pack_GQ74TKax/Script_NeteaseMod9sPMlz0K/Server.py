@@ -12,6 +12,8 @@
 服务端日志导出相关事件：
 - ReqServerLogDumpEvent (client -> server) 客户端请求导出最近 N 条服务端日志
 - ServerLogDumpRespEvent (server -> client) 服务端下发最近 N 条服务端日志
+重置本页相关事件：
+- ResetGroupEvent      (client -> server) 客户端请求重置指定服务端分组为默认（服务端鉴权 OP）
 """
 
 import mod.server.extraServerApi as serverApi
@@ -31,9 +33,15 @@ ServerLogSyncEvent = "Script_NeteaseMod9sPMlz0K_ServerLogSync"
 ReqServerLogDumpEvent = "Script_NeteaseMod9sPMlz0K_ReqServerLogDump"
 # 服务端日志导出：服务端→客户端
 ServerLogDumpRespEvent = "Script_NeteaseMod9sPMlz0K_ServerLogDumpResp"
+# 重置本页：客户端→服务端
+ResetGroupEvent = "Script_NeteaseMod9sPMlz0K_ResetGroup"
 
 # ModAttr 全局属性键（服务端全局日志开关），注意带 mod 前缀避免冲突
 _SERVER_LOG_ATTR_KEY = "Script_NeteaseMod9sPMlz0K_server_log_enabled"
+# 服务端权威默认设置存储：各服务端分组的默认键（重置本页用，键须与 setting.py 一致）
+_SERVER_GROUP_DEFAULT_KEYS = {
+    "debug": ["server_log_output"],
+}
 
 
 def IsOperator(playerId):
@@ -81,6 +89,14 @@ class MyServerSystem(ServerSystem):
             ReqServerLogDumpEvent,
             self,
             self.OnReqServerLogDump
+        )
+        # 客户端→服务端 重置本页（仅 OP，重置后广播全服）
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "client",
+            ResetGroupEvent,
+            self,
+            self.OnResetGroup
         )
         # 加载并初始化服务端全局日志开关
         self.mServerLogEnabled = self._LoadServerLogEnabled()
@@ -170,6 +186,37 @@ class MyServerSystem(ServerSystem):
             data['is_op'] = IsOperator(pid)
             self.NotifyToClient(pid, ServerLogSyncEvent, data)
         dlog.server_print("==== BroadcastServerLog: value=%s ====" % self.mServerLogEnabled)
+
+    # ---------------- 重置本页（服务端权威） ----------------
+
+    def OnResetGroup(self, args):
+        """客户端请求重置指定服务端分组为默认（仅 OP），并广播全服。
+
+        该方法参考飞行之羽模组（FlyArmor）的"服务端权威重置 + 全局广播"：
+        - 客户端本地已先将该分组 Client.py 存储重置（ResetGroupSettings）
+        - 服务端在此处重置服务端权威默认值（服务端日志开关等）
+        - 重置后向所有在线玩家广播，各客户端同步 UI（含服务端下发日志开关）
+        """
+        playerId = args.get('playerId', '')
+        middle_card_id = args.get('middle_card_id', '')
+        if not playerId:
+            return
+        if not IsOperator(playerId):
+            dlog.server_print("==== ResetGroup denied: player=%s not operator ====" % playerId)
+            return
+        keys = _SERVER_GROUP_DEFAULT_KEYS.get(middle_card_id)
+        if not keys:
+            return
+        # 重置服务端权威默认值并持久化（当前仅服务端日志开关）
+        changed = False
+        if "server_log_output" in keys:
+            self.mServerLogEnabled = False
+            dlog.set_server_enabled(False)
+            self._SaveServerLogEnabled(False)
+            changed = True
+        if changed:
+            self._BroadcastServerLog()
+        dlog.server_print("==== ResetGroup reset page=%s ====" % middle_card_id)
 
     # ---------------- 打开设置界面指令 ----------------
 

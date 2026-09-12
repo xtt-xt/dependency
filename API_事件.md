@@ -105,5 +105,7 @@ class MyClientSystem(ClientSystem):
 | `ReqServerLog` | client → server | 客户端打开服务端调试分类、请求当前值 | `{playerId}` |
 | `SetServerLog` | client → server | 客户端切换全局日志开关 | `{playerId, enabled}` |
 | `ServerLogSync` | server → client | 服务端下发全局值与被下发者 OP 状态 | `{enabled, is_op}` |
+| `ResetGroup` | client → server | 客户端"重置本页"请求重置服务端分组为默认（仅 OP 生效） | `{playerId, sub_key, middle_card_id}` |
 
 > 这些是框架内部自管理事件，外部一般无需监听。若确需监听，注意力事件名自带唯一前缀，勿使用裸事件名。
+> `ResetGroup` 为服务端权威重置事件（见 [API_服务端.md](API_服务端.md#重置本页服务端权威)）：客户端本地重置后通知服务端，服务端重置权威默认值并向全服广播 `ServerLogSync`。

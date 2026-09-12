@@ -650,11 +650,12 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ## 组合开关（CardToggle）API
 
-组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**两种行控件**：
+组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**三种行控件**：
 - `toggle`（默认）：**物品图标 + 自定义描述文字 + 开关**
 - `toggle_text`：**纯文字 + 开关**（无物品图标）
+- `toggle_edit_box`：**物品图标 + 自定义描述文字 + 输入框**
 
-同一弹窗可**任意混合**两种行控件；每行可单独**锁定**（锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项开关状态独立持久化（不挂靠任何内容项/分组）。
+同一弹窗可**任意混合**三种行控件；每行可单独**锁定**（开关行锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`；编辑框行锁定后不可输入，显示 edit_box 内置 lock 覆盖层）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项状态独立持久化（不挂靠任何内容项/分组）。弹窗中间区域为**滚动面板**：行数超出可视高度时自动滚动。
 
 先注册数据集（标题、模式、选项、底部按钮），再通过任意按钮用 `OpenCardToggle(toggle_id)` 打开。
 
@@ -669,7 +670,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | mode | str | 否 | `"multi"` 多选独立（默认）；`"single"` 单选互斥 |
 | buttons | list | 否 | 底部自定义按钮 `[(text, callback), ...]`，`callback(screenNode, toggle_id, state_dict)` |
 
-### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False)
+### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False, default_value="")
 
 向已注册的组合开关追加一个选项；`option_id` 重复追加会覆盖旧选项。
 
@@ -680,12 +681,13 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | item_name | str | 否* | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标；`ctrl_type="toggle_text"` 时传 `""` |
 | item_aux | int | 否 | 物品附加值 |
 | desc | str | 否 | 该行自定义描述文字 |
-| default_on | bool | 否 | 默认是否开启 |
-| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关） |
-| locked | bool | 否 | 是否锁定：锁定后该行开关不可交互并显示锁定图标 |
+| default_on | bool | 否 | 默认是否开启（`toggle_edit_box` 类型忽略） |
+| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关）/ `"toggle_edit_box"`（物品+文字+编辑框） |
+| locked | bool | 否 | 是否锁定：开关行锁定后不可交互并显示锁定图标；编辑框行锁定后不可输入并显示 lock 覆盖层 |
+| default_value | str | 否 | 编辑框初始文本（仅 `toggle_edit_box` 类型有效） |
 
-> \* `ctrl_type="toggle"` 时 `item_name` 必填；`ctrl_type="toggle_text"` 时可省略（传 `""`）。
-> 同一弹窗内可**任意混合**两种行控件。
+> \* `ctrl_type="toggle"` 时 `item_name` 必填；`ctrl_type="toggle_text"` / `"toggle_edit_box"` 时可省略（传 `""`）。
+> 同一弹窗内可**任意混合**三种行控件。
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
@@ -693,7 +695,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### GetCardToggle(toggle_id)
 
-获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked)`（旧版 5 元组数据同样兼容）。
+获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value)`（旧版 5/7 元组数据同样兼容）。
 
 ### GetCardToggleOptions(toggle_id) / GetCardToggleOptionIds(toggle_id)
 
@@ -703,11 +705,11 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 | API | 说明 |
 |-----|------|
-| `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项开关状态 |
-| `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项开关状态并持久化 |
-| `ResetCardToggleStates(toggle_id)` | 清除该 toggle 全部持久化状态（回退 `default_on`） |
+| `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项状态（开关行返回 bool；编辑框行返回文本字符串） |
+| `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项状态并持久化（开关行传 bool，编辑框行传文本字符串） |
+| `ResetCardToggleStates(toggle_id)` | 清除该 toggle 全部持久化状态（回退 `default_on` / `default_value`） |
 
-状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。
+状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。编辑框行的输入文本在关闭弹窗（返回 / ESC / 底部按钮）时统一回读并持久化。
 
 ### OpenCardToggle(toggle_id) / CloseCardToggle()
 
@@ -731,8 +733,14 @@ RegisterCardToggle("my_toggles", "我的组合", mode="multi")
 AddCardToggleOption("my_toggles", "a", "minecraft:diamond", desc="点亮钻石", default_on=True)
 # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
 AddCardToggleOption("my_toggles", "b", "", desc="吃个苹果", ctrl_type="toggle_text")
+# ctrl_type="toggle_edit_box"：物品图标 + 文字 + 编辑框（default_value 为初始文本）
+AddCardToggleOption("my_toggles", "d", "minecraft:paper", desc="输入数量",
+                    ctrl_type="toggle_edit_box", default_value="16")
 # 锁定行：开关不可交互，显示锁定图标
 AddCardToggleOption("my_toggles", "c", "minecraft:emerald", desc="绿宝石（锁定）", locked=True)
+# 锁定的编辑框行：不可输入，显示 lock 覆盖层
+AddCardToggleOption("my_toggles", "e", "minecraft:book", desc="锁定输入框",
+                    ctrl_type="toggle_edit_box", default_value="只读", locked=True)
 AddCardToggleButton("my_toggles", "打印状态", OnPrint)
 
 # 2. 普通按钮打开弹窗
@@ -996,6 +1004,8 @@ print "已保存 %d 个设置项" % count
 # 重置 basic_settings/client/opt_a 分组下所有设置项
 count = ResetGroupSettings("basic_settings", "client", "opt_a")
 ```
+
+> **服务端分组**：当 `key == "server"` 时，框架的"重置本页"按钮（`setting.py` 的 `_OnResetClick`）在本地重置后，还会自动通知服务端重置**服务端权威默认值**并**广播全服**（参考飞行之羽模组 FlyArmor 的"服务端权威重置 + 全局广播"方法），保证其他在线玩家的 UI 同步刷新（如服务端调试页的全局日志开关）。非 OP 的客户端重置请求会被服务端忽略（该页控件本就对非 OP 锁定）。详见 [API_服务端.md](API_服务端.md#重置本页服务端权威) 。
 
 ---
 

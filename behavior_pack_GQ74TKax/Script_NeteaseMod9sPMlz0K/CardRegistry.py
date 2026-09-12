@@ -915,7 +915,8 @@ def RegisterCardToggle(toggle_id, title, mode="multi", buttons=None):
 
 
 def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
-                        desc="", default_on=False, ctrl_type="toggle", locked=False):
+                        desc="", default_on=False, ctrl_type="toggle", locked=False,
+                        default_value=""):
     """
     向已注册的组合开关追加一个选项；toggle_id 不存在时自动初始化。
     同一 option_id 重复追加会覆盖（更新物品/描述/默认值）。
@@ -926,15 +927,17 @@ def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
                        ctrl_type 为 "toggle_text" 时传 "" 即可
     :param item_aux:   物品附加值
     :param desc:       该行 label 描述文字
-    :param default_on: 默认是否开启
+    :param default_on: 默认是否开启（toggle_edit_box 类型忽略）
     :param ctrl_type:  行控件类型："toggle"（物品+文字+开关，默认）/
-                       "toggle_text"（纯文字+开关）
-    :param locked:     是否锁定（锁定后该行开关不可交互，显示锁定图标）
+                       "toggle_text"（纯文字+开关）/
+                       "toggle_edit_box"（物品+文字+编辑框）
+    :param locked:     是否锁定（锁定后该行开关/编辑框不可交互，显示锁定图标/覆盖层）
+    :param default_value: 编辑框初始文本（仅 toggle_edit_box 类型有效）
     :returns:          True 成功；False 参数无效
     """
     if not toggle_id or not option_id:
         return False
-    if ctrl_type not in ("toggle", "toggle_text"):
+    if ctrl_type not in ("toggle", "toggle_text", "toggle_edit_box"):
         ctrl_type = "toggle"
     if ctrl_type == "toggle" and not item_name:
         return False
@@ -942,7 +945,8 @@ def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
         item_name = ""
     menu = _cardToggles.setdefault(toggle_id, {
         "title": "", "mode": "multi", "buttons": [], "options": []})
-    entry = (option_id, item_name, item_aux, desc, default_on, ctrl_type, bool(locked))
+    entry = (option_id, item_name, item_aux, desc, default_on,
+             ctrl_type, bool(locked), default_value)
     for i, op in enumerate(menu["options"]):
         if op[0] == option_id:
             menu["options"][i] = entry
@@ -971,7 +975,8 @@ def AddCardToggleButton(toggle_id, text, callback):
 def GetCardToggle(toggle_id):
     """
     获取组合开关数据集 {"title", "mode", "buttons", "options"} 或 None。
-    options 元素为 (option_id, item_name, item_aux, desc, default_on)。
+    options 元素为 (option_id, item_name, item_aux, desc, default_on,
+                    ctrl_type, locked, default_value)（兼容旧 5/7 元组）。
     """
     return _cardToggles.get(toggle_id)
 

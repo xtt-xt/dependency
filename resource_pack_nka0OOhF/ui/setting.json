@@ -554,6 +554,18 @@
                                 "font_type": "default",
                                 "text": "Hello World!"
                             }
+                        },
+                        {
+                            "edit_box@setting.edit_box": {
+                                "offset": [
+                                    "32%+0px",
+                                    0
+                                ],
+                                "size": [
+                                    "18%+5px",
+                                    24
+                                ]
+                            }
                         }
                     ]
                 }

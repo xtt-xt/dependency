@@ -283,6 +283,21 @@ class MyClientSystem(ClientSystem):
         if self.mSettingsScreenNode:
             self.mSettingsScreenNode.ApplyServerLogSwitch(enabled, is_op)
 
+    def NotifyResetGroup(self, sub_key, middle_card_id):
+        """通知服务端重置指定服务端分组为默认（服务端鉴权 OP 并广播全服）。
+
+        参考飞行之羽模组（FlyArmor）的"服务端权威重置"：客户端本地重置完成后，
+        由服务端重置权威默认值并广播，保证其他在线玩家的 UI 同步刷新。
+        """
+        try:
+            data = self.CreateEventData()
+            data['playerId'] = clientApi.GetLocalPlayerId()
+            data['sub_key'] = sub_key
+            data['middle_card_id'] = middle_card_id
+            self.NotifyToServer("Script_NeteaseMod9sPMlz0K_ResetGroup", data)
+        except Exception as e:
+            dlog.client_print("==== NotifyResetGroup error: %s ====" % str(e))
+
     # ===== 调试日志导出（复制到剪贴板） =====
     def CopyClientLogToClipboard(self, count):
         """复制最近 count 条客户端调试日志到剪贴板，并给出提示。"""
@@ -3080,17 +3095,17 @@ class SettingsScreenNode(ScreenNode):
         if sub_key == "server":
             try:
                 from setting import (DEBUG_CATEGORY_ID, SWITCH_SERVER_LOG_OUTPUT,
-                                     SERVER_COPY_COUNT, SERVER_COPY_BTN)
+                                     SERVER_COPY_COUNT, SERVER_COPY_BTN, SERVER_RESET_ID)
                 if NormalizeMiddleCardId(middle_card_id) == DEBUG_CATEGORY_ID:
                     self.mServerLogSwitchItem = SWITCH_SERVER_LOG_OUTPUT
-                    self.mServerLockItems = [SERVER_COPY_COUNT, SERVER_COPY_BTN]
+                    self.mServerLockItems = [SERVER_COPY_COUNT, SERVER_COPY_BTN, SERVER_RESET_ID]
                     self.mNeedServerLogRequest = True
                     # 服务端调试项锁定由服务端按玩家 OP 实时下发；清除持久化的旧锁定态，
                     # 避免 OP 曾解锁被保存后，下次(哪怕是其他权限)打开误用旧状态而穿透鉴权。
                     try:
                         from SettingState import ClearSettingLocked
                         for iid in (SWITCH_SERVER_LOG_OUTPUT,
-                                    SERVER_COPY_COUNT, SERVER_COPY_BTN):
+                                    SERVER_COPY_COUNT, SERVER_COPY_BTN, SERVER_RESET_ID):
                             ClearSettingLocked(main_card_id, sub_key, middle_card_id, iid)
                     except Exception:
                         pass
@@ -4731,7 +4746,7 @@ class CardToggleScreenNode(ScreenNode):
         ScreenNode.__init__(self, namespace, name, param)
         self.mPanelApplied = False
         self.mBackBound = False
-        self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl), ...]
+        self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl, locked, editInputCtrl), ...]
         self.mStates = {}            # option_id -> bool（缓存当前开关状态）
         self.mToggleId = ""
         self.mMode = "multi"
@@ -4770,8 +4785,10 @@ class CardToggleScreenNode(ScreenNode):
                     btn.AddTouchEventParams({})
                     btn.SetButtonTouchUpCallback(lambda args: self._OnBackClick())
                     self.mBackBound = True
-        # 3. 中间多行开关卡片
-        middleStack = self.GetBaseUIControl("/backdrop/stack_panel/middle/stack_panel")
+        # 3. 中间多行开关卡片（滚动面板内容 = scrolling_content 栈）
+        middleStack = self.GetBaseUIControl(
+            "/backdrop/stack_panel/middle/scroll_view/scroll_touch/scroll_view/"
+            "panel/background_and_viewport/scrolling_view_port/scrolling_content")
         dlog.client_print("==== CardToggle _ApplyPanel: mode=%s options=%d middleStack=%s ====" % (
             self.mMode, len(options), bool(middleStack)))
         if not middleStack:
@@ -4780,16 +4797,25 @@ class CardToggleScreenNode(ScreenNode):
         self._ClearRows()
         from SettingState import GetCardToggleState
         for i, op in enumerate(options):
-            # options 元素兼容 5 元组(旧) / 7 元组(新: 含 ctrl_type, locked)
-            if len(op) >= 7:
+            # options 元素兼容 5 元组(旧) / 7 元组(新: 含 ctrl_type, locked) /
+            # 8 元组(新: 含 default_value 编辑框默认文本)
+            if len(op) >= 8:
+                option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value = op[:8]
+            elif len(op) >= 7:
                 option_id, item_name, item_aux, desc, default_on, ctrl_type, locked = op[:7]
+                default_value = ""
             else:
                 option_id, item_name, item_aux, desc, default_on = op[:5]
                 ctrl_type = "toggle"
                 locked = False
-            if ctrl_type != "toggle_text":
+                default_value = ""
+            if ctrl_type == "toggle_text":
+                template = 'setting.card_toggle_text'
+            elif ctrl_type == "toggle_edit_box":
+                template = 'setting.card_toggle_edit_box'
+            else:
                 ctrl_type = "toggle"
-            template = 'setting.card_toggle_text' if ctrl_type == "toggle_text" else 'setting.card_toggle'
+                template = 'setting.card_toggle'
             ctrl = self.CreateChildControl(
                 template,
                 'tog_%d' % i,
@@ -4799,7 +4825,7 @@ class CardToggleScreenNode(ScreenNode):
             if not ctrl:
                 dlog.client_print("==== CardToggleScreenNode: create row %d failed ====" % i)
                 continue
-            # card_toggle 结构为 panel > image > (item_renderer/label/switch/lock)，
+            # card_toggle 结构为 panel > image > (item_renderer/label/switch|edit_box/lock)，
             # GetChildByName 只查直接子，故先取 image 再取内部子控件
             base = ctrl.GetChildByName('image') or ctrl
             # 物品图标渲染（toggle_text 无 item_renderer，自动跳过）
@@ -4818,9 +4844,9 @@ class CardToggleScreenNode(ScreenNode):
             # 开关：初始化状态 + 记录（存转换后的 SwitchToggleUIControl，供 Get/SetToggleState 使用）
             switchCtrl = base.GetChildByName('switch')
             state = GetCardToggleState(self.mToggleId, option_id, default_on)
-            self.mStates[option_id] = bool(state)
             toggleObj = None
             if switchCtrl:
+                self.mStates[option_id] = bool(state)
                 try:
                     toggleObj = switchCtrl.asSwitchToggle()
                     if toggleObj:
@@ -4830,14 +4856,41 @@ class CardToggleScreenNode(ScreenNode):
                         toggleObj.SetTouchEnable(not locked)
                 except Exception as e:
                     dlog.client_print("==== CardToggleScreenNode switch init error: %s ====" % str(e))
-            self.mRowCtrls.append((option_id, toggleObj, ctrl, locked))
+            # 编辑框（toggle_edit_box 行）：设置初始文本 + 锁定覆盖层
+            editInputCtrl = None
+            editBoxCtrl = base.GetChildByName('edit_box')
+            if editBoxCtrl:
+                text_value = GetCardToggleState(self.mToggleId, option_id, default_value)
+                self.mStates[option_id] = text_value
+                inputCtrl = editBoxCtrl.GetChildByName('input')
+                if inputCtrl:
+                    try:
+                        teb = inputCtrl.asTextEditBox()
+                        if teb:
+                            teb.SetEditText(text_value)
+                            editInputCtrl = teb
+                    except Exception as e:
+                        dlog.client_print("==== CardToggleScreenNode edit box init error: %s ====" % str(e))
+                # 锁定：显示 edit_box 内置 lock 覆盖层并禁用整行交互
+                lockCtrl = editBoxCtrl.GetChildByName('lock')
+                if lockCtrl:
+                    lockCtrl.SetVisible(bool(locked))
+                    if locked:
+                        lockTextCtrl = lockCtrl.GetChildByName('lock_text')
+                        if lockTextCtrl:
+                            _SetLabelText(lockTextCtrl, text_value, "CardToggleScreenNode.lock_text")
+                try:
+                    editBoxCtrl.SetTouchEnable(not locked)
+                except Exception as e:
+                    dlog.client_print("==== CardToggleScreenNode edit box lock error: %s ====" % str(e))
+            self.mRowCtrls.append((option_id, toggleObj, ctrl, locked, editInputCtrl))
         self.mPanelApplied = True
         dlog.client_print("==== CardToggle applied: rows=%d/%d ====" % (len(self.mRowCtrls), len(options)))
         # 4. 底部自定义按钮
         self._BuildButtons(data.get("buttons", []) or [])
 
     def _ClearRows(self):
-        for _oid, _sc, ctrl in self.mRowCtrls:
+        for _oid, _sc, ctrl, _lk, _ed in self.mRowCtrls:
             try:
                 self.RemoveChildControl(ctrl)
             except Exception:
@@ -4897,7 +4950,23 @@ class CardToggleScreenNode(ScreenNode):
         from SettingState import SetCardToggleState
         raw = []
         changed = False
-        for option_id, switchCtrl, _, locked in self.mRowCtrls:
+        for option_id, switchCtrl, _, locked, editInputCtrl in self.mRowCtrls:
+            if editInputCtrl is not None:
+                # 编辑框行：读取输入文本并持久化（锁定行跳过）
+                if locked:
+                    raw.append((option_id, "LOCKED"))
+                    continue
+                try:
+                    cur_text = editInputCtrl.GetEditText()
+                except Exception as e:
+                    raw.append((option_id, "ERR:" + str(e)))
+                    continue
+                raw.append((option_id, cur_text))
+                if cur_text != self.mStates.get(option_id, ""):
+                    self.mStates[option_id] = cur_text
+                    SetCardToggleState(self.mToggleId, option_id, cur_text)
+                    changed = True
+                continue
             if switchCtrl is None or locked:
                 raw.append((option_id, "SKIP" if locked else "NOCTRL"))
                 continue
@@ -4923,7 +4992,7 @@ class CardToggleScreenNode(ScreenNode):
             return
         from SettingState import SetCardToggleState
         changed = False
-        for option_id, switchCtrl, _, locked in self.mRowCtrls:
+        for option_id, switchCtrl, _, locked, _ed in self.mRowCtrls:
             if switchCtrl is None or locked:
                 continue
             try:
@@ -4940,7 +5009,7 @@ class CardToggleScreenNode(ScreenNode):
             changed = True
             # 单选互斥：开了当前项则关闭其余
             if self.mMode == "single" and cur:
-                for oid2, sc2, _, locked2 in self.mRowCtrls:
+                for oid2, sc2, _, locked2, _ed2 in self.mRowCtrls:
                     if oid2 == option_id or sc2 is None or locked2:
                         continue
                     try:
