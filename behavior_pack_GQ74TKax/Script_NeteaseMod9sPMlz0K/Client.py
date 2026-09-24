@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import time
 import mod.client.extraClientApi as clientApi
 from CardRegistry import (
     RegisterMainCard, GetMainCard, GetAllMainCardIds, GetMiddleCardBindings,
@@ -1001,7 +1002,6 @@ class SettingsScreenNode(ScreenNode):
         self.mServerLockState = None        # 服务端锁项已应用的锁定状态（None=尚未收到 OP 信息）
         self.mRightPendingItems = []  # 等待延迟创建的右侧内容项数据队列
         self.mRightContentDelayTimer = 0
-        self.mRightContentDelayInterval = 2  # 每2帧创建一项，避免瞬间加载过多卡顿
         self.mRightFadingInCtrls = []  # [(ctrl, current_alpha), ...] 淡入队列
         self.mRightFadingOutCtrls = []  # [(ctrl, current_alpha), ...] 淡出队列
         self.mRightShowPending = None   # 等待旧内容淡出后显示的右侧内容项
@@ -1020,7 +1020,6 @@ class SettingsScreenNode(ScreenNode):
         self.mSubCardPressing = None  # (index, key)
         self.mPendingMiddleCards = []  # 等待延迟创建的中间卡片数据队列
         self.mMiddleCardDelayTimer = 0
-        self.mMiddleCardDelayInterval = 2  # 每2帧创建一张，避免瞬间加载过多卡顿
         self.mMiddleFadingInCtrls = []  # [(ctrl, current_alpha), ...] 淡入队列
         self.mMiddleFadingOutCtrls = []  # [(ctrl, current_alpha), ...] 淡出队列
         self.mMiddleShowPending = None   # 等待旧卡片淡出后显示的中间卡片数据
@@ -1045,17 +1044,33 @@ class SettingsScreenNode(ScreenNode):
         # "显示"分类：设置项与中间卡片的缓入/缓出动画开关（默认开）
         self.mEnableFadeAnim = True
         self.mEnableEnterAnim = True   # 中间/右边面板的滑入进入动画（默认开）
+        # 加载速度（秒，0=最快即每帧一张/一项）：滑块档位 0~100 -> 秒 = 档位/10
+        self.mMiddleCardDelaySec = 0.0   # 中间卡片加载间隔（秒）
+        self.mRightContentDelaySec = 0.0 # 右侧内容项加载间隔（秒）
+        self.mMiddleCardLastSpawn = 0.0  # 中间卡片上次创建时间戳
+        self.mRightContentLastSpawn = 0.0# 右侧内容项上次创建时间戳
         try:
-            from setting import (DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM, SWITCH_ENTER_ANIM)
+            from setting import (DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM, SWITCH_ENTER_ANIM,
+                                 SLIDER_MIDDLE_DELAY, SLIDER_RIGHT_DELAY)
             self.mEnableFadeAnim = bool(GetSettingValue(
                 "settings_config", "client", DISPLAY_CATEGORY_ID, SWITCH_FADE_ANIM,
                 default=True))
             self.mEnableEnterAnim = bool(GetSettingValue(
                 "settings_config", "client", DISPLAY_CATEGORY_ID, SWITCH_ENTER_ANIM,
                 default=True))
+            self.mMiddleCardDelaySec = max(
+                0.0, float(GetSettingValue("settings_config", "client",
+                                           DISPLAY_CATEGORY_ID, SLIDER_MIDDLE_DELAY,
+                                           default=0)) / 10.0)
+            self.mRightContentDelaySec = max(
+                0.0, float(GetSettingValue("settings_config", "client",
+                                           DISPLAY_CATEGORY_ID, SLIDER_RIGHT_DELAY,
+                                           default=0)) / 10.0)
         except Exception:
             self.mEnableFadeAnim = True
             self.mEnableEnterAnim = True
+            self.mMiddleCardDelaySec = 0.0
+            self.mRightContentDelaySec = 0.0
         self.mNavInstant = None    # 导航定位到中间卡片时的"本次打开不播动画"一次性标志
         self.mMiddleCardSeq = 0    # 中间卡片控件名序列号
         self.mPendingNavigation = None      # (main_card_id, sub_key, middle_card_id)
@@ -2236,6 +2251,16 @@ class SettingsScreenNode(ScreenNode):
         except Exception as e:
             dlog.client_print("==== middle card '%s' error: %s ====" % (cardId, str(e)))
 
+    def SetMiddleCardDelaySec(self, seconds):
+        """设置中间卡片加载间隔（秒），0=最快每帧一张。"""
+        self.mMiddleCardDelaySec = max(0.0, float(seconds))
+        self.mMiddleCardLastSpawn = time.time()
+
+    def SetRightContentDelaySec(self, seconds):
+        """设置右侧内容项加载间隔（秒），0=最快每帧一项。"""
+        self.mRightContentDelaySec = max(0.0, float(seconds))
+        self.mRightContentLastSpawn = time.time()
+
     def SetMiddleCardAlpha(self, ctrl, alpha):
         """设置中间卡片内部所有 image/label 子控件的透明度（递归覆盖 icon_backdrop 内部）"""
         # 注意：SetAlpha 仅对 image 和 label 控件生效，对 button 本身无效
@@ -2501,11 +2526,12 @@ class SettingsScreenNode(ScreenNode):
                     self.mPendingMiddleCards = list(self.mMiddleShowPending)
                     self.mMiddleShowPending = None
                     self.mMiddleCardDelayTimer = 0
+                    self.mMiddleCardLastSpawn = time.time()
                     self.CreateNextMiddleCard()
         elif self.mPendingMiddleCards:
-            self.mMiddleCardDelayTimer += 1
-            if self.mMiddleCardDelayTimer >= self.mMiddleCardDelayInterval:
-                self.mMiddleCardDelayTimer = 0
+            now = time.time()
+            if self.mMiddleCardDelaySec <= 0 or (now - self.mMiddleCardLastSpawn) >= self.mMiddleCardDelaySec:
+                self.mMiddleCardLastSpawn = now
                 self.CreateNextMiddleCard()
 
         # ===== 右侧内容淡入淡出与延迟创建 =====
@@ -2540,11 +2566,12 @@ class SettingsScreenNode(ScreenNode):
                     self.mRightPendingItems = list(self.mRightShowPending)
                     self.mRightShowPending = None
                     self.mRightContentDelayTimer = 0
+                    self.mRightContentLastSpawn = time.time()
                     self.CreateNextRightContent()
         elif self.mRightPendingItems:
-            self.mRightContentDelayTimer += 1
-            if self.mRightContentDelayTimer >= self.mRightContentDelayInterval:
-                self.mRightContentDelayTimer = 0
+            now = time.time()
+            if self.mRightContentDelaySec <= 0 or (now - self.mRightContentLastSpawn) >= self.mRightContentDelaySec:
+                self.mRightContentLastSpawn = now
                 self.CreateNextRightContent()
 
         # 检查待选中的中间卡片（异步加载完成后延迟选中）

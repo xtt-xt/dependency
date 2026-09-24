@@ -30,6 +30,34 @@ _MAIN_CARD_ID = "settings_config"
 DISPLAY_CATEGORY_ID = "display"
 SWITCH_FOLD_MENU = "register_fold_menu"    # 注册到折叠菜单
 SWITCH_PAUSE_MENU = "register_pause_menu"  # 注册到暂停菜单
+# 加载速度滑块 id（档位 0~100，每 0.1 秒一级，即 0~10 秒）
+SLIDER_MIDDLE_DELAY = "middle_card_load_delay"  # 中间卡片加载速度
+SLIDER_RIGHT_DELAY = "right_content_load_delay" # 设置项加载速度
+
+
+def _DelayValueFormat(level):
+    """滑块档位（0~100）转为秒显示文本：'X.X秒'。"""
+    return "%.1f秒" % (float(level) / 10.0)
+
+
+def _OnMiddleDelayChange(screenNode, item_id, value):
+    """中间卡片加载速度改变：写入存储并实时应用到界面。"""
+    level = int(round(float(value)))
+    SetSettingValue(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id, level)
+    try:
+        screenNode.SetMiddleCardDelaySec(level / 10.0)
+    except Exception:
+        pass
+
+
+def _OnRightDelayChange(screenNode, item_id, value):
+    """设置项加载速度改变：写入存储并实时应用到界面。"""
+    level = int(round(float(value)))
+    SetSettingValue(_MAIN_CARD_ID, "client", DISPLAY_CATEGORY_ID, item_id, level)
+    try:
+        screenNode.SetRightContentDelaySec(level / 10.0)
+    except Exception:
+        pass
 
 
 def _OnDisplaySwitchToggle(screenNode, item_id, state):
@@ -49,6 +77,17 @@ def _OnResetClick(screenNode, item_id):
     main_card_id, sub_key, middle_card_id = group
     ResetGroupSettings(main_card_id, sub_key, middle_card_id)
     screenNode.RebuildRightContent(main_card_id, sub_key, middle_card_id)
+    # 重置"显示"分组后，重新从存储读取加载速度并应用到界面（滑块不会触发 on_value_change）
+    if middle_card_id == DISPLAY_CATEGORY_ID:
+        try:
+            screenNode.SetMiddleCardDelaySec(
+                GetSettingValue(main_card_id, "client", DISPLAY_CATEGORY_ID,
+                                SLIDER_MIDDLE_DELAY, default=0) / 10.0)
+            screenNode.SetRightContentDelaySec(
+                GetSettingValue(main_card_id, "client", DISPLAY_CATEGORY_ID,
+                                SLIDER_RIGHT_DELAY, default=0) / 10.0)
+        except Exception:
+            pass
     if sub_key == "server":
         from CardRegistryApi import _g_ClientSystem
         if _g_ClientSystem:
@@ -283,6 +322,14 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_ENTER_ANIM, "开启切换子卡片时中间/右边面板的滑入进入动画，默认true\n关闭需重启设置界面生效",
                    default_value=True, on_toggle=_OnEnterAnimToggle,
                    litle="面板滑入动画") \
+        .AddSlider(SLIDER_MIDDLE_DELAY, "中间卡片每多少秒加载一张（0为每帧加载一张），默认0\n调整后立即生效",
+                   min_val=0, max_val=100, value=0, steps=100, litle="中间卡片加载速度",
+                   on_value_change=_OnMiddleDelayChange, slider_type="steps",
+                   value_formatter=_DelayValueFormat) \
+        .AddSlider(SLIDER_RIGHT_DELAY, "右侧设置项每多少秒加载一项（0为每帧加载一项），默认0\n调整后立即生效",
+                   min_val=0, max_val=100, value=0, steps=100, litle="设置项加载速度",
+                   on_value_change=_OnRightDelayChange, slider_type="steps",
+                   value_formatter=_DelayValueFormat) \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # "组合开关测试"分类（客户端中间卡片，临时测试，注释掉）
