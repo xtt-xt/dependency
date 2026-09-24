@@ -1,3 +1,4 @@
+# ========== MC Studio / Nemo Studio 工程元数据 ==========
 .mcs
 .mcs/
 .trae
@@ -5,7 +6,43 @@
 AGENTS.md
 .mcdev.json
 studio.json
+work.mcscfg
 world_behavior_packs.json
 world_resource_packs.json
 world_icon.jpeg
-work.mcscfg
+
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ========== 打包产物 ==========
+*.zip
+*.mcaddon
+*.mcpack
+*.mcworld
+*.mctemplate
+/out/
+/dist/
+/build/
+
+# ========== 系统 / 编辑器 ==========
+.DS_Store
+Thumbs.db
+Desktop.ini
+.nfs*
+.vscode/
+!.vscode/settings.json
+.idea/
+*.sublime-*
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# ========== 测试 ==========
+test/
+tests/
