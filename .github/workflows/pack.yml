@@ -1,0 +1,84 @@
+name: Package AddOn (be+re)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  MOD_NAME: 通用模组设置
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 定位 be / re 目录
+        id: dirs
+        run: |
+          set -e
+          BE=$(ls -d behavior_pack*/ 2>/dev/null | head -1)
+          RE=$(ls -d resource_pack*/ 2>/dev/null | head -1)
+          if [ -z "$BE" ] || [ -z "$RE" ]; then
+            echo "::error::缺少 behavior_pack* 或 resource_pack* 目录"
+            exit 1
+          fi
+          echo "be=$BE" >> "$GITHUB_OUTPUT"
+          echo "re=$RE" >> "$GITHUB_OUTPUT"
+          echo "行为包: $BE / 资源包: $RE"
+
+      - name: 计算版本标识
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME}"
+          else
+            V="dev-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          fi
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          echo "版本标识: $V"
+
+      - name: 确保 zip 可用
+        run: which zip || { sudo apt-get update -qq && sudo apt-get install -y -qq zip; }
+
+      - name: 打包（be + re 合并成一个 zip）
+        run: |
+          set -e
+          BE='${{ steps.dirs.outputs.be }}'
+          RE='${{ steps.dirs.outputs.re }}'
+          V='${{ steps.ver.outputs.v }}'
+          NAME="${MOD_NAME}"
+
+          rm -rf stage out
+          mkdir -p stage/behavior_pack stage/resource_pack out
+          rsync -a --exclude '__pycache__/' --exclude '*.py[cod]' --exclude '.DS_Store' --exclude '.mcs*' "$BE" stage/behavior_pack/
+          rsync -a --exclude '__pycache__/' --exclude '*.py[cod]' --exclude '.DS_Store' --exclude '.mcs*' "$RE" stage/resource_pack/
+          mkdir -p stage/behavior_pack/entities
+
+          (cd stage && zip -qr "../out/${NAME}_${V}.zip" behavior_pack resource_pack)
+
+          (cd out && sha256sum ./* > SHA256SUMS.txt)
+          ls -l out
+          cat out/SHA256SUMS.txt
+          echo '--- zip 内容（前 15 项）---'
+          unzip -l "out/${NAME}_${V}.zip" | head -15
+
+      - name: 上传 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.MOD_NAME }}-${{ steps.ver.outputs.v }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: 附加到 Release（仅 tag 推送）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
