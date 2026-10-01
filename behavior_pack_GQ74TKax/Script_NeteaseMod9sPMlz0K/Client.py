@@ -32,6 +32,15 @@ ViewBinder = clientApi.GetViewBinderCls()
 ViewRequest = clientApi.GetViewViewRequestCls()
 
 
+def _OnSyncStoreEvent(args):
+    """跨存档同步：服务端下发本存档配置（模块级回调，避免侵入类定义）。"""
+    try:
+        import SyncControl as SC
+        SC.OnSyncStore(args)
+    except Exception as e:
+        dlog.client_print("==== SyncControl OnSyncStore error: %s ====" % str(e))
+
+
 class MyClientSystem(ClientSystem):
 
     def __init__(self, namespace, systemName):
@@ -132,6 +141,10 @@ class MyClientSystem(ClientSystem):
             self,
             self.OnServerLogDumpResp
         )
+        # 跨存档同步：本存档配置下发
+        from StoreEvents import SYNC_STORE as _SYNC_STORE
+        self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "server", _SYNC_STORE,
+                            self, _OnSyncStoreEvent)
         NativeScreenManager.instance().RegisterScreenProxy(
             'pause.pause_screen',
             'Script_NeteaseMod9sPMlz0K.Client.PauseScreenProxy'
@@ -173,6 +186,12 @@ class MyClientSystem(ClientSystem):
                     dlog.client_print("==== SettingsUI closed, saved %d settings ====" % count)
             except Exception as e:
                 dlog.client_print("==== SettingsUI close save error: %s ====" % str(e))
+            # 跨存档同步：退出界面二次校验并同步
+            try:
+                import SyncControl as SC
+                SC.OnSettingsClosed()
+            except Exception as e:
+                dlog.client_print("==== SyncControl OnSettingsClosed error: %s ====" % str(e))
             from CardRegistry import SettingsUICloseEvent
             eventData = self.CreateEventData()
             eventData["playerId"] = clientApi.GetLocalPlayerId()
@@ -181,6 +200,12 @@ class MyClientSystem(ClientSystem):
             self.mPopUpOpen = False
             self.mCurrentPopUp = None
             self.mReturningFromPopUp = False
+            # 跨存档同步：弹窗被直接关闭（没点按钮）时回滚开关1
+            try:
+                import SyncControl as SC
+                SC.OnPopUpClosed()
+            except Exception as e:
+                dlog.client_print("==== SyncControl OnPopUpClosed error: %s ====" % str(e))
             from CardRegistry import PopUpCloseEvent
             eventData = self.CreateEventData()
             eventData["playerId"] = clientApi.GetLocalPlayerId()
@@ -400,6 +425,14 @@ class MyClientSystem(ClientSystem):
             LoadSettingData()
         except Exception as e:
             dlog.client_print("==== LoadSettingData error: %s ====" % str(e))
+
+        # 跨存档同步：初始化控制器并请求本存档配置
+        try:
+            import SyncControl as SC
+            SC.Init(self)
+            SC.RequestStore("ui init")
+        except Exception as e:
+            dlog.client_print("==== SyncControl init error: %s ====" % str(e))
 
         clientApi.RegisterUI(
             'Script_NeteaseMod9sPMlz0K',
