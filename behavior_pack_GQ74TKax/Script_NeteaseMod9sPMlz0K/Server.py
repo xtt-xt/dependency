@@ -18,7 +18,9 @@
 
 import mod.server.extraServerApi as serverApi
 
+import PlayerStore as PS
 from DebugLog import dlog
+from StoreEvents import REQ_STORE, SAVE_STORE, SET_TAG, SYNC_STORE
 
 ServerSystem = serverApi.GetServerSystemCls()
 
@@ -98,6 +100,23 @@ class MyServerSystem(ServerSystem):
             self,
             self.OnResetGroup
         )
+        # 跨存档同步：本存档配置（B 层）+ 存档标签
+        self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "client", REQ_STORE,
+                            self, self.OnReqStore)
+        self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "client", SAVE_STORE,
+                            self, self.OnSaveStore)
+        self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "client", SET_TAG,
+                            self, self.OnSetTag)
+        # 玩家离开：把标脏的本存档配置落盘
+        self.ListenForEvent(serverApi.GetEngineNamespace(),
+                            serverApi.GetEngineSystemName(),
+                            'DelServerPlayerEvent', self, self.OnDelServerPlayer)
+        # 定时兜底落盘
+        try:
+            serverApi.GetEngineCompFactory().CreateGame(
+                serverApi.GetLevelId()).AddRepeatedTimer(5.0, self._OnFlushTimer)
+        except Exception as e:
+            dlog.server_print("==== flush timer register error: %s ====" % str(e))
         # 加载并初始化服务端全局日志开关
         self.mServerLogEnabled = self._LoadServerLogEnabled()
         dlog.set_server_enabled(self.mServerLogEnabled)
@@ -267,3 +286,60 @@ class MyServerSystem(ServerSystem):
         dlog.server_print("==== /setting_open: 设置已打开：main=%s middle=%s sub=%s ====" % (
             main_card_id, middle_card_id, sub_key
         ))
+
+    # ---------------- 跨存档同步（本存档配置，B 层） ----------------
+
+    def OnReqStore(self, args):
+        """客户端请求本存档配置 + 存档标签。"""
+        playerId = args.get("playerId", "")
+        if not playerId:
+            return
+        store = PS.GetStore(playerId)
+        data = self.CreateEventData()
+        data["playerId"] = playerId
+        data["store_settings"] = store["settings"]
+        data["updated_at"] = store["updated_at"]
+        data["tag"] = PS.GetTag(playerId)
+        self.NotifyToClient(playerId, SYNC_STORE, data)
+        dlog.server_print("==== OnReqStore: player=%s keys=%d ts=%d ====" % (
+            playerId, len(store["settings"]), store["updated_at"]))
+
+    def OnSaveStore(self, args):
+        """客户端整包写入本存档配置。"""
+        playerId = args.get("playerId", "")
+        if not playerId:
+            return
+        settings = args.get("settings") or {}
+        if not isinstance(settings, dict):
+            return
+        try:
+            ts = int(args.get("updated_at", 0) or 0)
+        except Exception:
+            ts = 0
+        PS.SetStore(playerId, settings, ts or None)
+        PS.FlushPlayer(playerId)
+
+    def OnSetTag(self, args):
+        """客户端写入存档标签。"""
+        playerId = args.get("playerId", "")
+        if not playerId:
+            return
+        try:
+            stamp = int(args.get("app_stamp", 0) or 0)
+        except Exception:
+            stamp = 0
+        PS.SetTag(playerId, bool(args.get("applied", False)), stamp)
+        PS.FlushPlayer(playerId)
+
+    def OnDelServerPlayer(self, args):
+        """玩家离开：落盘。"""
+        playerId = args.get("playerId", "")
+        if playerId:
+            PS.FlushPlayer(playerId)
+
+    def _OnFlushTimer(self):
+        """定时兜底落盘。"""
+        try:
+            PS.FlushAll()
+        except Exception as e:
+            dlog.server_print("==== flush all error: %s ====" % str(e))
