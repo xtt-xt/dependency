@@ -42,6 +42,15 @@ class MyClientSystem(ClientSystem):
         self.mKeyFactory = None
         self.mSettingsUIOpen = False
         self.mSettingsScreenNode = None
+        # 非本模组的阻塞性界面(背包/工作台/聊天等)压栈深度，>0 时屏蔽快捷键打开设置
+        self.mExternalScreenDepth = 0
+        # 本模组自行压栈的界面，不计入外部阻塞深度
+        self.mOwnScreenDefs = frozenset([
+            'setting.main',
+            'pop_up.main', 'pop_up.main_scroll',
+            'pop_up.collapsible_menu',
+            'pop_up.card_toggle_panel',
+        ])
         self.mPendingNavigation = None  # 待处理导航参数 (main_card_id, sub_key, middle_card_id)
         self.mCurrentPopUp = None  # 当前待显示/显示的弹窗数据 {"title": str, "content": str, "buttons": [...]}
         self.mPopUpOpen = False    # 弹窗 UI 是否在场景栈中
@@ -136,6 +145,9 @@ class MyClientSystem(ClientSystem):
     def OnPushScreen(self, args):
         screenDef = args.get('screenDef', 'unknown')
         dlog.client_print("==== PushScreenEvent screenDef: %s ====" % screenDef)
+        # 非本模组的界面压栈：计入外部阻塞深度（用于屏蔽快捷键打开设置）
+        if screenDef not in self.mOwnScreenDefs:
+            self.mExternalScreenDepth += 1
         if screenDef == 'setting.main':
             self.mSettingsUIOpen = True
             # 新开设置界面，清除弹窗返回标志（防滞留）
@@ -148,6 +160,9 @@ class MyClientSystem(ClientSystem):
     def OnPopScreen(self, args):
         screenDef = args.get('screenDef', 'unknown')
         dlog.client_print("==== PopScreenEvent screenDef: %s ====" % screenDef)
+        # 非本模组的界面出栈：减少外部阻塞深度（不小于 0）
+        if screenDef not in self.mOwnScreenDefs:
+            self.mExternalScreenDepth = max(0, self.mExternalScreenDepth - 1)
         if screenDef == 'setting.main':
             self.mSettingsUIOpen = False
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
@@ -213,7 +228,28 @@ class MyClientSystem(ClientSystem):
         ))
         if name == '打开设置' and str(isDown) == '1' and not self.mSettingsUIOpen:
             dlog.client_print("==== custom key pressed: open settings ====")
+            if not self._CanOpenSettingsFromKey():
+                dlog.client_print("==== ignore key: another UI is open (not HUD) ====")
+                return
             self.OpenSettings()
+
+    def _CanOpenSettingsFromKey(self):
+        """快捷键仅在游戏默认 HUD 界面才能打开设置。
+
+        判断依据（任一命中即屏蔽）：
+        1. mExternalScreenDepth > 0：背包/工作台/箱子/聊天等非本模组的界面压栈；
+        2. clientApi.GetScreenIsHud() 为 False：当前最上层界面不是 HUD
+           （覆盖压缩式聊天框等未压栈的界面；接口不存在时仅依赖深度判断）。
+        """
+        if getattr(self, "mExternalScreenDepth", 0) > 0:
+            return False
+        getter = getattr(clientApi, "GetScreenIsHud", None)
+        if getter is None:
+            return True
+        try:
+            return bool(getter())
+        except Exception:
+            return True
 
     def OnOpenSettingsFromCommand(self, args):
         """
