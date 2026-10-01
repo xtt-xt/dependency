@@ -20,7 +20,7 @@ from DebugLog import dlog
 
 # 配置文件名：只能包含字母、数字和下划线，加 addon 命名空间前缀避免冲突
 _CONFIG_NAME = "Script_NeteaseMod9sPMlz0K_setting_state"
-_IS_GLOBAL = False  # False = 存档配置（重进世界保留，跨存档不共享）
+_IS_GLOBAL = True   # 跨存档配置（存在应用内，所有存档共用；清除应用数据即丢）
 
 # 内存缓存（启动时由 LoadSettingData 从本地配置加载；SDK 缺失时作为降级存储）
 _memStore = {}
@@ -30,9 +30,11 @@ _uiChangedCallback = None  # API 修改后通知 UI 刷新的回调
 _comp = None  # ConfigClient 组件（懒加载）
 
 
-def _GetComp():
-    """懒加载 ConfigClient 组件。"""
+def _GetComp(force=False):
+    """懒加载 ConfigClient 组件（跨存档配置）；force=True 可丢弃缓存重取。"""
     global _comp
+    if force:
+        _comp = None
     if _comp is None and clientApi is not None:
         try:
             _comp = clientApi.GetEngineCompFactory().CreateConfigClient(
@@ -40,6 +42,29 @@ def _GetComp():
         except Exception:
             _comp = None
     return _comp
+
+
+def _Persist(tag):
+    """整包写入跨存档配置，并立即回读校验，返回是否真正写成功。
+
+    仅在写入失败或回读不一致时打日志（成功路径不打，避免高频刷屏）。
+    """
+    comp = _GetComp()
+    if comp is None:
+        dlog.client_print("==== SettingState %s: comp is None ====" % tag)
+        return False
+    try:
+        ok = comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
+        back = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
+        n = len(back) if isinstance(back, dict) else -1
+        if not (ok and n == len(_memStore)):
+            dlog.client_print(
+                "==== SettingState %s: write=%s readback=%d mem=%d ====" % (
+                    tag, ok, n, len(_memStore)))
+        return bool(ok) and n == len(_memStore)
+    except Exception as e:
+        dlog.client_print("==== SettingState %s error: %s ====" % (tag, str(e)))
+        return False
 
 
 def MakeSettingKey(main_card_id, key, middle_card_id, item_id):
@@ -55,6 +80,7 @@ def LoadSettingData():
     if comp is not None:
         try:
             data = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
+            dlog.client_print("==== SettingState load raw: %r ====" % (data,))
             if isinstance(data, dict):
                 _memStore = dict(data)
                 dlog.client_print("==== SettingState loaded %d entries ====" % len(_memStore))
@@ -71,12 +97,7 @@ def _Read(key):
 def _Write(key, value):
     """写内存缓存并持久化到本地配置（整包写入）。"""
     _memStore[key] = value
-    comp = _GetComp()
-    if comp is not None:
-        try:
-            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
-        except Exception as e:
-            dlog.client_print("==== SettingState write error: %s ====" % str(e))
+    _Persist("write")
     return True
 
 
@@ -145,12 +166,7 @@ def ClearSettingLocked(main_card_id, key, middle_card_id, item_id):
     locked_key = MakeSettingKey(main_card_id, key, mid, item_id) + "::locked"
     if locked_key in _memStore:
         del _memStore[locked_key]
-    comp = _GetComp()
-    if comp is not None:
-        try:
-            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
-        except Exception as e:
-            dlog.client_print("==== SettingState clear lock error: %s ====" % str(e))
+    _Persist("clear lock")
 
 
 def SetSettingValue(main_card_id, key, middle_card_id, item_id, value):
@@ -205,12 +221,7 @@ def ResetGroupSettings(main_card_id, key, middle_card_id):
             else:
                 item.locked = default_locked
             count += 1
-    comp = _GetComp()
-    if comp is not None:
-        try:
-            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
-        except Exception as e:
-            dlog.client_print("==== SettingState reset group error: %s ====" % str(e))
+    _Persist("reset group")
     return count
 
 
@@ -242,12 +253,8 @@ def SaveGroupSettings(main_card_id, key, middle_card_id):
     if not changes:
         return 0
     _memStore.update(changes)
-    comp = _GetComp()
-    if comp is not None:
-        try:
-            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
-        except Exception as e:
-            dlog.client_print("==== SettingState save group error: %s ====" % str(e))
+    if not _Persist("save group"):
+        return 0
     return len(changes)
 
 
@@ -313,10 +320,5 @@ def ResetCardToggleStates(toggle_id):
     key = _CardToggleKey(toggle_id)
     if key in _memStore:
         del _memStore[key]
-    comp = _GetComp()
-    if comp is not None:
-        try:
-            comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
-        except Exception as e:
-            dlog.client_print("==== SettingState reset cardtoggle error: %s ====" % str(e))
+    _Persist("reset cardtoggle")
     return True
