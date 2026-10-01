@@ -15,6 +15,8 @@ try:
 except ImportError:
     clientApi = None  # 防御：SDK 环境缺失时降级为内存字典
 
+import time
+
 from CardRegistry import NormalizeMiddleCardId, GetContentItem, GetAllContentGroups, GetContentItems
 from DebugLog import dlog
 
@@ -57,11 +59,18 @@ def _Persist(tag):
         ok = comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
         back = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
         n = len(back) if isinstance(back, dict) else -1
-        if not (ok and n == len(_memStore)):
+        full = bool(ok) and n == len(_memStore)
+        if not full:
             dlog.client_print(
                 "==== SettingState %s: write=%s readback=%d mem=%d ====" % (
                     tag, ok, n, len(_memStore)))
-        return bool(ok) and n == len(_memStore)
+        elif _afterPersistCallback is not None:
+            try:
+                _afterPersistCallback(tag)
+            except Exception as e2:
+                dlog.client_print(
+                    "==== SettingState persist callback error: %s ====" % str(e2))
+        return full
     except Exception as e:
         dlog.client_print("==== SettingState %s error: %s ====" % (tag, str(e)))
         return False
@@ -133,6 +142,16 @@ def GetSettingValue(main_card_id, key, middle_card_id, item_id, default=None):
     读取设置值；无存储值时回退 item.default_value（switch=False / edit_box=""）。
     兼容默认参数：外部传 default 时优先使用该默认值。
     """
+    provider = _ExternalProvider(item_id)
+    if provider is not None:
+        try:
+            val = provider()
+            if val is not None:
+                return _Coerce(_FindItem(main_card_id, key,
+                                         NormalizeMiddleCardId(middle_card_id), item_id),
+                               val)
+        except Exception as e:
+            dlog.client_print("==== SettingState external provider error: %s ====" % str(e))
     if default is None:
         item = _FindItem(main_card_id, key, middle_card_id, item_id)
         if item is not None:
@@ -235,6 +254,9 @@ def SaveGroupSettings(main_card_id, key, middle_card_id):
     mid = NormalizeMiddleCardId(middle_card_id)
     changes = {}
     for item in GetContentItems(main_card_id, key, mid):
+        # 外部键（值由服务端下发的本存档配置提供）不写进跨存档配置
+        if _IsExternal(item.item_id):
+            continue
         if item.type_name in ("switch", "edit_box", "slider", "collapsible_menu"):
             # 仅保存已从存储加载/UI 初始化过的 item，避免用 default_value 覆盖已有存储
             if not getattr(item, "_loaded", False):
@@ -321,4 +343,119 @@ def ResetCardToggleStates(toggle_id):
     if key in _memStore:
         del _memStore[key]
     _Persist("reset cardtoggle")
+    return True
+
+
+# ────────────────── 跨存档同步支撑 ──────────────────
+# 外部键：值由外部（服务端下发的本存档配置）提供，不写进跨存档配置。
+# item_id -> (provider, persist)
+_externalProviders = {}
+# 保留键前缀：不参与同步的内部数据（如时间戳）
+_RESERVED_PREFIX = "__"
+_CROSS_STAMP_KEY = "__cross_stamp__"
+
+# 每次成功写入跨存档配置后的回调（供同步模块防抖上报）
+_afterPersistCallback = None
+
+
+def SetPersistCallback(cb):
+    """注册"写入跨存档配置成功"回调，签名 cb(tag)。"""
+    global _afterPersistCallback
+    _afterPersistCallback = cb
+    return True
+
+
+def RegisterExternalKey(item_id, provider=None, persist=False):
+    """
+    注册外部键。
+
+    :param item_id:  内容项 id
+    :param provider: 取值函数 provider() -> value（返回 None 表示无值，走默认）
+    :param persist:  True 表示该键仍写入跨存档配置
+    """
+    if not item_id:
+        return False
+    _externalProviders[item_id] = (provider, bool(persist))
+    dlog.client_print("==== SettingState external key: %s persist=%s ====" % (
+        item_id, persist))
+    return True
+
+
+def _ExternalProvider(item_id):
+    entry = _externalProviders.get(item_id)
+    return entry[0] if entry else None
+
+
+def _IsExternal(item_id, persistOnly=True):
+    entry = _externalProviders.get(item_id)
+    if not entry:
+        return False
+    return (not entry[1]) if persistOnly else True
+
+
+def _IsReservedKey(key):
+    return str(key).startswith(_RESERVED_PREFIX)
+
+
+def _FilterExternal(data):
+    """剔除不写入跨存档配置的外部键与保留键。"""
+    skip = [k for k in _externalProviders if not _externalProviders[k][1]]
+    out = {}
+    for k in (data or {}):
+        if _IsReservedKey(k):
+            continue
+        hit = False
+        for sid in skip:
+            if k == sid or str(k).endswith("." + sid) or str(k).endswith("." + sid + "::locked"):
+                hit = True
+                break
+        if not hit:
+            out[k] = data[k]
+    return out
+
+
+def GetAllData():
+    """导出跨存档配置（剔除外部键与保留键），用于同步上报。"""
+    return _FilterExternal(_memStore)
+
+
+def ApplyAllData(data, persist=True):
+    """整包应用（用跨存档配置覆盖本存档 / 用本存档配置更新跨存档）。"""
+    if not isinstance(data, dict):
+        return False
+    count = 0
+    for k in data:
+        if _IsReservedKey(k):
+            continue
+        _memStore[k] = data[k]
+        count += 1
+    if persist:
+        PersistNow("apply all")
+    dlog.client_print("==== SettingState ApplyAllData: %d keys ====" % count)
+    return True
+
+
+def GetCrossStamp():
+    """跨存档配置的写入时间戳（用于判断是否需要同步）。"""
+    try:
+        return int(_memStore.get(_CROSS_STAMP_KEY, 0) or 0)
+    except Exception:
+        return 0
+
+
+def SetCrossStamp(ts=None):
+    _memStore[_CROSS_STAMP_KEY] = int(ts if ts is not None else time.time())
+    return True
+
+
+def PersistNow(tag="manual"):
+    """立即把当前内存缓存整包写入跨存档配置。"""
+    return _Persist(tag)
+
+
+def ClearCrossData():
+    """清空跨存档配置与时间戳（调试用）。"""
+    _memStore.clear()
+    PersistNow("clear cross")
+    dlog.client_print("==== SettingState ClearCrossData ====")
     return True
