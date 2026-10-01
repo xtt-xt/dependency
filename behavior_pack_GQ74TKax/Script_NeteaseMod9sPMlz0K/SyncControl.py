@@ -40,6 +40,12 @@ POPUP_CROSS_EMPTY = "cross_empty"
 POPUP_CLEAR_CROSS = "clear_cross_confirm"
 POPUP_ID_INFO = "cross_sync_info"
 
+# ---------------------------------------------------------------
+# 总开关：跨存档同步功能未稳定，暂时关闭。
+# 置 True 即恢复全部行为（同时要取消 setting.py 里四个新项的注释）。
+# ---------------------------------------------------------------
+_ENABLED = False
+
 _system = None
 
 # 跨存档配置的本地时间戳缓存（存在 SettingState 的保留键里）
@@ -62,6 +68,9 @@ _lastSyncedSaveSync = None
 
 def Init(system):
     """由 MyClientSystem 在 UI 初始化时调用一次。"""
+    if not _ENABLED:
+        dlog.client_print("==== SyncControl disabled (cross-save sync off) ====")
+        return False
     global _system, _retryLeft
     _system = system
     _retryLeft = 3
@@ -123,12 +132,16 @@ def _Send(eventName, data):
 
 def RequestStore(reason="init"):
     """向服务端请求本存档配置 + 存档标签。"""
+    if not _ENABLED:
+        return False
     dlog.client_print("==== SyncControl RequestStore (%s) ====" % reason)
     return _Send(REQ_STORE, {})
 
 
 def OnSyncStore(args):
     """服务端下发本存档配置与标签后的决策入口。"""
+    if not _ENABLED:
+        return False
     global _lastSyncedSaveSync
 
     settings = args.get("store_settings") or {}
@@ -310,6 +323,8 @@ def _OnChoiceLocalOnly():
 
 
 def OnPopUpClosed():
+    if not _ENABLED:
+        return False
     """
     任意弹窗关闭时由 Client.py 调用。
     若方向选择弹窗被直接关掉（没有点按钮）-> 开关1 自动回关。
@@ -324,6 +339,8 @@ def OnPopUpClosed():
 
 
 def OnSettingsClosed():
+    if not _ENABLED:
+        return False
     """
     退出设置界面：二次校验并同步。
     先把当前配置整包重推一次（兜住 SaveAllSettings 可能漏掉的项），
@@ -361,6 +378,8 @@ def _ReconcileLog(serverSettings):
 
 def _OnPersisted(tag):
     """SettingState 每次写入跨存档配置后回调：开关1 开着就防抖同步到 B 层。"""
+    if not _ENABLED:
+        return
     global _pushTimer
     if not _remote.get("save_sync"):
         return
