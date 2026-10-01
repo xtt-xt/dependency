@@ -65,6 +65,30 @@ def _OnDisplaySwitchToggle(screenNode, item_id, state):
     dlog.client_print("==== display switch %s => %s ====" % (item_id, state))
 
 
+def _OnSaveSyncToggle(screenNode, item_id, state):
+    """开关1：本存档配置同步（权威值在存档内，交给 SyncControl 处理）。"""
+    from SyncControl import OnToggleSaveSync
+    return OnToggleSaveSync(screenNode, item_id, state)
+
+
+def _OnNewSaveUseCrossToggle(screenNode, item_id, state):
+    """开关2：新存档套用跨存档配置。"""
+    from SyncControl import OnToggleNewSaveUseCross
+    return OnToggleNewSaveUseCross(screenNode, item_id, state)
+
+
+def _OnClearCrossClick(screenNode, item_id):
+    """调试页：清空跨存档配置（仅用于测试）。"""
+    from SyncControl import OnClickClearCross
+    return OnClickClearCross(screenNode, item_id)
+
+
+def _OnSyncInfoClick(screenNode, item_id):
+    """调试页：把当前同步状态输出到调试日志。"""
+    from SyncControl import OnClickSyncInfo
+    return OnClickSyncInfo(screenNode, item_id)
+
+
 def _OnResetClick(screenNode, item_id):
     """重置当前分类下所有设置项为默认值，并刷新右侧面板。
 
@@ -104,6 +128,8 @@ SERVER_RESET_ID = "reset_server_debug"  # 服务端调试页"重置本页"按钮
 # "显示"分类下的缓入/缓出动画开关项 id
 SWITCH_FADE_ANIM = "enable_fade_anim"  # 设置项与中间卡片的缓入/缓出动画
 SWITCH_ENTER_ANIM = "enable_enter_anim"  # 中间/右边面板的滑入进入动画
+SWITCH_SAVE_SYNC = "save_config_sync"      # 本存档配置同步（每个存档独立）
+SWITCH_NEW_SAVE_USE_CROSS = "new_save_use_cross"  # 新存档套用跨存档配置（跨存档保存）
 
 # "简介"分类下的项 id（内容由用户自行填写）
 INFO_CATEGORY_ID = "info"
@@ -125,7 +151,9 @@ INFO_POPUP_CONTENT = ("本模组是开源模组\n"
 CLIENT_COPY_COUNT = "copy_client_count"  # 客户端导出数量（折叠菜单）
 CLIENT_COPY_BTN = "copy_client_log"      # 客户端复制按钮
 SERVER_COPY_COUNT = "copy_server_count"  # 服务端导出数量（折叠菜单）
-SERVER_COPY_BTN = "copy_server_log"      # 服务端复制按钮
+SERVER_COPY_BTN = "copy_server_log"             # 服务端复制按钮
+CLIENT_CLEAR_CROSS_BTN = "clear_cross_config"  # 调试页：清空跨存档配置（测试用）
+CLIENT_SYNC_INFO_BTN = "sync_state_info"       # 调试页：输出同步状态
 
 # 导出数量选择菜单：共享同一个菜单，各分类项各自的选中值独立存储
 EXPORT_COUNT_MENU = "export_log_count"
@@ -330,6 +358,12 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                    min_val=0, max_val=100, value=0, steps=100, litle="设置项加载速度",
                    on_value_change=_OnRightDelayChange, slider_type="steps",
                    value_formatter=_DelayValueFormat) \
+        .AddSwitch(SWITCH_SAVE_SYNC, "开启后本存档的设置与跨存档配置双向保持一致",
+                   default_value=False, on_toggle=_OnSaveSyncToggle,
+                   litle="本存档配置同步") \
+        .AddSwitch(SWITCH_NEW_SAVE_USE_CROSS, "进入新存档时自动套用跨存档配置，并自动打开上一项",
+                   default_value=False, on_toggle=_OnNewSaveUseCrossToggle,
+                   litle="新存档套用跨存档配置") \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # "组合开关测试"分类（客户端中间卡片，临时测试，注释掉）
@@ -352,7 +386,11 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                             EXPORT_COUNT_MENU, litle="复制数量",
                             default_selected_id=_DEFAULT_EXPORT_COUNT) \
         .AddButton(CLIENT_COPY_BTN, "复制客户端调试日志到剪贴板",
-                   "复制日志", on_click=_OnCopyClientLog)
+                   "复制日志", on_click=_OnCopyClientLog) \
+        .AddButton(CLIENT_CLEAR_CROSS_BTN, "清空跨存档配置与时间戳，仅用于测试",
+                   "清空跨存档配置", on_click=_OnClearCrossClick) \
+        .AddButton(CLIENT_SYNC_INFO_BTN, "把当前同步状态输出到调试日志",
+                   "查看同步状态", on_click=_OnSyncInfoClick)
 
     # "调试"分类（服务端中间卡片）：全局开关，默认锁定。
     # 由服务端下发的 OP 状态决定是否解锁：OP 可改，非 OP 查看时保持锁定。
