@@ -25,25 +25,52 @@ _CONFIG_NAME = "Script_NeteaseMod9sPMlz0K_setting_state"
 _IS_GLOBAL = True   # 跨存档配置（存在应用内，所有存档共用；清除应用数据即丢）
 
 # 内存缓存（启动时由 LoadSettingData 从本地配置加载；SDK 缺失时作为降级存储）
-_memStore = {}
+# 注意：同一个文件可能被两条导入路径加载成两个模块对象
+# （扁平 `SettingState` 与带包名的 `Script_NeteaseModXXX.SettingState`）。
+# 若各自持有一份 _memStore，"整包写入"就会把对方存的数据抹掉，
+# 因此把可变状态统一挂到共享槽位，两条路径看到同一份数据。
+def _SharedState():
+    try:
+        import __builtin__ as _b          # Python 2
+    except ImportError:
+        import builtins as _b             # Python 3
+    key = "_XTT_DEP_SETTING_STATE"
+    st = getattr(_b, key, None)
+    if st is None:
+        st = {
+            "memStore": {},         # 内存缓存（整包写入的唯一数据源）
+            "comp": None,           # ConfigClient 组件
+            "external": {},         # 外部键 item_id -> (provider, persist)
+            "afterPersist": None,   # 写入成功回调
+            "uiChanged": None,      # 设置值变更回调
+        }
+        setattr(_b, key, st)
+    return st
 
-_uiChangedCallback = None  # API 修改后通知 UI 刷新的回调
 
-_comp = None  # ConfigClient 组件（懒加载）
+_SHARED = _SharedState()
+
+_memStore = _SHARED["memStore"]
+
+_uiChangedCallback = None  # API 修改后通知 UI 刷新的回调（实际存在 _SHARED["uiChanged"]）
+
+_comp = None  # ConfigClient 组件（懒加载，实际存在 _SHARED["comp"]）
 
 
 def _GetComp(force=False):
-    """懒加载 ConfigClient 组件（跨存档配置）；force=True 可丢弃缓存重取。"""
-    global _comp
+    """懒加载 ConfigClient 组件（跨存档配置）；force=True 可丢弃缓存重取。
+
+    组件缓存在共享槽位里，保证不同导入路径下的模块对象用同一个组件。
+    """
     if force:
-        _comp = None
-    if _comp is None and clientApi is not None:
+        _SHARED["comp"] = None
+    if _SHARED.get("comp") is None and clientApi is not None:
         try:
-            _comp = clientApi.GetEngineCompFactory().CreateConfigClient(
+            _SHARED["comp"] = clientApi.GetEngineCompFactory().CreateConfigClient(
                 clientApi.GetLevelId())
         except Exception:
-            _comp = None
-    return _comp
+            _SHARED["comp"] = None
+    return _SHARED.get("comp")
 
 
 def _Persist(tag):
@@ -56,17 +83,27 @@ def _Persist(tag):
         dlog.client_print("==== SettingState %s: comp is None ====" % tag)
         return False
     try:
-        ok = comp.SetConfigData(_CONFIG_NAME, dict(_memStore), _IS_GLOBAL)
+        # 读-改-写：先取磁盘上的最新副本，再合并本实例的改动后写回。
+        # 这样任何"过期实例"（例如另一条导入路径下的模块对象、其它模组）
+        # 都只能新增/覆盖它自己知道的键，不会把别人存的数据整体清空。
+        base = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
+        base = dict(base) if isinstance(base, dict) else {}
+        base.update(_memStore)
+        ok = comp.SetConfigData(_CONFIG_NAME, base, _IS_GLOBAL)
         back = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
-        n = len(back) if isinstance(back, dict) else -1
-        full = bool(ok) and n == len(_memStore)
+        if isinstance(back, dict):
+            # 回填内存，保证与磁盘一致
+            _memStore.clear()
+            _memStore.update(back)
+        full = bool(ok) and isinstance(back, dict) and len(back) == len(base)
         if not full:
             dlog.client_print(
-                "==== SettingState %s: write=%s readback=%d mem=%d ====" % (
-                    tag, ok, n, len(_memStore)))
-        elif _afterPersistCallback is not None:
+                "==== SettingState %s: write=%s readback=%s want=%d ====" % (
+                    tag, ok,
+                    (len(back) if isinstance(back, dict) else back), len(base)))
+        elif _SHARED.get("afterPersist") is not None:
             try:
-                _afterPersistCallback(tag)
+                _SHARED["afterPersist"](tag)
             except Exception as e2:
                 dlog.client_print(
                     "==== SettingState persist callback error: %s ====" % str(e2))
@@ -91,7 +128,9 @@ def LoadSettingData():
             data = comp.GetConfigData(_CONFIG_NAME, _IS_GLOBAL)
             dlog.client_print("==== SettingState load raw: %r ====" % (data,))
             if isinstance(data, dict):
-                _memStore = dict(data)
+                # 就地更新（不能重绑，否则会脱离共享槽位）
+                _memStore.clear()
+                _memStore.update(data)
                 dlog.client_print("==== SettingState loaded %d entries ====" % len(_memStore))
         except Exception as e:
             dlog.client_print("==== SettingState load error: %s ====" % str(e))
@@ -191,9 +230,10 @@ def ClearSettingLocked(main_card_id, key, middle_card_id, item_id):
 def SetSettingValue(main_card_id, key, middle_card_id, item_id, value):
     """修改设置值：写存储 + 通知 UI 刷新（applier 幂等，UI 无变化时自动跳过）。"""
     _Write(MakeSettingKey(main_card_id, key, middle_card_id, item_id), value)
-    if _uiChangedCallback:
+    _cb = _SHARED.get("uiChanged")
+    if _cb:
         try:
-            _uiChangedCallback(main_card_id, key, middle_card_id, item_id, value)
+            _cb(main_card_id, key, middle_card_id, item_id, value)
         except Exception as e:
             dlog.client_print("==== SettingState notify error: %s ====" % str(e))
     return True
@@ -299,8 +339,7 @@ def SetSettingChangedCallback(cb):
     注册设置值变更回调（供 Client.py 注入 UI 刷新函数）。
     签名: cb(main_card_id, key, middle_card_id, item_id, value)
     """
-    global _uiChangedCallback
-    _uiChangedCallback = cb
+    _SHARED["uiChanged"] = cb
 
 
 # ────────────────── CardToggle（组合开关）状态持久化 ──────────────────
@@ -349,19 +388,17 @@ def ResetCardToggleStates(toggle_id):
 # ────────────────── 跨存档同步支撑 ──────────────────
 # 外部键：值由外部（服务端下发的本存档配置）提供，不写进跨存档配置。
 # item_id -> (provider, persist)
-_externalProviders = {}
+_externalProviders = _SHARED["external"]
 # 保留键前缀：不参与同步的内部数据（如时间戳）
 _RESERVED_PREFIX = "__"
 _CROSS_STAMP_KEY = "__cross_stamp__"
 
-# 每次成功写入跨存档配置后的回调（供同步模块防抖上报）
-_afterPersistCallback = None
+# 每次成功写入跨存档配置后的回调（供同步模块防抖上报，存在 _SHARED["afterPersist"]）
 
 
 def SetPersistCallback(cb):
     """注册"写入跨存档配置成功"回调，签名 cb(tag)。"""
-    global _afterPersistCallback
-    _afterPersistCallback = cb
+    _SHARED["afterPersist"] = cb
     return True
 
 

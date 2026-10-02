@@ -4,6 +4,11 @@ CardRegistry API 组件工厂
 ========================
 统一导入入口，只需 from CardRegistryApi import * 即可获得全部公开 API。
 
+⚠ 其它模组（下游）请一律通过本门面导入前置能力，不要直接 import
+  前置的内部模块（SettingState / CardRegistry / Client 等）。
+  直接 import 内部模块会绕过门面，并可能因为导入路径不同
+  （扁平 vs 带包名）产生第二个模块实例，导致状态不一致。
+
 用法:
     from CardRegistryApi import (
         RegisterMainCard, RegisterMiddleCard, CreateContentInst,
@@ -89,6 +94,7 @@ from SettingState import (
     MakeSettingKey,
     GetSettingValue,
     GetSettingLocked,
+    ClearSettingLocked,
     SetSettingValue,
     ResetSettingValue,
     ResetAllSettings,
