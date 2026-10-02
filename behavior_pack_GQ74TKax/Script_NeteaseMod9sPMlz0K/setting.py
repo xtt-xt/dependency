@@ -358,13 +358,18 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                    min_val=0, max_val=100, value=0, steps=100, litle="设置项加载速度",
                    on_value_change=_OnRightDelayChange, slider_type="steps",
                    value_formatter=_DelayValueFormat) \
-        .AddSwitch(SWITCH_SAVE_SYNC, "开启后本存档的设置与跨存档配置双向保持一致",
-                   default_value=False, on_toggle=_OnSaveSyncToggle,
-                   litle="本存档配置同步") \
-        .AddSwitch(SWITCH_NEW_SAVE_USE_CROSS, "进入新存档时自动套用跨存档配置，并自动打开上一项",
-                   default_value=False, on_toggle=_OnNewSaveUseCrossToggle,
-                   litle="新存档套用跨存档配置") \
         .AddResetButton("reset", on_click=_OnResetClick)
+
+    # ---------------------------------------------------------------
+    # 跨存档同步：功能未稳定，暂时不开放。
+    # 重新启用时：把下面两行接回上面的链式调用，并把 SyncControl._ENABLED 置为 True。
+    # .AddSwitch(SWITCH_SAVE_SYNC, "开启后本存档的设置与跨存档配置双向保持一致",
+    #            default_value=False, on_toggle=_OnSaveSyncToggle,
+    #            litle="本存档配置同步") \
+    # .AddSwitch(SWITCH_NEW_SAVE_USE_CROSS, "进入新存档时自动套用跨存档配置，并自动打开上一项",
+    #            default_value=False, on_toggle=_OnNewSaveUseCrossToggle,
+    #            litle="新存档套用跨存档配置") \
+    # ---------------------------------------------------------------
 
     # "组合开关测试"分类（客户端中间卡片，临时测试，注释掉）
     # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
@@ -386,11 +391,16 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                             EXPORT_COUNT_MENU, litle="复制数量",
                             default_selected_id=_DEFAULT_EXPORT_COUNT) \
         .AddButton(CLIENT_COPY_BTN, "复制客户端调试日志到剪贴板",
-                   "复制日志", on_click=_OnCopyClientLog) \
-        .AddButton(CLIENT_CLEAR_CROSS_BTN, "清空跨存档配置与时间戳，仅用于测试",
-                   "清空跨存档配置", on_click=_OnClearCrossClick) \
-        .AddButton(CLIENT_SYNC_INFO_BTN, "把当前同步状态输出到调试日志",
-                   "查看同步状态", on_click=_OnSyncInfoClick)
+                   "复制日志", on_click=_OnCopyClientLog)
+
+    # ---------------------------------------------------------------
+    # 跨存档同步：功能未稳定，暂时不开放。
+    # 重新启用时：把下面两行接回上面的链式调用。
+    # .AddButton(CLIENT_CLEAR_CROSS_BTN, "清空跨存档配置与时间戳，仅用于测试",
+    #            "清空跨存档配置", on_click=_OnClearCrossClick) \
+    # .AddButton(CLIENT_SYNC_INFO_BTN, "把当前同步状态输出到调试日志",
+    #            "查看同步状态", on_click=_OnSyncInfoClick)
+    # ---------------------------------------------------------------
 
     # "调试"分类（服务端中间卡片）：全局开关，默认锁定。
     # 由服务端下发的 OP 状态决定是否解锁：OP 可改，非 OP 查看时保持锁定。
