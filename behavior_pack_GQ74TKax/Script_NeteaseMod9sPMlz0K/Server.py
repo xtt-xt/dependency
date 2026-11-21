@@ -37,6 +37,10 @@ ReqServerLogDumpEvent = "Script_NeteaseMod9sPMlz0K_ReqServerLogDump"
 ServerLogDumpRespEvent = "Script_NeteaseMod9sPMlz0K_ServerLogDumpResp"
 # 重置本页：客户端→服务端
 ResetGroupEvent = "Script_NeteaseMod9sPMlz0K_ResetGroup"
+# 全部物品列表：客户端→服务端 请求（演示物品选择数据集用）
+ReqAllItemsEvent = "Script_NeteaseMod9sPMlz0K_ReqAllItems"
+# 全部物品列表：服务端→客户端 下发
+AllItemsEvent = "Script_NeteaseMod9sPMlz0K_AllItems"
 
 # ModAttr 全局属性键（服务端全局日志开关），注意带 mod 前缀避免冲突
 _SERVER_LOG_ATTR_KEY = "Script_NeteaseMod9sPMlz0K_server_log_enabled"
@@ -100,6 +104,14 @@ class MyServerSystem(ServerSystem):
             self,
             self.OnResetGroup
         )
+        # 客户端→服务端 请求全部物品列表（演示物品选择数据集用）
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "client",
+            ReqAllItemsEvent,
+            self,
+            self.OnReqAllItems
+        )
         # 跨存档同步：本存档配置（B 层）+ 存档标签
         self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "client", REQ_STORE,
                             self, self.OnReqStore)
@@ -121,6 +133,29 @@ class MyServerSystem(ServerSystem):
         self.mServerLogEnabled = self._LoadServerLogEnabled()
         dlog.set_server_enabled(self.mServerLogEnabled)
         dlog.server_print("==== MyServerSystem init, server log output=%s ====" % self.mServerLogEnabled)
+
+    # ---------------- 全部物品列表（演示用） ----------------
+
+    def OnReqAllItems(self, args):
+        """把全部已加载物品的 identifier（含各模组自定义物品）回执给请求者。
+
+        GetLoadItems 只有服务端接口，所以由客户端发起请求、服务端下发；
+        只发给请求者本人，不广播。
+        """
+        playerId = args.get("playerId") if args else None
+        if not playerId:
+            return
+        ids = []
+        try:
+            comp = serverApi.GetEngineCompFactory().CreateItem(serverApi.GetLevelId())
+            ids = comp.GetLoadItems(True) or []
+        except Exception as e:
+            dlog.server_print("==== OnReqAllItems error: %s ====" % str(e))
+        data = self.CreateEventData()
+        data["playerId"] = playerId
+        data["items"] = list(ids)
+        self.NotifyToClient(playerId, AllItemsEvent, data)
+        dlog.server_print("==== OnReqAllItems: %d items -> %s ====" % (len(ids), playerId))
 
     # ---------------- 全局日志开关 ----------------
 

@@ -459,6 +459,108 @@ class CollapsibleMenuContentFactory(object):
         )
 
 
+def EncodeItemPickerValue(item_name, item_aux=0):
+    """把 (物品名, 附加值) 编码成可持久化的字符串（aux 为 0 时只存物品名）。"""
+    if not item_name:
+        return ""
+    try:
+        aux = int(item_aux or 0)
+    except (TypeError, ValueError):
+        aux = 0
+    if aux:
+        return "%s|%d" % (str(item_name), aux)
+    return str(item_name)
+
+
+def DecodeItemPickerValue(value):
+    """把持久化字符串解码成 (物品名, 附加值)；非法值返回 ("", 0)。"""
+    if not value or not isinstance(value, basestring):
+        return "", 0
+    if "|" not in value:
+        return str(value), 0
+    name, _, aux = value.rpartition("|")
+    try:
+        return name, int(aux)
+    except (TypeError, ValueError):
+        return str(value), 0
+
+
+class ItemPickerContentItem(BaseContentItem):
+    """物品选择内容项：litle/desc + 当前选中物品图标 + 箭头按钮，点击弹出 item_picker 弹窗。
+
+    存储值格式为 "物品名|附加值"（附加值为 0 时只存物品名，空串表示未选择）。
+    """
+
+    def __init__(self, item_id, desc, picker_id, litle="", on_select=None,
+                 default_item=None, default_aux=0, locked=False):
+        super(ItemPickerContentItem, self).__init__(item_id, "item_picker")
+        self.desc = desc
+        self.picker_id = picker_id      # 关联的物品选择弹窗 ID（RegisterItemPicker 注册）
+        self.litle = litle
+        # 选择回调，签名 on_select(screenNode, item_id, item_name, item_aux)
+        self.on_select = on_select
+        self.default_item = default_item or ""
+        try:
+            self.default_aux = int(default_aux or 0)
+        except (TypeError, ValueError):
+            self.default_aux = 0
+        self.selected_item = self.default_item   # 当前选中物品 identifier（"" 表示未选择）
+        self.selected_aux = self.default_aux
+        self.default_value = EncodeItemPickerValue(self.default_item, self.default_aux)
+        self.value = self.default_value          # 存储值（"物品名|附加值" / ""）
+        self.locked = locked
+        self._default_locked = locked  # 注册默认锁定（重置时恢复）
+        self._loaded = False
+
+    def SetValue(self, value):
+        """从存储写入选中物品（value 为编码后的字符串）。"""
+        name, aux = DecodeItemPickerValue(value)
+        self.selected_item = name
+        self.selected_aux = aux
+        self.value = EncodeItemPickerValue(name, aux)
+
+    def SetSelected(self, item_name, item_aux):
+        """更新选中物品（供弹窗确认回调调用）。"""
+        self.selected_item = item_name or ""
+        try:
+            self.selected_aux = int(item_aux or 0)
+        except (TypeError, ValueError):
+            self.selected_aux = 0
+        self.value = EncodeItemPickerValue(self.selected_item, self.selected_aux)
+
+    def GetItemName(self):
+        """当前选中物品 identifier；未选择返回空串。"""
+        return self.selected_item or ""
+
+    def GetItemAux(self):
+        """当前选中物品附加值。"""
+        return self.selected_aux or 0
+
+    def SetLocked(self, locked):
+        """动态修改锁定状态。"""
+        self.locked = locked
+
+    def GetDisplayText(self):
+        """按钮/标签上显示的文本（未选择时提示占位）。"""
+        return self.selected_item or "未选择"
+
+
+class ItemPickerContentFactory(object):
+    """物品选择内容项工厂。"""
+    @staticmethod
+    def CreateItem(item_id, **kwargs):
+        return ItemPickerContentItem(
+            item_id,
+            kwargs.get("desc", ""),
+            kwargs.get("picker_id", ""),
+            kwargs.get("litle", ""),
+            kwargs.get("on_select", None),
+            kwargs.get("default_item", None),
+            kwargs.get("default_aux", 0),
+            kwargs.get("locked", False)
+        )
+
+
 def RegisterContentItemType(type_name, factory):
     """
     注册自定义内容项类型。
@@ -478,6 +580,7 @@ RegisterContentItemType("edit_box", EditBoxContentFactory)
 RegisterContentItemType("reset", ResetContentFactory)
 RegisterContentItemType("slider", SliderContentFactory)
 RegisterContentItemType("collapsible_menu", CollapsibleMenuContentFactory)
+RegisterContentItemType("item_picker", ItemPickerContentFactory)
 
 
 def GetContentItemFactory(type_name):
@@ -636,6 +739,26 @@ class ContentSettingInst(object):
     def AddCustom(self, item_id, type_name, **kwargs):
         """扩展接口：新增类型只需先 RegisterContentItemType，然后这里调用。"""
         return self._AddItem(type_name, item_id, **kwargs)
+
+    def AddItemPicker(self, item_id, desc, picker_id, litle="", on_select=None,
+                      default_item=None, default_aux=0, locked=False):
+        """
+        添加物品选择内容项（右侧一行：小标题/描述 + 当前物品图标 + 箭头按钮）。
+
+        :param item_id:      内容项唯一标识符
+        :param desc:         描述文字
+        :param picker_id:    关联的物品选择弹窗 ID（须先 RegisterItemPicker 注册）
+        :param litle:        小标题（可选）
+        :param on_select:    选择回调，签名 on_select(screenNode, item_id, item_name, item_aux)
+        :param default_item: 默认选中物品 identifier（可选，如 "minecraft:diamond"）
+        :param default_aux:  默认选中物品附加值（可选，默认 0）
+        :param locked:       初始锁定状态（可选，默认 False）
+        """
+        return self._AddItem(
+            "item_picker", item_id,
+            desc=desc, picker_id=picker_id, litle=litle, on_select=on_select,
+            default_item=default_item, default_aux=default_aux, locked=locked
+        )
 
     def _AddItem(self, type_name, item_id, **kwargs):
         if item_id in [it.item_id for it in self._lst]:
@@ -996,6 +1119,115 @@ def GetCardToggleOptionIds(toggle_id):
 
 
 # ============================================================
+# ItemPicker（物品选择弹窗）注册表
+# ============================================================
+# picker_id -> {"title": str,
+#               "items": [(item_name, item_aux, desc), ...],
+#               "columns": int,      # 网格列数（每行放几个）
+#               "page_size": int}    # 每屏行数 * 列数 = 一次"加载更多"追加的格子数
+# 数据层纯注册表，不 import 引擎模块。选中态只存在于弹窗会话内，不落盘。
+
+_itemPickers = {}
+
+
+def RegisterItemPicker(picker_id, title, items=None, columns=8, page_size=40):
+    """
+    注册一个物品选择弹窗数据集（同 id 覆盖旧数据）。
+
+    :param picker_id: 唯一标识符
+    :param title:     弹窗标题
+    :param items:     初始物品列表，元素为 (item_name, item_aux, desc) 或
+                      (item_name, item_aux)，也可后续用 AddItemPickerItem 追加
+    :param columns:   网格列数，默认 8（与 UI 的 8 列对齐）
+    :param page_size: 一屏格子数（列数 * 行数），下滑到底时按此数量追加"加载更多"
+    :returns:         True 成功；False 参数无效
+    """
+    if not picker_id or not title:
+        return False
+    try:
+        columns = int(columns)
+        page_size = int(page_size)
+    except (TypeError, ValueError):
+        columns, page_size = 8, 40
+    if columns <= 0:
+        columns = 8
+    if page_size <= 0:
+        page_size = columns * 5
+    data = {
+        "title": str(title),
+        "items": [],
+        "columns": columns,
+        "page_size": page_size,
+    }
+    _itemPickers[picker_id] = data
+    if items:
+        for it in items:
+            _AppendItemPickerItem(data, it)
+    return True
+
+
+def AddItemPickerItem(picker_id, item_name, item_aux=0, desc=""):
+    """
+    向物品选择弹窗追加一个可选项；picker_id 不存在时自动初始化（标题为空串）。
+
+    :param picker_id: 物品选择弹窗 ID
+    :param item_name: 物品 identifier（如 "minecraft:diamond"）
+    :param item_aux:  物品附加值
+    :param desc:      选择后回传给调用方的显示名/说明（可为空，空则用 item_name）
+    :returns:         True 成功；False 参数无效
+    """
+    if not picker_id or not item_name:
+        return False
+    data = _itemPickers.setdefault(picker_id, {
+        "title": "", "items": [], "columns": 8, "page_size": 40})
+    data["items"].append((str(item_name), int(item_aux or 0), str(desc or "")))
+    return True
+
+
+def UnregisterItemPicker(picker_id):
+    """注销指定物品选择弹窗，返回 True 成功，False 不存在。"""
+    if picker_id in _itemPickers:
+        del _itemPickers[picker_id]
+        return True
+    return False
+
+
+def GetItemPicker(picker_id):
+    """获取物品选择数据集 {"title", "items", "columns", "page_size"} 或 None。"""
+    return _itemPickers.get(picker_id)
+
+
+def GetItemPickerItems(picker_id):
+    """获取物品列表 [(item_name, item_aux, desc), ...]；不存在返回 []。"""
+    data = _itemPickers.get(picker_id)
+    return data["items"] if data else []
+
+
+def GetAllItemPickerIds():
+    """返回所有已注册的物品选择弹窗 ID 列表。"""
+    return list(_itemPickers.keys())
+
+
+def _AppendItemPickerItem(data, it):
+    """把 items 参数里的单条记录归一化成 3 元组后追加（内部使用）。"""
+    if isinstance(it, basestring):
+        data["items"].append((it, 0, ""))
+        return
+    if not isinstance(it, (tuple, list)) or not it:
+        return
+    name = it[0]
+    if not name:
+        return
+    aux = it[1] if len(it) > 1 else 0
+    desc = it[2] if len(it) > 2 else ""
+    try:
+        aux = int(aux or 0)
+    except (TypeError, ValueError):
+        aux = 0
+    data["items"].append((str(name), aux, str(desc or "")))
+
+
+# ============================================================
 # 弹窗事件常量
 # ============================================================
 
@@ -1006,6 +1238,10 @@ PopUpOpenEvent = "Script_NeteaseMod9sPMlz0K_PopUpOpen"
 # 弹窗关闭事件，由 MyClientSystem 在 PopScreen 时抛出
 # 事件数据: {"playerId": str}
 PopUpCloseEvent = "Script_NeteaseMod9sPMlz0K_PopUpClose"
+
+# 物品选择弹窗打开事件，由 MyClientSystem 在 PushScreen 时抛出
+# 事件数据: {"playerId": str, "pickerId": str}
+ItemPickerOpenEvent = "Script_NeteaseMod9sPMlz0K_ItemPickerOpen"
 
 
 # ============================================================

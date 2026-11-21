@@ -50,8 +50,12 @@ from CardRegistryApi import (
     GetCardToggle, GetCardToggleOptions, GetCardToggleOptionIds,
     GetCardToggleState, SetCardToggleState, ResetCardToggleStates,
     OpenCardToggle, CloseCardToggle,
+    # 物品选择弹窗（ItemPicker）
+    RegisterItemPicker, AddItemPickerItem, UnregisterItemPicker,
+    GetItemPicker, GetItemPickerItems, GetAllItemPickerIds,
+    OpenItemPicker, CloseItemPicker,
     # 弹窗事件常量
-    PopUpOpenEvent, PopUpCloseEvent,
+    PopUpOpenEvent, PopUpCloseEvent, ItemPickerOpenEvent,
     # 跳转事件常量 + 跳转拦截 API
     SettingsNavigateEvent,
     RegNavigateBlockCallback, UnregNavigateBlockCallback, IsNavigateBlocked,
@@ -80,12 +84,13 @@ from CardRegistryApi import (
 |------|-----|
 | 主卡片 | `RegisterMainCard` `GetMainCard` `GetAllMainCardIds` `UnregisterMainCard` `ClearAllCards` `SetCardChangedCallback` |
 | 中间卡片 | `RegisterMiddleCard` `GetMiddleCardBindings` `UnregisterMiddleCard` `ClearMiddleCardBindings` |
-| 内容项（链式） | `CreateContentInst` `ForMiddleCard` `AddText` `AddButton` `AddSwitch` `AddEditBox` `AddResetButton` `AddCustom` `AddSlider` `AddCollapsibleMenu` `Clear` `Remove` |
+| 内容项（链式） | `CreateContentInst` `ForMiddleCard` `AddText` `AddButton` `AddSwitch` `AddEditBox` `AddResetButton` `AddCustom` `AddSlider` `AddCollapsibleMenu` `AddItemPicker` `Clear` `Remove` |
 | 内容项查询 | `GetContentItems` `GetContentItem` `ClearContentItems` `GetAllContentGroups` `NormalizeMiddleCardId` |
 | 内容项扩展 | `RegisterContentItemType` `GetContentItemFactory` `RegisterContentBuilder` `RegisterContentListener` `UnregisterContentListener` |
 | 弹窗 | `RegisterPopUp` `UnregisterPopUp` `GetPopUp` `GetAllPopUpIds` `ShowPopUp` `ClosePopUp` |
 | 折叠菜单 | `RegisterCollapsibleMenu` `AddCollapsibleMenuCard` `GetCollapsibleMenu` `GetCollapsibleMenuCards` `ShowCollapsibleMenu` `CloseCollapsibleMenu` |
 | 组合开关 | `RegisterCardToggle` `AddCardToggleOption` `AddCardToggleButton` `GetCardToggle` `GetCardToggleOptions` `GetCardToggleOptionIds` `GetCardToggleState` `SetCardToggleState` `ResetCardToggleStates` `OpenCardToggle` `CloseCardToggle` |
+| 物品选择 | `RegisterItemPicker` `AddItemPickerItem` `UnregisterItemPicker` `GetItemPicker` `GetItemPickerItems` `GetAllItemPickerIds` `OpenItemPicker` `CloseItemPicker` `ItemPickerOpenEvent` |
 | 锁定 | `SetLocked` |
 | 设置项状态 | `MakeSettingKey` `GetSettingValue` `GetSettingLocked` `SetSettingValue` `ResetSettingValue` `ResetAllSettings` `ResetGroupSettings` `SaveGroupSettings` `SaveAllSettings` |
 | 导航 | `OpenSettings` |

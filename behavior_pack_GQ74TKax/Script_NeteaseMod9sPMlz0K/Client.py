@@ -59,6 +59,7 @@ class MyClientSystem(ClientSystem):
             'pop_up.main', 'pop_up.main_scroll',
             'pop_up.collapsible_menu',
             'pop_up.card_toggle_panel',
+            'pop_up.item_picker',
         ])
         self.mPendingNavigation = None  # 待处理导航参数 (main_card_id, sub_key, middle_card_id)
         self.mCurrentPopUp = None  # 当前待显示/显示的弹窗数据 {"title": str, "content": str, "buttons": [...]}
@@ -73,6 +74,15 @@ class MyClientSystem(ClientSystem):
         self.mCardToggleScreenNode = None  # 组合开关 ScreenNode 引用
         self.mCurrentCardToggle = None     # 当前组合开关数据集 {"title","mode","buttons","options"}
         self.mCurrentToggleId = ""         # 当前组合开关 toggle_id
+        self.mItemPickerOpen = False       # 物品选择弹窗是否在场景栈中
+        self.mItemPickerScreenNode = None  # 物品选择 ScreenNode 引用
+        self.mCurrentItemPicker = None     # 当前物品选择数据集 {"title","items","columns","page_size"}
+        self.mCurrentItemPickerId = ""     # 当前物品选择 picker_id
+        self.mCurrentItemPickerRow = None  # 触发打开的 ItemPickerContentItem（确认后回写选中值）
+        self.mItemPickerOnSelect = None    # 额外选择回调 on_select(item_name, item_aux, display)
+        self.mItemPickerGroup = None       # 确认后写持久化用的 (main, sub, middle)
+        self.mCurrentItemPickerTitle = ""  # 当前弹窗标题
+        self.mAllItemIds = []              # 服务端下发的全部物品 identifier（演示数据集用）
         self.mPendingCloseSettings = False  # 确认关闭动画后：OnActive 时立即关闭设置界面
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
@@ -111,6 +121,14 @@ class MyClientSystem(ClientSystem):
             self,
             self.OnScriptTickClient
         )
+        # grid 与 scroll 组合时，滚动复用会导致格子重排：收到事件后让物品选择弹窗按索引重填
+        self.ListenForEvent(
+            clientApi.GetEngineNamespace(),
+            clientApi.GetEngineSystemName(),
+            'GridComponentSizeChangedClientEvent',
+            self,
+            self.OnGridComponentSizeChanged
+        )
         self.ListenForEvent(
             clientApi.GetEngineNamespace(),
             clientApi.GetEngineSystemName(),
@@ -140,6 +158,14 @@ class MyClientSystem(ClientSystem):
             "Script_NeteaseMod9sPMlz0K_ServerLogDumpResp",
             self,
             self.OnServerLogDumpResp
+        )
+        # 全部物品列表回执（服务端->客户端）：填充 setting.py 的演示物品选择数据集
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "server",
+            "Script_NeteaseMod9sPMlz0K_AllItems",
+            self,
+            self.OnAllItems
         )
         # 跨存档同步：本存档配置下发
         from StoreEvents import SYNC_STORE as _SYNC_STORE
@@ -220,6 +246,13 @@ class MyClientSystem(ClientSystem):
             self.mCurrentCardToggle = None
             self.mCurrentToggleId = ""
             self.mReturningFromPopUp = False
+        elif screenDef == 'pop_up.item_picker':
+            self.mItemPickerOpen = False
+            self.mCurrentItemPicker = None
+            self.mCurrentItemPickerId = ""
+            self.mCurrentItemPickerRow = None
+            self.mItemPickerOnSelect = None
+            self.mReturningFromPopUp = False
 
     def OnKeyPressInGame(self, args):
         keyValue = int(args.get('key', 0))
@@ -233,6 +266,9 @@ class MyClientSystem(ClientSystem):
             elif self.mCardToggleOpen:
                 dlog.client_print("==== ESC pressed, close CardToggle ====")
                 self.CloseCardToggle()
+            elif self.mItemPickerOpen:
+                dlog.client_print("==== ESC pressed, close ItemPicker ====")
+                self.CloseItemPicker()
             elif self.mPopUpOpen:
                 dlog.client_print("==== ESC pressed, close PopUp only ====")
                 self.ClosePopUp()
@@ -259,22 +295,30 @@ class MyClientSystem(ClientSystem):
             self.OpenSettings()
 
     def _CanOpenSettingsFromKey(self):
-        """快捷键仅在游戏默认 HUD 界面才能打开设置。
+        """快捷键只在游戏 HUD 层生效：栈顶有别的界面时才屏蔽。
 
-        判断依据（任一命中即屏蔽）：
-        1. mExternalScreenDepth > 0：背包/工作台/箱子/聊天等非本模组的界面压栈；
-        2. clientApi.GetScreenIsHud() 为 False：当前最上层界面不是 HUD
-           （覆盖压缩式聊天框等未压栈的界面；接口不存在时仅依赖深度判断）。
+        判断方式改为直接问引擎（clientApi.GetTopScreen()，返回最后一次 PushScreen
+        创建的界面，栈空返回 None），不再依赖自己累加的 Push/Pop 计数器——那个
+        计数器只要漏收一次事件就会永久卡住，表现为 U 键再也打不开设置。
+        栈顶是本模组自己的界面时放行（弹窗层除外，避免设置界面叠在弹窗上面）。
         """
-        if getattr(self, "mExternalScreenDepth", 0) > 0:
-            return False
-        getter = getattr(clientApi, "GetScreenIsHud", None)
+        getter = getattr(clientApi, "GetTopScreen", None)
         if getter is None:
             return True
         try:
-            return bool(getter())
+            top = getter()
         except Exception:
             return True
+        if not top:
+            return True
+        try:
+            name = str(top.GetScreenName() or "")
+        except Exception:
+            name = ""
+        if name in self.mOwnScreenDefs and not name.startswith("pop_up."):
+            return True
+        dlog.client_print("==== open-settings gate: blocked by top screen '%s' ====" % name)
+        return False
 
     def OnOpenSettingsFromCommand(self, args):
         """
@@ -415,6 +459,25 @@ class MyClientSystem(ClientSystem):
     def OnScriptTickClient(self):
         if self.mSettingsScreenNode and hasattr(self.mSettingsScreenNode, 'OnTick'):
             self.mSettingsScreenNode.OnTick()
+        if self.mItemPickerScreenNode and hasattr(self.mItemPickerScreenNode, 'OnTick'):
+            self.mItemPickerScreenNode.OnTick()
+
+    def OnGridComponentSizeChanged(self, args):
+        """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
+        if not self.mItemPickerScreenNode:
+            return
+        path = ""
+        try:
+            if isinstance(args, dict):
+                path = args.get('path', '')
+        except Exception:
+            path = ""
+        dlog.client_print("==== GridComponentSizeChanged path=%s ====" % path)
+        try:
+            self.mItemPickerScreenNode.OnGridSizeChanged(path)
+        except Exception as e:
+            dlog.client_print("==== OnGridComponentSizeChanged error: %s ====" % str(e))
+
     def OnUIInitFinished(self, args=None):
         if self.mUiCreated:
             return
@@ -481,6 +544,14 @@ class MyClientSystem(ClientSystem):
         )
         dlog.client_print("==== CardToggleUI registered ====")
 
+        clientApi.RegisterUI(
+            'Script_NeteaseMod9sPMlz0K',
+            'ItemPickerUI',
+            'Script_NeteaseMod9sPMlz0K.Client.ItemPickerScreenNode',
+            'pop_up.item_picker'
+        )
+        dlog.client_print("==== ItemPickerUI registered ====")
+
         # 注册 Toast 系统
         try:
             from Toast import RegisterToastScreens
@@ -496,6 +567,9 @@ class MyClientSystem(ClientSystem):
             dlog.client_print("==== settings_config main card registered ====")
         except Exception as e:
             dlog.client_print("==== settings_config register error: %s ====" % str(e))
+
+        # 拉取全部物品（服务端 GetLoadItems），用于填充演示物品选择数据集
+        self.RequestAllItems()
 
         self.InitKeyBindings()
         self._RegisterOfficialSettingsEntry()
@@ -711,6 +785,147 @@ class MyClientSystem(ClientSystem):
                     dlog.client_print("==== CloseCardToggle persist error: %s ====" % str(e))
             clientApi.PopScreen()
             self.mCardToggleOpen = False
+
+    def OpenItemPicker(self, picker_id, item=None, on_select=None, title=None, group=None):
+        """
+        打开物品选择弹窗（从一组物品中选一个，点「确定」才生效）。
+
+        :param picker_id: 物品选择数据集 ID（须先 RegisterItemPicker 注册）
+        :param item:      关联的 ItemPickerContentItem（可选，确认后回写选中值并刷新该行图标）
+        :param on_select: 额外选择回调 on_select(item_name, item_aux, display_text)（可选）
+        :param title:     覆盖弹窗标题（可选，默认取数据集标题）
+        :param group:     (main_card_id, sub_key, middle_card_id)，用于确认后写持久化（可选）
+        :returns:         True 打开成功；False 数据集未注册
+        """
+        from CardRegistry import GetItemPicker
+        data = GetItemPicker(picker_id)
+        dlog.client_print("==== OpenItemPicker invoked: picker=%s data=%s open=%s ====" % (
+            picker_id, bool(data), self.mItemPickerOpen))
+        if not data:
+            dlog.client_print("==== OpenItemPicker: picker '%s' not registered ====" % picker_id)
+            return False
+        self.mCurrentItemPicker = data
+        self.mCurrentItemPickerId = picker_id
+        self.mCurrentItemPickerRow = item
+        self.mItemPickerOnSelect = on_select
+        self.mItemPickerGroup = group or getattr(self.mSettingsScreenNode, 'mCurrentRightGroup', None)
+        if title:
+            self.mCurrentItemPickerTitle = str(title)
+        else:
+            self.mCurrentItemPickerTitle = data.get("title", "")
+        if self.mItemPickerOpen:
+            # 已打开：复用现有 ScreenNode 刷新内容
+            dlog.client_print("==== OpenItemPicker: already open, refresh ====")
+            if self.mItemPickerScreenNode:
+                try:
+                    self.mItemPickerScreenNode._ApplyPicker()
+                except Exception as e:
+                    dlog.client_print("==== OpenItemPicker refresh error: %s ====" % str(e))
+            return True
+        # 即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
+        self.mReturningFromPopUp = True
+        clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'ItemPickerUI')
+        self.mItemPickerOpen = True
+        eventData = self.CreateEventData()
+        eventData["playerId"] = clientApi.GetLocalPlayerId()
+        eventData["pickerId"] = picker_id
+        from CardRegistry import ItemPickerOpenEvent
+        self.BroadcastEvent(ItemPickerOpenEvent, eventData)
+        return True
+
+    def CloseItemPicker(self):
+        """关闭物品选择弹窗（不写回选中值，等同取消）。"""
+        if self.mItemPickerOpen:
+            clientApi.PopScreen()
+            self.mItemPickerOpen = False
+
+    def ConfirmItemPicker(self, item_name, item_aux):
+        """物品选择弹窗确认：回写选中值到内容项 + 持久化 + 触发回调，然后关闭弹窗。"""
+        row = self.mCurrentItemPickerRow
+        group = getattr(self, "mItemPickerGroup", None)
+        display = ""
+        try:
+            from CardRegistry import GetItemPickerItems
+            for it in GetItemPickerItems(self.mCurrentItemPickerId):
+                if it[0] == item_name and int(it[1] or 0) == int(item_aux or 0):
+                    display = it[2] or item_name
+                    break
+            if not display:
+                display = item_name
+        except Exception:
+            display = item_name
+        try:
+            if row is not None and hasattr(row, "SetSelected"):
+                row.SetSelected(item_name, item_aux)
+                if group and group[0] is not None:
+                    from SettingState import SetSettingValue
+                    SetSettingValue(group[0], group[1], group[2], row.item_id, row.value)
+                if self.mSettingsScreenNode and hasattr(self.mSettingsScreenNode, "UpdateItemPickerRow"):
+                    self.mSettingsScreenNode.UpdateItemPickerRow(row)
+                callback = getattr(row, "on_select", None)
+                if callback:
+                    sn = self.mSettingsScreenNode
+                    callback(sn, row.item_id, item_name, item_aux)
+            if self.mItemPickerOnSelect:
+                self.mItemPickerOnSelect(item_name, item_aux, display)
+        except Exception as e:
+            dlog.client_print("==== ConfirmItemPicker error: %s ====" % str(e))
+        self.CloseItemPicker()
+
+    # ===== 全部物品（演示物品选择数据集用） =====
+
+    def RequestAllItems(self):
+        """向服务端请求全部已加载物品 identifier（原版 + 各模组自定义物品）。"""
+        try:
+            data = self.CreateEventData()
+            data["playerId"] = clientApi.GetLocalPlayerId()
+            self.NotifyToServer("Script_NeteaseMod9sPMlz0K_ReqAllItems", data)
+        except Exception as e:
+            dlog.client_print("==== RequestAllItems error: %s ====" % str(e))
+
+    def OnAllItems(self, args):
+        """服务端回执：identifier 列表 -> 数据集条目，重建演示 picker。"""
+        ids = (args or {}).get("items") or []
+        self.mAllItemIds = list(ids)
+        entries = self._BuildAllItemEntries(self.mAllItemIds)
+        try:
+            from setting import RefreshDemoItemPicker
+            RefreshDemoItemPicker(entries)
+        except Exception as e:
+            dlog.client_print("==== OnAllItems: refresh demo picker error: %s ====" % str(e))
+        dlog.client_print("==== All items received: %d ====" % len(self.mAllItemIds))
+        # 若数据到达时弹窗已经开着，用新数据集就地刷新（否则要关掉重开才看得到）
+        if self.mItemPickerOpen and self.mCurrentItemPickerId:
+            try:
+                from CardRegistry import GetItemPicker
+                fresh = GetItemPicker(self.mCurrentItemPickerId)
+                if fresh and self.mItemPickerScreenNode:
+                    self.mCurrentItemPicker = fresh
+                    self.mItemPickerScreenNode._ApplyPicker()
+            except Exception as e:
+                dlog.client_print("==== OnAllItems: refresh open picker error: %s ====" % str(e))
+
+    def _BuildAllItemEntries(self, ids):
+        """identifier 列表 -> [(item_name, aux, 本地化名字), ...]。"""
+        comp = None
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateItem(clientApi.GetLevelId())
+        except Exception:
+            comp = None
+        entries = []
+        for name in ids:
+            if not name:
+                continue
+            display = name
+            if comp:
+                try:
+                    info = comp.GetItemBasicInfo(name)
+                    if info:
+                        display = info.get("itemName") or name
+                except Exception:
+                    pass
+            entries.append((name, 0, display))
+        return entries
 
     def SetLocked(self, item_id_or_path, locked):
         """
@@ -1056,6 +1271,7 @@ class SettingsScreenNode(ScreenNode):
         self.mRightSliderValueMap = {} # itemId -> 滑块数值显示 label 控件
         self.mCollapsibleMenuTextMap = {} # itemId -> 折叠菜单按钮文字 label 控件（选择后实时更新）
         self.mRightCollapsibleMenuCtrlMap = {} # itemId -> 折叠菜单按钮控件（锁定控制用）
+        self.mRightItemPickerCtrlMap = {} # itemId -> (物品选择行根控件, 物品渲染控件)
         self.mRightSliderBaseMap = {} # itemId -> 滑块基础控件（BaseUIControl）
         self.mRightSliderBgMap = {} # itemId -> 滑块锁定灰层控件（slider_lock_bg，运行时动态创建）
         self.mRightSliderLockOverlayMap = {} # itemId -> 滑块锁定输入拦截层控件（lock_overlay，运行时动态创建）
@@ -3114,6 +3330,7 @@ class SettingsScreenNode(ScreenNode):
         self.mRightSliderLockOverlayMap.clear()
         self.mCollapsibleMenuTextMap.clear()
         self.mRightCollapsibleMenuCtrlMap.clear()
+        self.mRightItemPickerCtrlMap.clear()
         for item in self.mRightFadingInCtrls:
             self.SafeRemoveRightContent(item[0])
         self.mRightFadingInCtrls = []
@@ -3165,6 +3382,7 @@ class SettingsScreenNode(ScreenNode):
         self.mRightSliderLockOverlayMap.clear()
         self.mCollapsibleMenuTextMap.clear()
         self.mRightCollapsibleMenuCtrlMap.clear()
+        self.mRightItemPickerCtrlMap.clear()
         for ctrl in exitingCtrls:
             try:
                 if self.mEnableFadeAnim:
@@ -3413,6 +3631,33 @@ class SettingsScreenNode(ScreenNode):
             _SetLabelText(textLabel, text, "UpdateCollapsibleMenuButtonText")
             textLabel.SetVisible(True)
 
+    def OnItemPickerClick(self, args, item):
+        """物品选择内容项的箭头按钮点击回调：打开关联的物品选择弹窗。"""
+        dlog.client_print("==== OnItemPickerClick: item_id=%s picker_id=%s ====" % (
+            item.item_id, item.picker_id))
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.OpenItemPicker(
+                item.picker_id, item=item, group=self.mCurrentRightGroup)
+        return ViewRequest.Nothing
+
+    def UpdateItemPickerRow(self, item):
+        """物品选择确认后：把选中物品渲染到该行图标上。"""
+        entry = self.mRightItemPickerCtrlMap.get(item.item_id)
+        if not entry:
+            dlog.client_print("==== UpdateItemPickerRow: ctrl not found %s ====" % item.item_id)
+            return
+        rendererCtrl = entry[1]
+        if not rendererCtrl:
+            return
+        try:
+            renderer = rendererCtrl.asItemRenderer()
+            if renderer:
+                renderer.SetUiItem(item.GetItemName() or "minecraft:air",
+                                   item.GetItemAux(), False)
+        except Exception as e:
+            dlog.client_print("==== UpdateItemPickerRow error: %s ====" % str(e))
+
     def SetLocked(self, item_id_or_path, locked):
         """
         统一设置指定内容项（按钮/开关/edit_box）的锁定状态。
@@ -3505,6 +3750,27 @@ class SettingsScreenNode(ScreenNode):
                     btn.SetButtonTouchUpCallback(
                         lambda args, mid=mid, itm=itm: self.OnCollapsibleMenuClick(args, mid, itm)
                     )
+            return
+        # 2b4. item_picker 锁定逻辑（禁用/恢复箭头按钮点击）
+        ipEntry = self.mRightItemPickerCtrlMap.get(item_id)
+        if ipEntry:
+            ipRootCtrl = ipEntry[0]
+            ipBtnCtrl = ipRootCtrl.GetChildByName('open_button') if ipRootCtrl else None
+            ipBtn = ipBtnCtrl.asButton() if ipBtnCtrl else None
+            if ipBtn:
+                if locked:
+                    ipBtn.SetButtonTouchUpCallback(lambda args: None)
+                else:
+                    ipBtn.AddTouchEventParams({})
+                    _ipItm = None
+                    if self.mCurrentRightGroup:
+                        _ipItm = GetContentItem(self.mCurrentRightGroup[0],
+                                                self.mCurrentRightGroup[1],
+                                                self.mCurrentRightGroup[2], item_id)
+                    if _ipItm is not None:
+                        ipBtn.SetButtonTouchUpCallback(
+                            lambda args, itm=_ipItm: self.OnItemPickerClick(args, itm)
+                        )
             return
         # 2c. edit_box 内容项锁定逻辑（按内容项 ID）
         editBoxCtrl = self.mRightEditBoxCtrlMap.get(item_id)
@@ -3847,6 +4113,84 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
                     )
                 else:
                     btn.SetButtonTouchUpCallback(lambda args: None)
+    screenNode.mRightContentCtrls.append(ctrl)
+
+
+def BuildItemPickerContent(screenNode, parent, item):
+    """物品选择内容项 UI 创建：litle/desc + 当前物品图标 + 箭头按钮，点击打开物品选择弹窗。"""
+    _RestoreItemLocked(screenNode, item)
+    group = screenNode.mCurrentRightGroup
+    if group and group[0] is not None:
+        stored = GetSettingValue(group[0], group[1], group[2], item.item_id,
+                                 default=item.default_value)
+    else:
+        stored = getattr(item, "value", item.default_value)
+    if stored is not None:
+        item.SetValue(stored)
+    item._loaded = True
+    dlog.client_print("==== BuildItemPickerContent item_id=%s desc=%s picker_id=%s litle=%s selected=%s locked=%s ====" % (
+        item.item_id, item.desc, item.picker_id, item.litle, item.GetDisplayText(), item.locked
+    ))
+    ctrl = screenNode.CreateChildControl(
+        'setting.item_picker_content',
+        'rip_' + item.item_id,
+        parent,
+        True
+    )
+    if not ctrl:
+        dlog.client_print("==== BuildItemPickerContent: create control failed ====")
+        return
+    # 立即设置透明，避免创建时闪现
+    try:
+        screenNode._SetControlTreeAlpha(ctrl, 0.0)
+    except Exception:
+        pass
+    # 左侧 panel：litle 小标题 + desc 描述
+    panelCtrl = ctrl.GetChildByName('panel')
+    if panelCtrl:
+        litleCtrl = panelCtrl.GetChildByName('litle')
+        if litleCtrl:
+            _SetLabelText(litleCtrl, item.litle, "BuildItemPickerContent.litle")
+            litleCtrl.SetVisible(bool(item.litle))  # 空标题隐藏，正文上移贴顶
+        descCtrl = panelCtrl.GetChildByName('desc')
+        if descCtrl:
+            _SetLabelText(descCtrl, item.desc, "BuildItemPickerContent.desc")
+            descCtrl.SetVisible(bool(item.desc))  # 空正文防御性隐藏
+        else:
+            dlog.client_print("==== BuildItemPickerContent: desc child not found in panel ====")
+    else:
+        dlog.client_print("==== BuildItemPickerContent: panel child not found ====")
+    # 物品图标：显示当前选中的物品
+    iconCtrl = ctrl.GetChildByName('icon')
+    rendererCtrl = iconCtrl.GetChildByName('item_renderer') if iconCtrl else None
+    if rendererCtrl:
+        try:
+            renderer = rendererCtrl.asItemRenderer()
+            if renderer:
+                renderer.SetUiItem(item.GetItemName() or "minecraft:air", item.GetItemAux(), False)
+        except Exception as e:
+            dlog.client_print("==== BuildItemPickerContent: SetUiItem error: %s ====" % str(e))
+    else:
+        dlog.client_print("==== BuildItemPickerContent: item_renderer not found ====")
+    # 箭头按钮：不显示文字，只保留模板自带的箭头贴图
+    buttonCtrl = ctrl.GetChildByName('open_button')
+    if buttonCtrl:
+        textCtrl = buttonCtrl.GetChildByName('text')
+        if textCtrl:
+            textCtrl.SetVisible(False)
+        btn = buttonCtrl.asButton()
+        if btn:
+            if item.locked:
+                btn.SetButtonTouchUpCallback(lambda args: None)
+            else:
+                btn.AddTouchEventParams({})
+                btn.SetButtonTouchUpCallback(
+                    lambda args, itm=item: screenNode.OnItemPickerClick(args, itm)
+                )
+    else:
+        dlog.client_print("==== BuildItemPickerContent: open_button child not found ====")
+    # 记录控件，确认选择后刷新该行图标
+    screenNode.mRightItemPickerCtrlMap[item.item_id] = (ctrl, rendererCtrl)
     screenNode.mRightContentCtrls.append(ctrl)
 
 
@@ -4362,6 +4706,7 @@ RegisterContentBuilder("edit_box", BuildEditBoxContent)
 RegisterContentBuilder("reset", BuildResetContent)
 RegisterContentBuilder("slider", BuildSliderContent)
 RegisterContentBuilder("collapsible_menu", BuildCollapsibleMenuContent)
+RegisterContentBuilder("item_picker", BuildItemPickerContent)
 
 # 设置值变更时同步刷新已打开 UI
 SetSettingChangedCallback(_ApplySettingToOpenUI)
@@ -5129,3 +5474,404 @@ class CardToggleScreenNode(ScreenNode):
             ScreenNode.Destroy(self)
         except Exception:
             pass
+
+
+def _TrailingInt(text):
+    """取字符串结尾的连续数字（grid 子节点名字尾部通常带格子下标）。取不到返回 None。"""
+    digits = ""
+    for ch in reversed(text or ""):
+        if ch.isdigit():
+            digits = ch + digits
+        else:
+            break
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except Exception:
+        return None
+
+
+class ItemPickerScreenNode(ScreenNode):
+    """物品选择弹窗：8 列 × 5 行分页网格 + 搜索过滤 + 选中高亮，点「确定」才生效。
+
+    每页固定 PAGE_ROWS 行（4 行 × 28px = 112px），翻页由 search_box 右侧的
+    「<」「>」按钮控制，页码显示在两者之间；格子是 JSON 里写死的 static 控件
+    （grid_box/row_N/slot_M），填格直接按绝对路径取 item_renderer，不依赖
+    grid 控件、不依赖 scroll_view，也不依赖子控件名字里的下标。
+    """
+
+    # 控件路径（与 pop_up.json 的 item_picker 屏幕结构一一对应）
+    PATH_TITLE = "/frame/layout/header/title"
+    PATH_CLOSE_BUTTON = "/frame/layout/header/close_button"
+    PATH_SEARCH_INPUT = "/frame/layout/body/content/search_box/input"
+    # 格子是 pop_up.json 里写死的 4 行 × 8 列（grid_box/row_N/slot_M），不走 grid 控件
+    PATH_GRID_BOX = "/frame/layout/body/content/grid_box"
+    PATH_SELECTED_ICON = "/frame/layout/footer/selected_icon/item_renderer"
+    PATH_SELECTED_NAME = "/frame/layout/footer/selected_name"
+    PATH_CONFIRM_BUTTON = "/frame/layout/footer/confirm_button"
+    PATH_CANCEL_BUTTON = "/frame/layout/footer/cancel_button"
+    PATH_PAGE_PREV = "/frame/layout/body/content/search_box/prev_button"
+    PATH_PAGE_NEXT = "/frame/layout/body/content/search_box/next_button"
+    PATH_PAGE_LABEL = "/frame/layout/body/content/search_box/page_label"
+
+    DEFAULT_COLUMNS = 8      # 网格列数（与 grid_dimensions 第一项一致）
+    SLOT_HEIGHT = 28.0       # 单格高度（与 setting.item_slot 的 28px 一致）
+    CONTENT_WIDTH = 224.0    # 网格宽度（与 pop_up.json 里 content 的 224px 一致，取不到真实宽度时兜底）
+    PAGE_ROWS = 4            # 每页行数（与 pop_up.json 的 grid_dimensions 第二项一致）
+    SLOT_WIDTH = 28.0        # 单格宽度（内容宽 224 / 8 列）
+
+    def __init__(self, namespace, name, param):
+        ScreenNode.__init__(self, namespace, name, param)
+        self.mPickerId = ""
+        self.mColumns = self.DEFAULT_COLUMNS
+        self.mAllItems = []        # [(item_name, item_aux, desc), ...] 全量数据
+        self.mFiltered = []        # 搜索过滤后的数据
+        self.mPage = 0             # 当前页码（0 起）
+        self.mPageCount = 1        # 总页数（按过滤后的数量算，至少 1 页）
+        self.mPageItems = []       # 当前页的物品数据（最多 列数 × PAGE_ROWS 个）
+        self.mSearchText = ""      # 上一次读到的搜索框文本
+        self.mSelectedName = ""    # 当前选中物品 identifier
+        self.mSelectedAux = 0
+        self.mApplied = False
+        self.mCells = {}           # 线性索引 -> 格子控件
+        self.mFillTries = 0        # 补填次数（grid 的格子是渲染期按需创建的，开界面后持续补几次）
+        self.mPathWarned = False   # 填格映射只打印一次（便于对照日志排查）
+        self.mBackBound = False
+        self.mButtonsBound = False
+        self.mTickCount = 0
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mItemPickerScreenNode = self
+
+    # ────────────── 生命周期 ──────────────
+    def Create(self):
+        dlog.client_print("==== ItemPickerScreenNode.Create called ====")
+        self._ApplyPicker()
+
+    def OnActive(self):
+        dlog.client_print("==== ItemPickerScreenNode.OnActive called ====")
+        self._ApplyPicker()
+
+    def Destroy(self):
+        self.mApplied = False
+        self.mCells = {}
+        self.mBackBound = False
+        self.mButtonsBound = False
+        global _g_ClientSystem
+        if _g_ClientSystem and _g_ClientSystem.mItemPickerScreenNode is self:
+            _g_ClientSystem.mItemPickerScreenNode = None
+        try:
+            ScreenNode.Destroy(self)
+        except Exception:
+            pass
+
+    # ────────────── 数据应用 ──────────────
+    def _ApplyPicker(self):
+        """读取 ClientSystem 上的弹窗数据，初始化标题/搜索框/网格/底部。"""
+        if not _g_ClientSystem:
+            dlog.client_print("==== ItemPickerScreenNode: ClientSystem not ready ====")
+            return
+        data = _g_ClientSystem.mCurrentItemPicker
+        if not data:
+            dlog.client_print("==== ItemPickerScreenNode: no picker data ====")
+            return
+        self.mPickerId = _g_ClientSystem.mCurrentItemPickerId
+        try:
+            self.mColumns = int(data.get("columns", self.DEFAULT_COLUMNS) or self.DEFAULT_COLUMNS)
+        except (TypeError, ValueError):
+            self.mColumns = self.DEFAULT_COLUMNS
+        if self.mColumns <= 0:
+            self.mColumns = self.DEFAULT_COLUMNS
+        self.mAllItems = list(data.get("items", []) or [])
+        row = _g_ClientSystem.mCurrentItemPickerRow
+        if row is not None and hasattr(row, "GetItemName"):
+            self.mSelectedName = row.GetItemName()
+            self.mSelectedAux = row.GetItemAux()
+        else:
+            self.mSelectedName = ""
+            self.mSelectedAux = 0
+        # 标题
+        titleCtrl = self.GetBaseUIControl(self.PATH_TITLE)
+        if titleCtrl:
+            _SetLabelText(titleCtrl, _g_ClientSystem.mCurrentItemPickerTitle or data.get("title", ""),
+                          "ItemPicker.title")
+        # 搜索框：清空旧文本（占位提示由 pop_up.json 的 search_box/input 提供）
+        searchCtrl = self.GetBaseUIControl(self.PATH_SEARCH_INPUT)
+        if searchCtrl:
+            try:
+                teb = searchCtrl.asTextEditBox()
+                if teb:
+                    teb.SetEditText("")
+            except Exception as e:
+                dlog.client_print("==== ItemPicker: reset search error: %s ====" % str(e))
+        self.mSearchText = ""
+        self.mPage = 0
+        # 关闭 / 确定 / 取消 / 翻页（只绑定一次）
+        if not self.mBackBound:
+            closeCtrl = self.GetBaseUIControl(self.PATH_CLOSE_BUTTON)
+            closeBtn = closeCtrl.asButton() if closeCtrl else None
+            if closeBtn:
+                closeBtn.AddTouchEventParams({})
+                closeBtn.SetButtonTouchUpCallback(lambda args: self._OnCancel())
+                self.mBackBound = True
+        if not self.mButtonsBound:
+            confirmCtrl = self.GetBaseUIControl(self.PATH_CONFIRM_BUTTON)
+            confirmBtn = confirmCtrl.asButton() if confirmCtrl else None
+            if confirmBtn:
+                confirmBtn.AddTouchEventParams({})
+                confirmBtn.SetButtonTouchUpCallback(lambda args: self._OnConfirm())
+            cancelCtrl = self.GetBaseUIControl(self.PATH_CANCEL_BUTTON)
+            cancelBtn = cancelCtrl.asButton() if cancelCtrl else None
+            if cancelBtn:
+                cancelBtn.AddTouchEventParams({})
+                cancelBtn.SetButtonTouchUpCallback(lambda args: self._OnCancel())
+            prevCtrl = self.GetBaseUIControl(self.PATH_PAGE_PREV)
+            prevBtn = prevCtrl.asButton() if prevCtrl else None
+            if prevBtn:
+                prevBtn.AddTouchEventParams({})
+                prevBtn.SetButtonTouchUpCallback(lambda args: self._OnPagePrev())
+            nextCtrl = self.GetBaseUIControl(self.PATH_PAGE_NEXT)
+            nextBtn = nextCtrl.asButton() if nextCtrl else None
+            if nextBtn:
+                nextBtn.AddTouchEventParams({})
+                nextBtn.SetButtonTouchUpCallback(lambda args: self._OnPageNext())
+            self.mButtonsBound = True
+        self.mFillTries = 0
+        self._Refilter()
+        self._RefreshFooter()
+        self.mApplied = True
+        dlog.client_print("==== ItemPicker applied: picker=%s items=%d columns=%d selected=%s ====" % (
+            self.mPickerId, len(self.mAllItems), self.mColumns, self.mSelectedName))
+
+    def _Refilter(self):
+        """按搜索关键字过滤，切出当前页的数据并重建网格。"""
+        kw = (self.mSearchText or "").strip().lower()
+        if not kw:
+            self.mFiltered = list(self.mAllItems)
+        else:
+            result = []
+            for it in self.mAllItems:
+                name, _aux, desc = it
+                if kw in name.lower() or kw in (desc or "").lower():
+                    result.append(it)
+            self.mFiltered = result
+        pageSize = self._PageSize()
+        total = len(self.mFiltered)
+        self.mPageCount = (total + pageSize - 1) // pageSize
+        if self.mPageCount < 1:
+            self.mPageCount = 1
+        if self.mPage < 0:
+            self.mPage = 0
+        if self.mPage > self.mPageCount - 1:
+            self.mPage = self.mPageCount - 1
+        start = self.mPage * pageSize
+        self.mPageItems = self.mFiltered[start:start + pageSize]
+        self._FillGrid()
+        self._RefreshPageBar()
+
+    def _CellPath(self, idx):
+        """静态格子的控件路径（pop_up.json 里 grid_box/row_N/slot_M）。"""
+        row = idx // self.mColumns
+        col = idx % self.mColumns
+        return "%s/row_%d/slot_%d" % (self.PATH_GRID_BOX, row, col)
+
+    def _FillGrid(self, gridPath=""):
+        """把当前页的物品逐个写进静态格子（row_N/slot_M）。
+
+        格子是 JSON 里写死的 4 行 × 8 列，不依赖 grid 控件；每格直接按绝对
+        路径取 item_renderer 写物品，跟页脚预览图标是同一种写法。
+        """
+        total = len(self.mPageItems)
+        cellCount = self.PAGE_ROWS * self.mColumns
+        self.mCells = {}
+        filled = 0
+        for idx in range(cellCount):
+            cellPath = self._CellPath(idx)
+            cell = self.GetBaseUIControl(cellPath)
+            if not cell:
+                continue
+            self.mCells[idx] = cell
+            self._ApplyCell(cellPath, cell, idx, idx < total)
+            filled += 1
+        if not self.mPathWarned:
+            self.mPathWarned = True
+            dlog.client_print("==== ItemPicker: filled %d/%d cells (page items=%d) ====" % (
+                filled, cellCount, total))
+
+    def _ApplyCell(self, cellPath, cell, idx, hasItem):
+        """给单个格子设置物品图标、选中勾与点击回调。
+
+        当前页没铺满时，空位整格透明：既不留格子底板、也不显示物品，
+        但格子仍占原来的位置（alpha 不影响布局），翻页回来再恢复。
+        空格同时关掉触摸，不响应悬停与点击。
+        """
+        rendererCtrl = self.GetBaseUIControl(cellPath + "/item_renderer")
+        if rendererCtrl:
+            try:
+                renderer = rendererCtrl.asItemRenderer()
+                if hasItem:
+                    rendererCtrl.SetVisible(True)
+                    if renderer:
+                        name, aux, _desc = self.mPageItems[idx]
+                        renderer.SetUiItem(name or "minecraft:air", aux, False)
+                else:
+                    if renderer:
+                        renderer.SetUiItem("minecraft:air", 0, False)
+                    rendererCtrl.SetVisible(False)
+            except Exception as e:
+                dlog.client_print("==== ItemPicker: SetUiItem error: %s ====" % str(e))
+        selectedCtrl = self.GetBaseUIControl(cellPath + "/selected")
+        if selectedCtrl:
+            try:
+                isSelected = False
+                if hasItem:
+                    name, aux, _desc = self.mPageItems[idx]
+                    isSelected = (name == self.mSelectedName and int(aux) == int(self.mSelectedAux))
+                selectedCtrl.SetVisible(isSelected)
+            except Exception as e:
+                dlog.client_print("==== ItemPicker: selected visual error: %s ====" % str(e))
+        btn = None
+        if cell:
+            try:
+                btn = cell.asButton()
+            except Exception:
+                btn = None
+        if cell:
+            try:
+                # 空位不留底板：整格透明（alpha 只影响渲染，格子仍占原位）
+                cell.SetAlpha(1.0 if hasItem else 0.0)
+                cell.SetTouchEnable(bool(hasItem))
+            except Exception:
+                pass
+        if not btn:
+            return
+        if hasItem:
+            btn.AddTouchEventParams({})
+            btn.SetButtonTouchUpCallback(lambda args, i=idx: self._OnCellClick(i))
+        else:
+            btn.SetButtonTouchUpCallback(lambda args: None)
+
+    def _RefreshFooter(self):
+        """刷新底部"已选择"的物品图标与名称。"""
+        name = self.mSelectedName
+        aux = self.mSelectedAux
+        iconCtrl = self.GetBaseUIControl(self.PATH_SELECTED_ICON)
+        if iconCtrl:
+            try:
+                renderer = iconCtrl.asItemRenderer()
+                if renderer:
+                    renderer.SetUiItem(name or "minecraft:air", aux, False)
+            except Exception as e:
+                dlog.client_print("==== ItemPicker: footer icon error: %s ====" % str(e))
+        nameCtrl = self.GetBaseUIControl(self.PATH_SELECTED_NAME)
+        if nameCtrl:
+            if name:
+                _SetLabelText(nameCtrl, self._DisplayNameOf(name, aux), "ItemPicker.footer_name")
+            else:
+                _SetLabelText(nameCtrl, "未选择", "ItemPicker.footer_name")
+
+    def _DisplayNameOf(self, name, aux):
+        """取选中项的显示名（优先注册时的 desc，没有则用 identifier）。"""
+        try:
+            for it in self.mAllItems:
+                if it[0] == name and int(it[1] or 0) == int(aux or 0):
+                    return it[2] or name
+        except Exception:
+            pass
+        return name
+
+    # ────────────── 交互 ──────────────
+    def _OnCellClick(self, idx):
+        """点格子：只切换选中态，不关闭弹窗。"""
+        if idx < 0 or idx >= len(self.mPageItems):
+            return
+        name, aux, _desc = self.mPageItems[idx]
+        self.mSelectedName = name
+        self.mSelectedAux = aux
+        self._RefreshFooter()
+        self._FillGrid()
+        dlog.client_print("==== ItemPicker: select %s aux=%s ====" % (name, aux))
+
+    def _OnConfirm(self):
+        """点「确定」：回写选中值并关闭弹窗。"""
+        if not self.mSelectedName:
+            dlog.client_print("==== ItemPicker: confirm without selection ====")
+            return
+        if _g_ClientSystem:
+            _g_ClientSystem.ConfirmItemPicker(self.mSelectedName, self.mSelectedAux)
+
+    def _OnCancel(self):
+        """点「取消」/ 右上角关闭：不写回，直接关闭。"""
+        if _g_ClientSystem:
+            _g_ClientSystem.CloseItemPicker()
+
+    # ────────────── 轮询：搜索框 / 补填格子 ──────────────
+    def OnTick(self):
+        if not self.mApplied:
+            return
+        self.mTickCount += 1
+        if self.mTickCount < 12:
+            return
+        self.mTickCount = 0
+        if self.mFillTries < 12:
+            # grid 的格子是渲染期按需创建的：开界面后前几秒持续补填
+            self.mFillTries += 1
+            self._FillGrid()
+        self._PollSearch()
+
+    def _PollSearch(self):
+        """轮询搜索框文本（官方无输入回调接口，只能主动拉取）。"""
+        ctrl = self.GetBaseUIControl(self.PATH_SEARCH_INPUT)
+        if not ctrl:
+            return
+        try:
+            teb = ctrl.asTextEditBox()
+            if not teb:
+                return
+            text = teb.GetEditText() or ""
+        except Exception:
+            return
+        if text != self.mSearchText:
+            self.mSearchText = text
+            self.mPage = 0
+            self._Refilter()
+            dlog.client_print("==== ItemPicker: search '%s' -> %d items ====" % (text, len(self.mFiltered)))
+
+    def _PageSize(self):
+        """每页格子数 = 列数 × 每页行数。"""
+        return max(1, self.mColumns) * self.PAGE_ROWS
+
+    def _GotoPage(self, page):
+        """切到指定页（0 起）：越界或没变就忽略，只重填格子，不重建网格。"""
+        if page < 0 or page > self.mPageCount - 1 or page == self.mPage:
+            return
+        self.mPage = page
+        start = self.mPage * self._PageSize()
+        self.mPageItems = self.mFiltered[start:start + self._PageSize()]
+        self.mFillTries = 0
+        self._FillGrid()
+        self._RefreshPageBar()
+        dlog.client_print("==== ItemPicker: page %d/%d ====" % (self.mPage + 1, self.mPageCount))
+
+    def _OnPagePrev(self):
+        self._GotoPage(self.mPage - 1)
+
+    def _OnPageNext(self):
+        self._GotoPage(self.mPage + 1)
+
+    def _RefreshPageBar(self):
+        """刷新页码文本（第 1 页显示 1/2）。"""
+        ctrl = self.GetBaseUIControl(self.PATH_PAGE_LABEL)
+        if ctrl:
+            _SetLabelText(ctrl, "%d/%d" % (self.mPage + 1, self.mPageCount), "ItemPicker.page")
+
+    def OnGridSizeChanged(self, path):
+        """网格尺寸变化（格子重建）：整体重填一遍，避免图标错位。"""
+        if not self.mApplied:
+            return
+        self.mFillTries = 0
+        if path and self.GetBaseUIControl(path):
+            self._FillGrid(path)
+        else:
+            self._FillGrid()

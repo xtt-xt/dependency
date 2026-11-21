@@ -352,6 +352,32 @@ inst.AddCollapsibleMenu(
 
 > 按钮文字为左对齐，实时显示当前选中项名称；未选择时显示"请选择"。**选中状态自动持久化**：选择/切换卡片/退出设置界面时随 `SaveGroupSettings`/`SaveAllSettings` 保存到本地存储，下次打开自动恢复；`ResetGroupSettings`/`ResetAllSettings` 会恢复为 `default_selected_id`。锁定状态（`locked` 参数或运行时 `SetLocked`）同样随 `::locked` 键持久化。
 
+#### AddItemPicker(item_id, desc, picker_id, litle="", on_select=None, default_item=None, default_aux=0, locked=False)
+
+添加物品选择内容项：左侧 `litle`（小标题）+ `desc`（描述文字），右侧显示当前选中物品的图标和一个**箭头按钮**（无文字，仅 `textures/ui/icon/arrow`）。点击箭头打开 `item_picker` 弹窗（8 列 × 4 行翻页网格 + 搜索框），先点选中、再点「确定」才生效。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| item_id | str | 是 | 内容项唯一标识符 |
+| desc | str | 是 | 描述文字 |
+| picker_id | str | 是 | 关联的物品选择弹窗 ID（须先 `RegisterItemPicker` 注册物品表） |
+| litle | str | 否 | 小标题（可选，空则隐藏） |
+| on_select | function | 否 | 选择回调，签名 `on_select(screenNode, item_id, item_name, item_aux)` |
+| default_item | str | 否 | 默认选中物品 identifier（如 `"minecraft:diamond"`） |
+| default_aux | int | 否 | 默认选中物品附加值（可选，默认 0） |
+| locked | bool | 否 | 初始锁定状态，`True` 时箭头按钮不可点击（可选，默认 `False`） |
+
+```python
+inst.AddItemPicker(
+    "target_item", "选择要放置的目标物品",
+    "my_item_picker", litle="目标物品",
+    default_item="minecraft:diamond",
+    on_select=lambda sn, item_id, name, aux: print "picked", name, aux
+)
+```
+
+> 选中值以 `"物品名|附加值"` 字符串持久化（附加值为 0 时只存物品名），随 `SaveGroupSettings` / `SaveAllSettings` 保存，`ResetGroupSettings` 恢复为 `default_item`。确认后内容项图标实时刷新，无需重建面板。
+
 #### Clear()
 
 清除当前分组的所有内容项。
@@ -750,6 +776,91 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 ```
 
 > 单选模式（`mode="single"`）：打开某一项会自动关闭其他项。弹窗开关的增删改实时持久化，无需手动保存。
+
+---
+
+## 物品选择弹窗（ItemPicker）API
+
+从一组**固定物品**中选一个：8 列 × 4 行（32 格/页）翻页网格、搜索框按 identifier/说明过滤、搜索框右侧 `<` 页码 `>` 翻页；点格子只选中高亮，点「确定」才写回；取消 / 右上角关闭 / ESC 都不生效。
+
+### RegisterItemPicker(picker_id, title, items=None, columns=8, page_size=40)
+
+注册物品选择数据集（同 id 覆盖旧数据）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| picker_id | str | 是 | 唯一标识符 |
+| title | str | 是 | 弹窗标题 |
+| items | list | 否 | 初始物品表，元素为 `(item_name, item_aux, desc)` 或 `(item_name, item_aux)` 或 `"item_name"` |
+| columns | int | 否 | 网格列数，默认 8；**JSON 格子固定按 8 列摆放，传其它值会错位** |
+| page_size | int | 否 | 仅为兼容保留，**当前不参与分页**（实际每页 = `columns` × 4 行） |
+
+### AddItemPickerItem(picker_id, item_name, item_aux=0, desc="")
+
+向已注册的数据集追加一个可选物品；`picker_id` 不存在时自动初始化（标题为空串，需再调 `RegisterItemPicker` 设标题）。`desc` 为空时显示 identifier。
+
+### UnregisterItemPicker(picker_id) / GetItemPicker(picker_id) / GetItemPickerItems(picker_id) / GetAllItemPickerIds()
+
+注销 / 读取数据集 / 读取物品表 / 列出全部 picker id。
+
+### OpenItemPicker(picker_id, item=None, on_select=None, title=None) / CloseItemPicker()
+
+- `OpenItemPicker`：打开弹窗（数据集须先注册）。`item` 传关联的 `ItemPickerContentItem` 时，确认后自动回写选中值、写持久化、刷新该行图标并调用 item 的 `on_select`；`on_select` 额外传一个 `on_select(item_name, item_aux, display_text)` 回调；`title` 可覆盖标题。
+- `CloseItemPicker()`：关闭弹窗（等同取消，不写回）。
+
+### 事件常量
+
+| 常量 | 值 | 说明 |
+|------|----|------|
+| `ItemPickerOpenEvent` | `Script_NeteaseMod9sPMlz0K_ItemPickerOpen` | 打开时广播，事件数据 `{"playerId": str, "pickerId": str}` |
+
+### 完整示例
+
+```python
+from CardRegistryApi import (
+    RegisterItemPicker, AddItemPickerItem, CreateContentInst,
+)
+
+# 1. 注册物品表
+RegisterItemPicker("my_item_picker", "选择物品", items=[
+    ("minecraft:diamond", 0, "钻石"),
+    ("minecraft:emerald", 0, "绿宝石"),
+])
+AddItemPickerItem("my_item_picker", "minecraft:paper", 0, "纸")
+
+# 2. 右侧内容项：图标 + 箭头按钮，点击打开
+CreateContentInst("basic_settings", "client", "opt_main")\
+    .AddItemPicker("target_item", "选择目标物品", "my_item_picker",
+                   litle="目标物品", default_item="minecraft:diamond")
+```
+
+> 选中值格式为 `"物品名|附加值"`（附加值为 0 时只存物品名，空串表示未选择），持久化由框架作为普通设置项处理。
+
+### 列出全部物品（原版 + 模组）
+
+枚举接口 `GetLoadItems(True)` **只有服务端**（返回所有已加载物品 identifier，含各模组自定义物品），要经自定义事件从服务端取；显示名用客户端的 `GetItemBasicInfo(name)["itemName"]`（本地化名字）。
+
+```python
+# 服务端：收到请求后回执（只发给请求者）
+def OnReqAllItems(self, args):
+    playerId = args.get("playerId")
+    comp = serverApi.GetEngineCompFactory().CreateItem(serverApi.GetLevelId())
+    ids = comp.GetLoadItems(True) or []
+    data = self.CreateEventData()
+    data["playerId"] = playerId
+    data["items"] = list(ids)
+    self.NotifyToClient(playerId, "Script_NeteaseMod9sPMlz0K_AllItems", data)
+
+# 客户端：收到后转成 (identifier, aux, 显示名) 重建数据集
+comp = clientApi.GetEngineCompFactory().CreateItem(clientApi.GetLevelId())
+entries = []
+for name in ids:
+    info = comp.GetItemBasicInfo(name) or {}
+    entries.append((name, 0, info.get("itemName") or name))
+RegisterItemPicker("my_item_picker", "选择物品", items=entries)
+```
+
+> 框架自带的「设置配置 → 显示 → 物品选择」演示即用此方式：`setting.py` 先注册空数据集占位，`Client.OnAllItems` 收到服务端下发后调用 `RefreshDemoItemPicker` 填入全部物品（含模组物品），搜索框按 identifier 或显示名过滤。
 
 ---
 

@@ -12,6 +12,7 @@ from CardRegistryApi import (
     CreateContentInst,
     RegisterCollapsibleMenu,
     RegisterPopUp,
+    RegisterItemPicker,
     ResetGroupSettings,
     GetSettingValue,
     SetSettingValue,
@@ -33,6 +34,27 @@ SWITCH_PAUSE_MENU = "register_pause_menu"  # 注册到暂停菜单
 # 加载速度滑块 id（档位 0~100，每 0.1 秒一级，即 0~10 秒）
 SLIDER_MIDDLE_DELAY = "middle_card_load_delay"  # 中间卡片加载速度
 SLIDER_RIGHT_DELAY = "right_content_load_delay" # 设置项加载速度
+
+# 物品选择演示（临时演示用，正式使用时换成自己的物品表；不需要可整段删掉）
+DEMO_PICKER_ID = "demo_item_picker"
+DEMO_ITEM_ID = "demo_item_pick"
+
+
+def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
+    """物品选择演示回调：把选中物品打到客户端日志。"""
+    dlog.client_print("==== demo item picked: %s aux=%s (item_id=%s) ====" % (
+        item_name, item_aux, item_id))
+
+
+def RefreshDemoItemPicker(entries):
+    """用「全部物品」重建演示数据集（Client 收到服务端下发后调用）。
+
+    :param entries: [(item_name, item_aux, display_name), ...]
+    """
+    if not entries:
+        return
+    RegisterItemPicker(DEMO_PICKER_ID, "选择物品", items=entries)
+    dlog.client_print("==== demo item picker refreshed: %d items ====" % len(entries))
 
 
 def _DelayValueFormat(level):
@@ -333,6 +355,11 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
     # 顶部介绍（测试文字，可自行填充）
     INTRO_TEXT = "这里可以设置设置的入口位置和部分其他内容，如果你把入口设置项全部关闭，你可以使用以下方法进入\n1.点击主菜单模组按钮-选中通用模组前置-打开设置按钮\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
 
+    # 物品选择弹窗演示：数据集不写死，运行时由服务端下发的「全部已加载物品」
+    # （原版 + 各模组自定义物品）填充，见 Client.OnAllItems -> RefreshDemoItemPicker。
+    # 这里先注册空数据集占位，数据到达前后弹窗都能正常打开。
+    RegisterItemPicker(DEMO_PICKER_ID, "选择物品", items=[])
+
     # 内容项顺序：介绍(顶) -> 三个开关 -> 重置按钮(底，使用框架内置 reset 控件)
     # 注意：AddSwitch 参数顺序为 (item_id, desc, default_value, locked, on_toggle, litle)，
     #       说明文字请放在 litle 小标题，不要放在 default_value 位置。
@@ -358,6 +385,9 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                    min_val=0, max_val=100, value=0, steps=100, litle="设置项加载速度",
                    on_value_change=_OnRightDelayChange, slider_type="steps",
                    value_formatter=_DelayValueFormat) \
+        .AddItemPicker(DEMO_ITEM_ID, "演示：点右侧箭头从列表中选择一个物品",
+                       DEMO_PICKER_ID, litle="物品选择",
+                       on_select=_OnDemoItemPicked) \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # ---------------------------------------------------------------

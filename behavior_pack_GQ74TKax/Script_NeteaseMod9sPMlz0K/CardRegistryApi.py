@@ -69,9 +69,17 @@ from CardRegistry import (
     GetCardToggle,
     GetCardToggleOptions,
     GetCardToggleOptionIds,
+    # 物品选择弹窗注册表
+    RegisterItemPicker,
+    AddItemPickerItem,
+    UnregisterItemPicker,
+    GetItemPicker,
+    GetItemPickerItems,
+    GetAllItemPickerIds,
     # 弹窗事件常量
     PopUpOpenEvent,
     PopUpCloseEvent,
+    ItemPickerOpenEvent,
     # 跳转标准事件常量 + 跳转拦截 API
     SettingsNavigateEvent,
     RegNavigateBlockCallback,
@@ -166,6 +174,30 @@ def CloseCardToggle():
     """关闭当前组合开关弹窗（若打开）。"""
     if _g_ClientSystem:
         _g_ClientSystem.CloseCardToggle()
+
+
+def OpenItemPicker(picker_id, item=None, on_select=None, title=None):
+    """
+    打开物品选择弹窗（从一组物品中选一个，点「确定」才生效）。
+    数据集须先用 RegisterItemPicker/AddItemPickerItem 注册。
+
+    :param picker_id: 物品选择数据集 ID
+    :param item:      关联的 ItemPickerContentItem（可选，确认后回写选中值并刷新该行图标）
+    :param on_select: 额外选择回调 on_select(item_name, item_aux, display_text)（可选）
+    :param title:     覆盖弹窗标题（可选）
+    :returns:         True 打开成功；False 未注册或 ClientSystem 未就绪
+    """
+    if _g_ClientSystem:
+        return bool(_g_ClientSystem.OpenItemPicker(picker_id, item=item,
+                                                   on_select=on_select, title=title))
+    dlog.client_print("==== CardRegistryApi.OpenItemPicker: ClientSystem not ready ====")
+    return False
+
+
+def CloseItemPicker():
+    """关闭当前物品选择弹窗（等同取消，不写回选中值）。"""
+    if _g_ClientSystem:
+        _g_ClientSystem.CloseItemPicker()
 
 
 def ShowPopUp(popup_id, force_scroll=None):
