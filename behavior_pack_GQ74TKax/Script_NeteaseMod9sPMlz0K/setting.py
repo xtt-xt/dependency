@@ -85,6 +85,19 @@ def _OnDisplaySwitchToggle(screenNode, item_id, state):
     """开关值改变时打印提示。实际生效由对应菜单代理在打开界面时读取开关值决定。"""
     dlog.client_print("==== display switch %s => %s ====" % (item_id, state))
 
+def _OnPickerArrowPageToggle(screenNode, item_id, state):
+    """「左右方向键翻页」开关：关闭时把下面的「翻页需按住 Shift」一并锁定。"""
+    locked = not bool(state)
+    dlog.client_print("==== picker arrow page => %s, shift switch locked=%s ====" % (state, locked))
+    if screenNode and hasattr(screenNode, "SetLocked"):
+        screenNode.SetLocked(SWITCH_PICKER_ARROW_SHIFT, locked)
+
+def _OnPickerArrowShiftToggle(screenNode, item_id, state):
+    """「翻页需按住 Shift」开关：改完在底部提示需重新进入物品选择弹窗才生效。"""
+    dlog.client_print("==== picker arrow shift => %s ====" % state)
+    from CardRegistryApi import ShowToast, ToastUnder
+    ShowToast(ToastUnder, "「翻页需按住 Shift」改动将在重新进入物品选择弹窗后生效")
+
 
 def _OnSaveSyncToggle(screenNode, item_id, state):
     """开关1：本存档配置同步（权威值在存档内，交给 SyncControl 处理）。"""
@@ -149,6 +162,8 @@ SERVER_RESET_ID = "reset_server_debug"  # 服务端调试页"重置本页"按钮
 # "显示"分类下的缓入/缓出动画开关项 id
 SWITCH_FADE_ANIM = "enable_fade_anim"  # 设置项与中间卡片的缓入/缓出动画
 SWITCH_ENTER_ANIM = "enable_enter_anim"  # 中间/右边面板的滑入进入动画
+SWITCH_PICKER_ARROW_PAGE = "picker_arrow_page"    # 物品选择弹窗左右方向键翻页（默认开）
+SWITCH_PICKER_ARROW_SHIFT = "picker_arrow_shift"  # 翻页需按住 Shift（默认关）
 SWITCH_SAVE_SYNC = "save_config_sync"      # 本存档配置同步（每个存档独立）
 SWITCH_NEW_SAVE_USE_CROSS = "new_save_use_cross"  # 新存档套用跨存档配置（跨存档保存）
 
@@ -373,6 +388,12 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_ENTER_ANIM, "开启切换子卡片时中间/右边面板的滑入进入动画，默认true\n关闭需重启设置界面生效",
                    default_value=True, on_toggle=_OnEnterAnimToggle,
                    litle="面板滑入动画") \
+        .AddSwitch(SWITCH_PICKER_ARROW_PAGE, "开启后，物品选择弹窗里按键盘←/→可切换页码，默认true\n搜索框里有文字时不翻页（此时方向键用于移动光标）",
+                   default_value=True, on_toggle=_OnPickerArrowPageToggle,
+                   litle="左右方向键翻页") \
+        .AddSwitch(SWITCH_PICKER_ARROW_SHIFT, "开启后必须按住 Shift 再按←/→才切换页码，默认false\n适合习惯用方向键在搜索框里移动光标的情况",
+                   default_value=False, on_toggle=_OnPickerArrowShiftToggle,
+                   litle="翻页需按住 Shift") \
         .AddSlider(SLIDER_MIDDLE_DELAY, "中间卡片每多少秒加载一张（0为每帧加载一张），默认0\n调整后立即生效",
                    min_val=0, max_val=100, value=0, steps=100, litle="中间卡片加载速度",
                    on_value_change=_OnMiddleDelayChange, slider_type="steps",

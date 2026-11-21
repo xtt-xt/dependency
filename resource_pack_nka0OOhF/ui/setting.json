@@ -1077,7 +1077,7 @@
             {
                 "open_button@setting.item_picker_button": {
                     "offset": [
-                        "39.5%+0px",
+                        "38.5%+0px",
                         0
                     ],
                     "size": [
@@ -1268,7 +1268,7 @@
             0
         ],
         "$pressed_button_name": "%netease_editor_template_namespace.click",
-        "$pressed_texture": "textures/ui/beacon_button_pressed",
+        "$pressed_texture": "textures/ui/slot_disabled_hover",
         "$texture_layer": 2,
         "size": [
             "12.5%+0px",
@@ -1312,12 +1312,12 @@
                     "anchor_from": "center",
                     "anchor_to": "center",
                     "size": [
-                        "60%+0px",
-                        "60%+0px"
+                        "100%+4px",
+                        "100%+4px"
                     ],
-                    "layer": 6,
+                    "layer": 4,
                     "visible": false,
-                    "texture": "textures/ui/icon/tick"
+                    "texture": "textures/ui/pocket_ui_highlight_slot"
                 }
             }
         ]

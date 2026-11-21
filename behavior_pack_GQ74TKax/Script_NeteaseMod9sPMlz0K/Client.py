@@ -76,6 +76,7 @@ class MyClientSystem(ClientSystem):
         self.mCurrentToggleId = ""         # 当前组合开关 toggle_id
         self.mItemPickerOpen = False       # 物品选择弹窗是否在场景栈中
         self.mItemPickerScreenNode = None  # 物品选择 ScreenNode 引用
+        self.mShiftHeld = False            # 左/右 Shift 是否按住（供「翻页需按住 Shift」判断）
         self.mCurrentItemPicker = None     # 当前物品选择数据集 {"title","items","columns","page_size"}
         self.mCurrentItemPickerId = ""     # 当前物品选择 picker_id
         self.mCurrentItemPickerRow = None  # 触发打开的 ItemPickerContentItem（确认后回写选中值）
@@ -200,6 +201,8 @@ class MyClientSystem(ClientSystem):
             self.mExternalScreenDepth = max(0, self.mExternalScreenDepth - 1)
         if screenDef == 'setting.main':
             self.mSettingsUIOpen = False
+            # 设置界面已关闭：清掉"弹窗返回"标记，防止残留到下次打开（下次 OnActive 会重建）
+            self.mReturningFromPopUp = False
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
             try:
                 from SettingState import SaveAllSettings
@@ -221,7 +224,8 @@ class MyClientSystem(ClientSystem):
         elif screenDef in ('pop_up.main', 'pop_up.main_scroll'):
             self.mPopUpOpen = False
             self.mCurrentPopUp = None
-            self.mReturningFromPopUp = False
+            # 不清 mReturningFromPopUp：保留给设置界面 OnActive 消费，避免退出弹窗后重建导致右侧面板回到顶部
+            self._RestoreScrollAfterPopUp()
             # 跨存档同步：弹窗被直接关闭（没点按钮）时回滚开关1
             try:
                 import SyncControl as SC
@@ -236,19 +240,19 @@ class MyClientSystem(ClientSystem):
             self.mCollapsibleMenuOpen = False
             self.mCurrentCollapsibleMenu = None
             self.mCurrentCollapsibleItem = None
-            self.mReturningFromPopUp = False
+            self._RestoreScrollAfterPopUp()
         elif screenDef == 'pop_up.card_toggle_panel':
             self.mCardToggleOpen = False
             self.mCurrentCardToggle = None
             self.mCurrentToggleId = ""
-            self.mReturningFromPopUp = False
+            self._RestoreScrollAfterPopUp()
         elif screenDef == 'pop_up.item_picker':
             self.mItemPickerOpen = False
             self.mCurrentItemPicker = None
             self.mCurrentItemPickerId = ""
             self.mCurrentItemPickerRow = None
             self.mItemPickerOnSelect = None
-            self.mReturningFromPopUp = False
+            self._RestoreScrollAfterPopUp()
 
     def OnKeyPressInGame(self, args):
         keyValue = int(args.get('key', 0))
@@ -273,6 +277,47 @@ class MyClientSystem(ClientSystem):
                 clientApi.PopScreen()
                 # 立即置 False 防重复 Pop（PopScreenEvent 异步到达）
                 self.mSettingsUIOpen = False
+        elif keyValue in (16, 42):
+            # Shift（KeyBoardType.KEY_LSHIFT = 16；42 为键盘原始码兜底）：只记录按住状态
+            self.mShiftHeld = bool(isDown)
+        # 物品选择弹窗：左右方向键翻页（KeyBoardType.KEY_LEFT = 37 / KEY_RIGHT = 39）
+        elif isDown and keyValue in (37, 39) and self.mItemPickerOpen:
+            picker = self.mItemPickerScreenNode
+            if picker and getattr(picker, "mApplied", False) and self._CanPickerArrowPage():
+                if keyValue == 37:
+                    picker._OnPagePrev()
+                else:
+                    picker._OnPageNext()
+                dlog.client_print("==== ItemPicker: arrow key %s -> page %d/%d ====" % (
+                    "left" if keyValue == 37 else "right", picker.mPage + 1, picker.mPageCount))
+
+    def _CanPickerArrowPage(self):
+        """物品选择弹窗方向键翻页是否放行：搜索框无文字 + 总开关开 +（如需）按住 Shift。"""
+        picker = self.mItemPickerScreenNode
+        if not picker or not getattr(picker, "mApplied", False):
+            return False
+        # 1. 搜索框有文字就不翻页：这时方向键是用来移动输入光标的
+        text = getattr(picker, "mSearchText", "") or ""
+        try:
+            searchCtrl = picker.GetBaseUIControl(picker.PATH_SEARCH_INPUT)
+            teb = searchCtrl.asTextEditBox() if searchCtrl else None
+            if teb:
+                text = teb.GetEditText() or ""
+        except Exception:
+            pass
+        if text.strip():
+            dlog.client_print("==== picker arrow page skipped: search text present ====")
+            return False
+        # 2. 「显示」分类的两个开关：打开弹窗时快照过一次，改了要重新进来才生效
+        enabled = bool(getattr(picker, "mArrowPageEnabled", True))
+        if not enabled:
+            dlog.client_print("==== picker arrow page skipped: switch off ====")
+            return False
+        needShift = bool(getattr(picker, "mArrowShiftRequired", False))
+        if needShift and not self.mShiftHeld:
+            dlog.client_print("==== picker arrow page skipped: shift required ====")
+            return False
+        return True
 
     def OnCustomKeyPressed(self, args):
         """
@@ -639,6 +684,28 @@ class MyClientSystem(ClientSystem):
         self.mPendingNavigation = (main_card_id, sub_key, middle_card_id)
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'SettingsUI')
 
+    def _CaptureRightScroll(self):
+        """弹窗压栈前：记录设置界面右侧面板的滚动位置，弹窗关闭返回后恢复。"""
+        node = self.mSettingsScreenNode
+        if not node:
+            return
+        try:
+            if hasattr(node, "SaveRightScrollPos"):
+                node.SaveRightScrollPos()
+        except Exception as e:
+            dlog.client_print("==== capture right scroll error: %s ====" % str(e))
+
+    def _RestoreScrollAfterPopUp(self):
+        """弹窗出栈后：把右侧面板滚动位置恢复到弹窗打开前（引擎重新激活界面时会归零）。"""
+        node = self.mSettingsScreenNode
+        if not node:
+            return
+        try:
+            if hasattr(node, "RestoreRightScrollPos"):
+                node.RestoreRightScrollPos()
+        except Exception as e:
+            dlog.client_print("==== restore right scroll error: %s ====" % str(e))
+
     def ShowPopUp(self, popup_id, force_scroll=None):
         """
         打开指定 ID 的弹窗（须先 RegisterPopUp 注册）。
@@ -666,6 +733,7 @@ class MyClientSystem(ClientSystem):
         useScroll = self._DecideScroll(data, force_scroll)
         # 弹窗即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
+        self._CaptureRightScroll()
         if useScroll:
             clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'PopUpScrollUI')
         else:
@@ -731,6 +799,7 @@ class MyClientSystem(ClientSystem):
             return True
         # 折叠菜单即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
+        self._CaptureRightScroll()
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'CollapsibleMenuUI')
         self.mCollapsibleMenuOpen = True
         return True
@@ -766,6 +835,7 @@ class MyClientSystem(ClientSystem):
             return True
         # 组合开关即将压栈：设置界面将失去栈顶，标记"弹窗会话"
         self.mReturningFromPopUp = True
+        self._CaptureRightScroll()
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'CardToggleUI')
         self.mCardToggleOpen = True
         return True
@@ -820,6 +890,8 @@ class MyClientSystem(ClientSystem):
             return True
         # 即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
+        self._CaptureRightScroll()
+        self.mShiftHeld = False  # 新弹窗会话从「未按 Shift」开始
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'ItemPickerUI')
         self.mItemPickerOpen = True
         eventData = self.CreateEventData()
@@ -1256,6 +1328,7 @@ class SettingsScreenNode(ScreenNode):
         self.mRightHasAnimation = False
         self.mRightScrollContent = None
         self.mRightScrollContentPath = None
+        self.mSavedRightScrollPos = None  # 弹窗压栈前记录的右侧面板滚动位置（返回后恢复）
         self.mRightContentCtrls = []  # 右侧内容控件列表
         self.mRightBtnCtrlMap = {}    # itemId -> 右侧按钮控件
         self.mRightLockCtrlMap = {}   # itemId -> 右侧按钮的 lock 控件
@@ -1660,6 +1733,8 @@ class SettingsScreenNode(ScreenNode):
         if _g_ClientSystem and _g_ClientSystem.mReturningFromPopUp:
             _g_ClientSystem.mReturningFromPopUp = False
             dlog.client_print("==== OnActive: returning from popup, keep detail ====")
+            # 引擎重新激活界面会把右侧面板滚动归零，这里恢复到弹窗打开前的位置
+            self.RestoreRightScrollPos()
             # 确认"关闭面板滑入动画"后：立即关闭设置界面（下次打开生效）
             if _g_ClientSystem.mPendingCloseSettings:
                 _g_ClientSystem.mPendingCloseSettings = False
@@ -1786,6 +1861,64 @@ class SettingsScreenNode(ScreenNode):
         dlog.client_print("==== common right scroll_content paths failed, exploring mods tree ====")
         self.DumpChildren(modsPath, 0, 10)
         return None
+
+    def GetRightScrollView(self):
+        """取右侧面板的滚动视图控件（由 scrolling_content 路径反推 scroll_view 路径）。"""
+        path = self.mRightScrollContentPath
+        if not path:
+            return None
+        idx = path.rfind("/scroll_view/")
+        if idx < 0:
+            return None
+        try:
+            ctrl = self.GetBaseUIControl(path[:idx + len("/scroll_view")])
+            if not ctrl:
+                return None
+            return ctrl.asScrollView()
+        except Exception as e:
+            dlog.client_print("==== GetRightScrollView error: %s ====" % str(e))
+            return None
+
+    def SaveRightScrollPos(self):
+        """弹窗压栈前记录右侧面板滚动位置。"""
+        self.mSavedRightScrollPos = None
+        try:
+            scrollView = self.GetRightScrollView()
+            if not scrollView:
+                dlog.client_print("==== SaveRightScrollPos: scroll view not found ====")
+                return
+            self.mSavedRightScrollPos = scrollView.GetScrollViewPos()
+            dlog.client_print("==== right scroll pos saved: %s ====" % str(self.mSavedRightScrollPos))
+        except Exception as e:
+            dlog.client_print("==== SaveRightScrollPos error: %s ====" % str(e))
+
+    def _ApplyRightScrollPos(self, pos):
+        """把右侧面板滚动到指定位置。"""
+        try:
+            scrollView = self.GetRightScrollView()
+            if not scrollView:
+                return
+            scrollView.SetScrollViewPos(float(pos))
+        except Exception as e:
+            dlog.client_print("==== ApplyRightScrollPos error: %s ====" % str(e))
+
+    def RestoreRightScrollPos(self):
+        """弹窗返回后恢复右侧面板滚动位置。
+
+        引擎在界面重新激活时会把 scroll_view 位置归零，故先立即校正一次，
+        再延迟 0.1s 校正一次（覆盖重新布局后再次被重置的情况）。
+        """
+        pos = self.mSavedRightScrollPos
+        if pos is None:
+            return
+        self.mSavedRightScrollPos = None
+        self._ApplyRightScrollPos(pos)
+        try:
+            gameComp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+            gameComp.AddTimer(0.1, lambda: self._ApplyRightScrollPos(pos))
+        except Exception as e:
+            dlog.client_print("==== RestoreRightScrollPos timer error: %s ====" % str(e))
+        dlog.client_print("==== right scroll pos restored: %s ====" % str(pos))
 
     def DumpChildren(self, path, depth=0, maxDepth=8):
         if depth > maxDepth:
@@ -5443,6 +5576,8 @@ class ItemPickerScreenNode(ScreenNode):
         self.mSearchText = ""      # 上一次读到的搜索框文本
         self.mSelectedName = ""    # 当前选中物品 identifier
         self.mSelectedAux = 0
+        self.mArrowPageEnabled = True     # 「左右方向键翻页」开关快照（打开弹窗时读取）
+        self.mArrowShiftRequired = False  # 「翻页需按住 Shift」开关快照（打开弹窗时读取）
         self.mApplied = False
         self.mCells = {}           # 线性索引 -> 格子控件
         self.mFillTries = 0        # 补填次数（grid 的格子是渲染期按需创建的，开界面后持续补几次）
@@ -5548,11 +5683,35 @@ class ItemPickerScreenNode(ScreenNode):
                 nextBtn.SetButtonTouchUpCallback(lambda args: self._OnPageNext())
             self.mButtonsBound = True
         self.mFillTries = 0
+        self._CacheArrowSettings()
         self._Refilter()
         self._RefreshFooter()
         self.mApplied = True
         dlog.client_print("==== ItemPicker applied: picker=%s items=%d columns=%d selected=%s ====" % (
             self.mPickerId, len(self.mAllItems), self.mColumns, self.mSelectedName))
+
+    def _CacheArrowSettings(self):
+        """读取「显示」分类里方向键翻页的两个开关（打开弹窗时快照，改动需重新进入生效）。"""
+        page_enabled = True
+        shift_required = False
+        try:
+            from setting import (DISPLAY_CATEGORY_ID, SWITCH_PICKER_ARROW_PAGE,
+                                 SWITCH_PICKER_ARROW_SHIFT)
+        except ImportError:
+            DISPLAY_CATEGORY_ID = "display"
+            SWITCH_PICKER_ARROW_PAGE = "picker_arrow_page"
+            SWITCH_PICKER_ARROW_SHIFT = "picker_arrow_shift"
+        try:
+            page_enabled = bool(GetSettingValue("settings_config", "client", DISPLAY_CATEGORY_ID,
+                                                SWITCH_PICKER_ARROW_PAGE, default=True))
+            shift_required = bool(GetSettingValue("settings_config", "client", DISPLAY_CATEGORY_ID,
+                                                 SWITCH_PICKER_ARROW_SHIFT, default=False))
+        except Exception as e:
+            dlog.client_print("==== ItemPicker: read arrow settings error: %s ====" % str(e))
+        self.mArrowPageEnabled = page_enabled
+        self.mArrowShiftRequired = shift_required
+        dlog.client_print("==== ItemPicker: arrow page enabled=%s shift_required=%s ====" % (
+            page_enabled, shift_required))
 
     def _Refilter(self):
         """按搜索关键字过滤，切出当前页的数据并重建网格。"""

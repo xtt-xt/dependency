@@ -605,6 +605,7 @@
                                                                                 "layer": 1,
                                                                                 "color": [1, 1, 1],
                                                                                 "font_size": "small",
+                                                                                "font_scale_factor": 2.0,
                                                                                 "font_type": "default",
                                                                                 "text": "1/1",
                                                                                 "text_alignment": "center"
@@ -810,13 +811,14 @@
                                                 {
                                                     "selected_name": {
                                                         "type": "label",
+                                                        "font_size": "small",
+                                                        "font_scale_factor": 2.0,
+                                                        "font_type": "default",
                                                         "anchor_from": "left_middle",
                                                         "anchor_to": "left_middle",
                                                         "offset": ["30px", 0],
                                                         "size": ["40%+0px", "default"],
                                                         "layer": 1,
-                                                        "font_size": "small",
-                                                        "font_type": "default",
                                                         "text": "未选择",
                                                         "text_alignment": "left"
                                                     }
