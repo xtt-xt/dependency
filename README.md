@@ -76,11 +76,6 @@
 | [API_服务端.md](API_服务端.md) | `/setting_open` 自定义指令参数与使用示例 |
 | [API_事件.md](API_事件.md) | 设置界面开关、弹窗、指令等事件常量与监听示例 |
 
-## 开发说明
-
-- 模组脚本为 **Python 2.7**（网易 Mod SDK），禁止 Python 3 语法。
-- 本机无法直接运行脚本，验证方式 = 启动测试世界（`.mcdev.json` 已开启模组/UI 自动热重载），调试输出在客户端控制台。
-- 模组命名空间：`Script_NeteaseMod9sPMlz0K`（用于 `modMain.py` 绑定、`RegisterSystem` 名称及所有自定义事件名前缀）。
 
 ## 开源协议
 本项目采用 [GNU Lesser General Public License v3.0](LICENSE) 协议开源，该协议并入的 GPLv3 全文见 [COPYING](COPYING)。
