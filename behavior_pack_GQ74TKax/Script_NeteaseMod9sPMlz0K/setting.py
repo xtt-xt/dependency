@@ -181,7 +181,7 @@ INFO_POPUP_CONTENT = ("本模组是开源模组\n"
                       "开源链接https://github.com/xtt-xt/dependency\n"
                       "开源协议参见仓库内LICENSE文件\n"
                       "本模组前置仅为其他模组提供基础功能，不包含任何游戏内容。\n"
-                      "版本：0.0.1  作者：星天xt")
+                      "版本：0.0.2  作者：星天xt")
 
 # 日志导出（复制）相关项 id
 CLIENT_COPY_COUNT = "copy_client_count"  # 客户端导出数量（折叠菜单）
