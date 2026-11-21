@@ -1228,8 +1228,10 @@ UnregNavigateBlockCallback(OnNavigateShouldBlock)
 
 本模组在 `OnUIInitFinished` 时通过网易官方**通用设置接口**（`CreateNeteaseWindow` + `RegisterSettingInst` + `AddButton`）向官方设置界面注册了一个"打开设置"按钮。
 
-- 入口位置：暂停菜单 → 模组 → 本模组（显示名"模组设置"）
+- 入口位置：暂停菜单 →「模组设置」→ 通用设置页中选中本模组（显示名"模组设置"）→ 点「打开设置」
 - 点击后：`CloseSettingUI()` 关闭官方设置界面 → 延迟 0.15s → `OpenSettings()` 打开本模组的 `setting.main`
+
+> **合规说明**：旧版曾用资源包 `pause_screen.json` 向原生暂停界面注入一个按钮（`PauseScreenProxy` 代理 + 「设置配置 > 显示 > 注册到暂停菜单」开关）。平台自 2026-12-01 起对开发者修改原生 `pause_screen` / `settings_screen` 进行机审拦截，因此该注入文件、代理类与对应开关均已移除，模组入口统一走上面的官方通用设置接口。
 
 > 注意：`RegisterSettingInst` 第一个参数当前为模组命名空间 `Script_NeteaseMod9sPMlz0K`（开发环境预览用），正式上线需替换为开平平台上传模组后的 **ItemID**。
 

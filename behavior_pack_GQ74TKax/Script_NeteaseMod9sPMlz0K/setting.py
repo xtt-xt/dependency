@@ -27,10 +27,9 @@ from DebugLog import dlog
 # 主卡片唯一标识（全局唯一，不可重复）
 _MAIN_CARD_ID = "settings_config"
 
-# "显示"分类下的开关项 id（供 PauseScreenProxy / FoldMenuProxy 读取）
+# "显示"分类下的开关项 id（供 FoldMenuProxy 读取）
 DISPLAY_CATEGORY_ID = "display"
 SWITCH_FOLD_MENU = "register_fold_menu"    # 注册到折叠菜单
-SWITCH_PAUSE_MENU = "register_pause_menu"  # 注册到暂停菜单
 # 加载速度滑块 id（档位 0~100，每 0.1 秒一级，即 0~10 秒）
 SLIDER_MIDDLE_DELAY = "middle_card_load_delay"  # 中间卡片加载速度
 SLIDER_RIGHT_DELAY = "right_content_load_delay" # 设置项加载速度
@@ -353,7 +352,7 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                        icon="textures/ui/icon_alex")
 
     # 顶部介绍（测试文字，可自行填充）
-    INTRO_TEXT = "这里可以设置设置的入口位置和部分其他内容，如果你把入口设置项全部关闭，你可以使用以下方法进入\n1.点击主菜单模组按钮-选中通用模组前置-打开设置按钮\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
+    INTRO_TEXT = "这里可以设置设置的入口位置和部分其他内容。如果你把入口设置项全部关闭，你可以使用以下方法进入\n1.暂停菜单点官方「模组设置」-选中通用模组前置-点「打开设置」\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
 
     # 物品选择弹窗演示：数据集不写死，运行时由服务端下发的「全部已加载物品」
     # （原版 + 各模组自定义物品）填充，见 Client.OnAllItems -> RefreshDemoItemPicker。
@@ -368,9 +367,6 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         .AddSwitch(SWITCH_FOLD_MENU, "注册到界面上方的折叠菜单，默认true",
                     default_value=True, on_toggle=_OnDisplaySwitchToggle,
                     litle="注册到折叠菜单") \
-        .AddSwitch(SWITCH_PAUSE_MENU, "注册到暂停界面，默认true",
-                    default_value=True, on_toggle=_OnDisplaySwitchToggle,
-                    litle="注册到暂停菜单") \
         .AddSwitch(SWITCH_FADE_ANIM, "开启设置项与中间卡片的缓入/缓出动画，默认true",
                    default_value=True, on_toggle=_OnOptimizeSwitchToggle,
                    litle="缓入/缓出动画") \

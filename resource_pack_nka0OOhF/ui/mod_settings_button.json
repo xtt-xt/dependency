@@ -105,26 +105,5 @@
             "100%"
         ]
     },
-    "mod_settings_button@common_buttons.light_text_button": {
-        "$button_text": "模组设置",
-        "button_mappings": [
-            {
-                "from_button_id": "button.menu_select",
-                "to_button_id": "button.menu_ok",
-                "mapping_type": "pressed"
-            }
-        ],
-        "size": [
-            "100%",
-            28
-        ]
-    },
-    "mod_settings_spacer": {
-        "type": "panel",
-        "size": [
-            "100%",
-            2
-        ]
-    },
     "namespace": "Script_NeteaseMod9sPMlz0K"
 }

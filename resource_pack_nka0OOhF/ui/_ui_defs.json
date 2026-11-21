@@ -3,7 +3,6 @@
         "ui/mod_settings_button.json",
         "ui/pop_up.json",
         "ui/setting.json",
-        "ui/toast.json",
-        "ui/pause_screen.json"
+        "ui/toast.json"
     ]
 }

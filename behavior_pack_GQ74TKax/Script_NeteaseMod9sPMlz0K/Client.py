@@ -172,10 +172,6 @@ class MyClientSystem(ClientSystem):
         self.ListenForEvent("Script_NeteaseMod9sPMlz0K", "server", _SYNC_STORE,
                             self, _OnSyncStoreEvent)
         NativeScreenManager.instance().RegisterScreenProxy(
-            'pause.pause_screen',
-            'Script_NeteaseMod9sPMlz0K.Client.PauseScreenProxy'
-        )
-        NativeScreenManager.instance().RegisterScreenProxy(
             'fold_menu.fold_menu_dialog_screen',
             'Script_NeteaseMod9sPMlz0K.Client.FoldMenuProxy'
         )
@@ -4710,92 +4706,6 @@ RegisterContentBuilder("item_picker", BuildItemPickerContent)
 
 # 设置值变更时同步刷新已打开 UI
 SetSettingChangedCallback(_ApplySettingToOpenUI)
-
-
-class PauseScreenProxy(CustomUIScreenProxy):
-
-    def __init__(self, screenName, screenNode):
-        CustomUIScreenProxy.__init__(self, screenName, screenNode)
-
-    def OnCreate(self):
-        dlog.client_print("==== PauseScreenProxy OnCreate ====")
-        basePath = "/variables_button_mappings_and_controls/safezone_screen_matrix/inner_matrix/safezone_screen_panel/root_screen_panel"
-        btnPath = (
-            basePath +
-            "/pause_screen_main_panels/menu/the_rest_panel/pause_menu/"
-            "menu_button_control/menu_background/button_panel/my_mod_settings_button"
-        )
-        # 开关：未启用"注册到暂停菜单"则不注入设置入口
-        if not GetSettingValue("settings_config", "client", "display",
-                               "register_pause_menu", True):
-            # 按钮由资源包 JSON 静态注入，仅跳过代理仍会显示，需主动隐藏
-            try:
-                screen = self.GetScreenNode()
-                btnControl = screen.GetBaseUIControl(btnPath)
-                if btnControl:
-                    btnControl.SetVisible(False)
-                    dlog.client_print("==== pause menu entry disabled, button hidden ====")
-                else:
-                    dlog.client_print("==== pause menu entry disabled, button not found ====")
-            except Exception as e:
-                dlog.client_print("==== pause menu hide error: %s ====" % str(e))
-            return
-        screen = self.GetScreenNode()
-        btnControl = screen.GetBaseUIControl(btnPath)
-        if btnControl:
-            # 恢复可见性：关闭注册时曾 SetVisible(False)，可能跨会话保留，
-            # 重新开启时必须重新显示，否则按钮一直隐藏直到重启才恢复。
-            btnControl.SetVisible(True)
-            screen.AddTouchEventHandler(btnPath, self.OnSettingsClick, None)
-            dlog.client_print("==== settings button touch handler bound ====")
-            return
-
-        dlog.client_print("==== my_mod_settings_button not found, try dynamic create ====")
-        panelPath = (
-            basePath +
-            "/pause_screen_main_panels/menu/the_rest_panel/pause_menu/"
-            "menu_button_control/menu_background/button_panel"
-        )
-        panelControl = screen.GetBaseUIControl(panelPath)
-        if not panelControl:
-            dlog.client_print("==== button_panel not found, dump paths ====")
-            paths = screen.GetAllChildrenPath(basePath)
-            dlog.client_print("==== root %s count %d ====" % (basePath, len(paths)))
-            for p in paths[:30]:
-                dlog.client_print(p)
-            return
-
-        screen.CreateChildControl(
-            'Script_NeteaseMod9sPMlz0K.mod_settings_spacer',
-            'my_mod_settings_spacer',
-            panelControl,
-            True
-        )
-
-        btnControl = screen.CreateChildControl(
-            'Script_NeteaseMod9sPMlz0K.mod_settings_button',
-            'my_mod_settings_button',
-            panelControl,
-            True
-        )
-        if not btnControl:
-            dlog.client_print("==== CreateChildControl failed ====")
-            return
-
-        screen.AddTouchEventHandler(btnPath, self.OnSettingsClick, None)
-        dlog.client_print("==== settings button dynamically added ====")
-
-    def OnSettingsClick(self, args):
-        # 只响应松手事件（TouchUp）
-        touchEvent = clientApi.GetMinecraftEnum().TouchEvent
-        eventType = args.get('TouchEvent')
-        dlog.client_print("==== Pause OnSettingsClick: TouchEvent=%s ====" % str(eventType))
-        if eventType != touchEvent.TouchUp:
-            return
-        dlog.client_print("==== My Mod Settings clicked (TouchUp) ====")
-        if _g_ClientSystem:
-            # 复用 OpenSettings：内部有 mSettingsUIOpen/ScreenNode 双重保护，避免重复 PushScreen
-            _g_ClientSystem.OpenSettings()
 
 
 class FoldMenuProxy(CustomUIScreenProxy):
