@@ -11,9 +11,11 @@
 | `SettingsUICloseEvent` | `Script_NeteaseMod9sPMlz0K_SettingsUIClose` | 客户端 | 玩家关闭设置界面 | `{"playerId": str}` |
 | `PopUpOpenEvent` | `Script_NeteaseMod9sPMlz0K_PopUpOpen` | 客户端 | 弹窗压栈打开时 | `{"playerId": str, "popupId": str, "useScroll": bool}` |
 | `PopUpCloseEvent` | `Script_NeteaseMod9sPMlz0K_PopUpClose` | 客户端 | 弹窗出栈关闭时 | `{"playerId": str}` |
+| `ItemPickerOpenEvent` | `Script_NeteaseMod9sPMlz0K_ItemPickerOpen` | 客户端 | 物品选择弹窗打开时 | `{"playerId": str, "pickerId": str}` |
+| `SettingsNavigateEvent` | `Script_NeteaseMod9sPMlz0K_SettingsNavigate` | 客户端 | 设置界面跳转前 | `{"playerId": str, "main_card_id": str, "sub_key": str, "middle_card_id": str}` |
 | `SettingsOpenFromCommandEvent` | `Script_NeteaseMod9sPMlz0K_OpenSettingsFromCommand` | 服务端→客户端 | `/setting_open` 指令触发 | `{"main_card_id": str, "middle_card_id": str, "sub_key": str}` |
 
-> 客户端事件常量均可从 `CardRegistryApi` 导入：`SettingsUIOpenEvent`、`SettingsUICloseEvent`、`PopUpOpenEvent`、`PopUpCloseEvent`。
+> 客户端事件常量均可从 `CardRegistryApi` 导入：`SettingsUIOpenEvent`、`SettingsUICloseEvent`、`PopUpOpenEvent`、`PopUpCloseEvent`、`ItemPickerOpenEvent`、`SettingsNavigateEvent`。
 > `SettingsOpenFromCommandEvent` 定义在 `Server.py`，默认不对外导出；客户端监听时直接使用事件名字符串即可。
 
 ## 监听说明
@@ -72,6 +74,39 @@ class MyExternalSystem(ClientSystem):
 
     def OnPopUpClose(self, args):
         print "==== popup closed for %s ====" % args.get("playerId", "")
+```
+
+## 物品选择弹窗事件
+
+```python
+from CardRegistryApi import ItemPickerOpenEvent
+
+    self.ListenForEvent(
+        "Script_NeteaseMod9sPMlz0K", "client",
+        ItemPickerOpenEvent, self, self.OnItemPickerOpen
+    )
+
+def OnItemPickerOpen(self, args):
+    # args = {"playerId": str, "pickerId": str}
+    print "==== item picker opened: %s ====" % args.get("pickerId", "")
+```
+
+## 设置跳转事件
+
+设置界面发生跳转（`OpenSettings` 导航或 `/setting_open` 指令）前广播。需在跳转时做额外处理可监听；要**拦截**跳转请用 `RegNavigateBlockCallback`（见 [API_客户端.md](API_客户端.md#导航-api)）。
+
+```python
+from CardRegistryApi import SettingsNavigateEvent
+
+    self.ListenForEvent(
+        "Script_NeteaseMod9sPMlz0K", "client",
+        SettingsNavigateEvent, self, self.OnSettingsNavigate
+    )
+
+def OnSettingsNavigate(self, args):
+    # args = {"playerId": str, "main_card_id": str, "sub_key": str, "middle_card_id": str}
+    print "==== navigate: main=%s sub=%s middle=%s ====" % (
+        args.get("main_card_id", ""), args.get("sub_key", ""), args.get("middle_card_id", ""))
 ```
 
 ## 指令打开设置事件（服务端 → 客户端）
