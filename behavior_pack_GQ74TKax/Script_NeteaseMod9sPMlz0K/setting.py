@@ -38,6 +38,16 @@ SLIDER_RIGHT_DELAY = "right_content_load_delay" # 设置项加载速度
 DEMO_PICKER_ID = "demo_item_picker"
 DEMO_ITEM_ID = "demo_item_pick"
 
+# "开发者选项"分类（客户端中间卡片）：测试卡片 / 测试弹窗 / 演示内容统一放这里。
+# 发布正式版时，把 RegisterSettingsConfig 里带「开发者选项」横幅的那整块注释掉即可。
+DEV_CATEGORY_ID = "dev_options"
+DEV_NOTICE_ID = "dev_notice"           # 顶部开发版本提示（琥珀色文字内容项）
+DEV_NOTICE_TITLE = "【开发版本】"
+DEV_NOTICE_TEXT = ("你正在使用「通用模组前置」的开发版本。\n"
+                   "本版本可能不稳定，其中包含尚未确定的功能与内容，随时可能改动或移除。\n"
+                   "请不要以本版本作为开发基准，正式接入请以发布版本为准。")
+DEV_NOTICE_COLOR = (1.0, 0.76, 0.35)   # 提示文字颜色（琥珀），AddText 的 color 参数
+
 
 def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
     """物品选择演示回调：把选中物品打到客户端日志。"""
@@ -369,12 +379,7 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
     # 顶部介绍（测试文字，可自行填充）
     INTRO_TEXT = "这里可以设置设置的入口位置和部分其他内容。如果你把入口设置项全部关闭，你可以使用以下方法进入\n1.暂停菜单点官方「模组设置」-选中通用模组前置-点「打开设置」\n2.输入命令/setting_open\n3.使用模组快捷键(默认U),快捷键可在原版设置自定义"
 
-    # 物品选择弹窗演示：数据集不写死，运行时由服务端下发的「全部已加载物品」
-    # （原版 + 各模组自定义物品）填充，见 Client.OnAllItems -> RefreshDemoItemPicker。
-    # 这里先注册空数据集占位，数据到达前后弹窗都能正常打开。
-    RegisterItemPicker(DEMO_PICKER_ID, "选择物品", items=[])
-
-    # 内容项顺序：介绍(顶) -> 三个开关 -> 重置按钮(底，使用框架内置 reset 控件)
+    # 内容项顺序：介绍(顶) -> 开关/滑块 -> 重置按钮(底，使用框架内置 reset 控件)
     # 注意：AddSwitch 参数顺序为 (item_id, desc, default_value, locked, on_toggle, litle)，
     #       说明文字请放在 litle 小标题，不要放在 default_value 位置。
     CreateContentInst(main_card_id, "client", DISPLAY_CATEGORY_ID) \
@@ -402,9 +407,6 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                    min_val=0, max_val=100, value=0, steps=100, litle="设置项加载速度",
                    on_value_change=_OnRightDelayChange, slider_type="steps",
                    value_formatter=_DelayValueFormat) \
-        .AddItemPicker(DEMO_ITEM_ID, "演示：点右侧箭头从列表中选择一个物品",
-                       DEMO_PICKER_ID, litle="物品选择",
-                       on_select=_OnDemoItemPicked) \
         .AddResetButton("reset", on_click=_OnResetClick)
 
     # ---------------------------------------------------------------
@@ -417,13 +419,6 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
     #            default_value=False, on_toggle=_OnNewSaveUseCrossToggle,
     #            litle="新存档套用跨存档配置") \
     # ---------------------------------------------------------------
-
-    # "组合开关测试"分类（客户端中间卡片，临时测试，注释掉）
-    # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
-    # CreateContentInst(main_card_id, "client", "card_toggle_test") \
-    #     .AddText("ct_intro", "简介",
-    #              "测试组合开关：物品行 + 纯文字行 + 编辑框行 + 锁定行混合\n点击下方按钮打开弹窗") \
-    #     .AddButton("ct_open", "打开组合开关测试弹窗", "打开", on_click=_OnTestToggleOpen)
 
     # "调试"分类（客户端中间卡片，图标 debug）
     RegisterMiddleCard(main_card_id, "client", DEBUG_CATEGORY_ID, "调试",
@@ -475,8 +470,38 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
         GetSettingValue(main_card_id, "client", DEBUG_CATEGORY_ID, SWITCH_LOG_OUTPUT,
                         default=False)
     )
-    # 注册组合开关测试数据集（临时，注释掉）
+
+    # ══════════════════════════════════════════════════════════════════
+    # 开发者选项（测试内容集中区）
+    #   - 以后新增的测试卡片 / 测试弹窗 / 演示内容都往这里加，照下面物品选择
+    #     演示的写法（RegisterMiddleCard + CreateContentInst）追加即可。
+    #   - 顶部提示用 AddText(..., color=(r,g,b)) 上琥珀色，不需要额外内容项类型。
+    #   - 发布正式版时：把本块（从下面的 RegisterMiddleCard 到 _RegisterCardToggleTest
+    #     那一行）整块注释掉，该分页就不再注册；其余分页与已存配置不受影响。
+    # ══════════════════════════════════════════════════════════════════
+    RegisterMiddleCard(main_card_id, "client", DEV_CATEGORY_ID, "开发者选项",
+                       icon="textures/ui/icon/advanced-icon")
+
+    # 物品选择弹窗演示：数据集不写死，运行时由服务端下发的「全部已加载物品」
+    # （原版 + 各模组自定义物品）填充，见 Client.OnAllItems -> RefreshDemoItemPicker。
+    # 这里先注册空数据集占位，数据到达前后弹窗都能正常打开。
+    RegisterItemPicker(DEMO_PICKER_ID, "选择物品", items=[])
+
+    CreateContentInst(main_card_id, "client", DEV_CATEGORY_ID) \
+        .AddText(DEV_NOTICE_ID, DEV_NOTICE_TITLE, DEV_NOTICE_TEXT,
+                 color=DEV_NOTICE_COLOR) \
+        .AddItemPicker(DEMO_ITEM_ID, "演示：点右侧箭头从列表中选择一个物品，用于测试物品选择弹窗",
+                       DEMO_PICKER_ID, litle="物品选择",
+                       on_select=_OnDemoItemPicked)
+
+    # 组合开关测试（临时，需要时取消注释；_RegisterCardToggleTest 定义在本文件上方）
+    # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
+    # CreateContentInst(main_card_id, "client", "card_toggle_test") \
+    #     .AddText("ct_intro", "简介",
+    #              "测试组合开关：物品行 + 纯文字行 + 编辑框行 + 锁定行混合\n点击下方按钮打开弹窗") \
+    #     .AddButton("ct_open", "打开组合开关测试弹窗", "打开", on_click=_OnTestToggleOpen)
     # _RegisterCardToggleTest()
+
     return ok
 
 

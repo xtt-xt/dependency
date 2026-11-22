@@ -188,15 +188,16 @@ CreateContentInst("basic_settings", "client")\
 inst.ForMiddleCard("client_opt_a").AddText("info", "标题", "说明文字")
 ```
 
-#### AddText(item_id, title="", text="")
+#### AddText(item_id, title="", text="", color=None)
 
-添加纯文本内容项，支持分标题和正文两部分显示。
+添加纯文本内容项，支持分标题和正文两部分显示；可用 `color` 覆盖文字颜色（如做警示提示）。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | item_id | str | 是 | 内容项唯一标识符 |
-| title | str | 否 | 小标题（白色加大字体），默认为空字符串 |
-| text | str | 否 | 正文内容（白色普通字体），默认为空字符串 |
+| title | str | 否 | 小标题（加大字体），默认为空字符串 |
+| text | str | 否 | 正文内容，默认为空字符串 |
+| color | tuple | 否 | 文字颜色 `(r, g, b)`，各分量 0~1，同时作用于标题与正文；`None`（默认）为模板白色。不支持 alpha，透明度用 `SetAlpha` |
 
 ```python
 # 只有标题
@@ -207,6 +208,11 @@ inst.AddText("desc_1", "", "这是一段很长的说明文字")
 
 # 既有标题又有内容
 inst.AddText("info", "功能说明", "这是功能的详细描述，可以有多行文字")
+
+# 琥珀色警示提示（内部走 LabelUIControl.SetTextColor，只影响这一项）
+inst.AddText("dev_notice", "【开发版本】",
+             "你正在使用开发版本，本版本可能不稳定，请勿以本版本作为开发基准。",
+             color=(1.0, 0.76, 0.35))
 ```
 
 #### AddButton(item_id, desc, button_text, on_click=None, locked=False, litle="")
@@ -493,7 +499,7 @@ def BuildSliderContent(screenNode, parent, item):
 RegisterContentBuilder("slider", BuildSliderContent)
 ```
 
-> 内置类型 `"text"` 和 `"button"` 的 builder 已自动注册，无需手动调用。
+> 内置类型（`"text"` `"button"` `"switch"` `"edit_box"` `"reset"` `"slider"` `"collapsible_menu"` `"item_picker"`）的 builder 已自动注册，无需手动调用。
 
 #### RegisterContentListener(listener)
 

@@ -4013,6 +4013,25 @@ def _SetLabelText(ctrl, text, logPrefix):
         return False
 
 
+def _SetLabelColor(ctrl, color, logPrefix):
+    """设置 label 文字颜色（同时走 PropertyBag 与 asLabel().SetTextColor，确保生效）。
+
+    :param color: (r, g, b) 各分量 0~1；不支持 alpha，透明度请用 SetAlpha。
+    """
+    if not ctrl or not color:
+        return False
+    try:
+        rgb = (float(color[0]), float(color[1]), float(color[2]))
+        ctrl.SetPropertyBag({"color": rgb})
+        label = ctrl.asLabel()
+        if label:
+            label.SetTextColor(rgb)
+        return True
+    except Exception as e:
+        dlog.client_print("==== %s set color error: %s ====" % (logPrefix, str(e)))
+        return False
+
+
 def BuildTextContent(screenNode, parent, item):
     """文本内容项 UI 创建。"""
     dlog.client_print("==== BuildTextContent item_id=%s title=%s text=%s ====" % (item.item_id, item.title, item.text))
@@ -4045,6 +4064,11 @@ def BuildTextContent(screenNode, parent, item):
             labelCtrl.SetVisible(bool(item.text))  # 空正文防御性隐藏
         else:
             dlog.client_print("==== BuildTextContent: label child not found in panel ====")
+        # 可选文字颜色（AddText(color=(r,g,b))）；默认 None 保持模板白色
+        color = getattr(item, "color", None)
+        if color:
+            _SetLabelColor(litleCtrl, color, "BuildTextContent.litle")
+            _SetLabelColor(labelCtrl, color, "BuildTextContent.label")
     else:
         dlog.client_print("==== BuildTextContent: panel child not found ====")
     screenNode.mRightContentCtrls.append(ctrl)

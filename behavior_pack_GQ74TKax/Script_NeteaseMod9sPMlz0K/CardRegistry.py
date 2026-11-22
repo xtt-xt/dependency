@@ -178,10 +178,11 @@ class BaseContentItem(object):
 
 class TextContentItem(BaseContentItem):
     """文本内容项（litle 小标题 + label 正文）。"""
-    def __init__(self, item_id, title, text):
+    def __init__(self, item_id, title, text, color=None):
         super(TextContentItem, self).__init__(item_id, "text")
         self.title = title  # 小标题（对应 JSON 的 litle 控件，白色加大字体）
         self.text = text    # 正文内容（对应 JSON 的 label 控件）
+        self.color = color  # 可选文字颜色 (r,g,b) 0~1；None 保持模板默认白色
 
 
 class ButtonContentItem(BaseContentItem):
@@ -319,7 +320,8 @@ class TextContentFactory(object):
         return TextContentItem(
             item_id,
             kwargs.get("title", ""),
-            kwargs.get("text", "")
+            kwargs.get("text", ""),
+            kwargs.get("color", None)
         )
 
 
@@ -622,14 +624,15 @@ class ContentSettingInst(object):
         self._lst = self._GetList()
         return self
 
-    def AddText(self, item_id, title="", text=""):
+    def AddText(self, item_id, title="", text="", color=None):
         """
         添加文本内容项。
         :param item_id: 内容项唯一标识符
         :param title:   标题（可空字符串）
         :param text:    正文内容
+        :param color:   可选文字颜色 (r, g, b)，各分量 0~1；None 用模板默认白色
         """
-        return self._AddItem("text", item_id, title=title, text=text)
+        return self._AddItem("text", item_id, title=title, text=text, color=color)
 
     def AddButton(self, item_id, desc, button_text, on_click=None, locked=False, litle=""):
         """

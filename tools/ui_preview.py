@@ -15,6 +15,7 @@ bar      模拟 common.slider：原版 1px 边框 + 内缩 2px 的底图/进度 
 profile  量真实截图某一列/行的颜色分段（反推边框几 px、内区多高）
 sheet    多张图拼一张对照图（NEAREST 放大 + 标签）
 mktex    生成「1px 顶高光 + 平色 + 1px 底暗边」的三色带贴图（配 nineslice [1,1,1,1]）
+card     模拟一个内容项卡片：九宫底图 + 指定颜色的标题/正文（查配色可读性，默认琥珀色）
 
 Python 需要 Pillow。本机没有系统 Python3 时用 DSH 内置运行时
 （路径可用 load_workspace_dependencies 查）：
@@ -237,6 +238,37 @@ def cmd_mktex(args):
         args.bottom.lstrip("#").upper(), os.path.getsize(args.out)))
 
 
+def cmd_card(args):
+    """模拟一个内容项卡片：九宫拉伸底色贴图 + 按指定颜色画标题/正文（查配色可读性）。"""
+    bg_src = Image.open(args.tex).convert("RGBA")
+    sl = args.slice if args.slice > 0 else 1
+    sl = min(sl, bg_src.size[0] // 2, bg_src.size[1] // 2)
+    title_font = _font(args.font_size + 4)
+    body_font = _font(args.font_size)
+    lines = (args.text or "").replace("|", "\n").split("\n")
+    line_h = int(args.font_size * 1.4)
+    head = (args.font_size + 10) if args.title else 0
+    h = args.pad * 2 + head + line_h * len(lines)
+    card = nineslice(bg_src, args.w, h, (sl, sl, sl, sl))
+    d = ImageDraw.Draw(card)
+    y = args.pad
+    if args.title:
+        d.text((args.pad, y), args.title, font=title_font, fill=hexrgb(args.title_color) + (255,))
+        y += head
+    for ln in lines:
+        d.text((args.pad, y), ln, font=body_font, fill=hexrgb(args.body_color) + (255,))
+        y += line_h
+    if args.zoom > 1:
+        card = card.resize((card.size[0] * args.zoom, card.size[1] * args.zoom), Image.NEAREST)
+    canvas = Image.new("RGB", (card.size[0] + 16, card.size[1] + 16), BAR_BG[:3])
+    canvas.paste(card, (8, 8), card)
+    out = args.out or os.path.join(os.environ.get("TEMP", "."), "card.png")
+    canvas.save(out)
+    print("%s  card %dx%d (zoom x%d)  title=#%s body=#%s" % (
+        out, args.w, h, args.zoom, args.title_color.lstrip("#").upper(),
+        args.body_color.lstrip("#").upper()))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Pixel-accurate previews for MC JSON UI textures/nine-slice/layout.")
     sub = ap.add_subparsers(dest="cmd")
@@ -292,6 +324,21 @@ def main(argv=None):
     p.add_argument("--h", type=int, default=5)
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_mktex)
+
+    p = sub.add_parser("card", help="mock one content card: 9-slice background + coloured title/body text")
+    p.add_argument("--tex", default="resource_pack_nka0OOhF/textures/ui/content.png",
+                   help="card background texture (default: setting.text_content's textures/ui/content)")
+    p.add_argument("--title", default="")
+    p.add_argument("--text", default="", help="body text, use | as line break")
+    p.add_argument("--title-color", default="FFB83D", help="RRGGBB (default: the amber of setting.notice_content)")
+    p.add_argument("--body-color", default="F7E0AD")
+    p.add_argument("--w", type=int, default=560)
+    p.add_argument("--pad", type=int, default=14)
+    p.add_argument("--slice", type=int, default=1)
+    p.add_argument("--font-size", type=int, default=12)
+    p.add_argument("--zoom", type=int, default=2)
+    p.add_argument("--out")
+    p.set_defaults(func=cmd_card)
 
     args = ap.parse_args(argv)
     if not getattr(args, "func", None):
