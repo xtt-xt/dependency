@@ -368,8 +368,14 @@ def _OnDevToggleRemoveRow(screenNode, toggle_id, state_dict):
         dlog.client_print("==== dev card_toggle remove: %s ====" % removed)
 
 
+def _OnDevToggleRowBtn(screenNode, toggle_id, option_id):
+    """行内按钮回调（toggle_button 行）：打印 option_id，默认不关弹窗。"""
+    dlog.client_print("==== dev card_toggle row button: toggle=%s option=%s ====" % (
+        toggle_id, option_id))
+
+
 def _RegisterDevToggleDemo():
-    """注册组合开关演示数据集：混合三种行控件 + 锁定行 + 底部增删/打印按钮。"""
+    """注册组合开关演示数据集：四种行控件混合 + 锁定行 + 底部增删/打印按钮。"""
     RegisterCardToggle(DEV_TOGGLE_ID, "组合开关演示", mode="multi")
     # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_toggle", "minecraft:diamond",
@@ -381,6 +387,11 @@ def _RegisterDevToggleDemo():
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_edit", "minecraft:paper",
                         desc="输入框行：文字可编辑", ctrl_type="toggle_edit_box",
                         default_value="16")
+    # ctrl_type="toggle_button"：物品图标 + 文字 + 行内按钮
+    # （button_text 按钮文字 / on_click 回调 / close_popup 点完是否关弹窗）
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_button", "minecraft:book",
+                        desc="按钮行：点右侧按钮打日志", ctrl_type="toggle_button",
+                        button_text="执行", on_click=_OnDevToggleRowBtn)
     # 锁定行：开关不可交互，显示 switch 内置锁定贴图
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_locked", "minecraft:emerald",
                         desc="锁定行：开关不可点", locked=True)

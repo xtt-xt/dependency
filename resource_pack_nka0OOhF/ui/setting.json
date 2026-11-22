@@ -629,6 +629,81 @@
             }
         ]
     },
+    "card_toggle_button": {
+        "type": "panel",
+        "size": [
+            "default",
+            30.0
+        ],
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "size": [
+                        "default",
+                        "100%+-2px"
+                    ],
+                    "layer": 1,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0
+                    ],
+                    "texture": "textures/ui/card_toggle_under",
+                    "controls": [
+                        {
+                            "item_renderer": {
+                                "type": "custom",
+                                "renderer": "inventory_item_renderer",
+                                "offset": [
+                                    "-40%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%y+0px",
+                                    "60%+0px"
+                                ],
+                                "layer": 1,
+                                "property_bag": {
+                                    "#item_id_aux": 131072
+                                }
+                            }
+                        },
+                        {
+                            "label": {
+                                "type": "label",
+                                "offset": [
+                                    "-5%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "60%+0px",
+                                    "default"
+                                ],
+                                "font_type": "default",
+                                "text": "Hello World!"
+                            }
+                        },
+                        {
+                            "button@setting.button": {
+                                "offset": [
+                                    "35%+0px",
+                                    3
+                                ],
+                                "size": [
+                                    "20%+0px",
+                                    22
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
     "collapsible_menu_button@setting.button": {
         "$coler": [
             0,

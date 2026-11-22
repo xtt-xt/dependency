@@ -1,12 +1,12 @@
 # Python 代码审查报告
 
-> 审查完成：未发现必须修复项，发现 **1 项建议修复的问题**，另有 245 项需要人工确认。
+> 审查完成：未发现必须修复项，发现 **1 项建议修复的问题**，另有 249 项需要人工确认。
 
 ## 扫描概览
 
 | 扫描范围 | 解析状态 | 诊断分布 | 处理优先级 |
 |---|---|---|---|
-| **1** 包 · **13** 文件 | **13** 正常 | **246** 项 · **20** 警告 · **42** 风险 · **184** 提示 | **1** 建议修复 · **245** 人工确认 |
+| **1** 包 · **13** 文件 | **13** 正常 | **250** 项 · **20** 警告 · **43** 风险 · **187** 提示 | **1** 建议修复 · **249** 人工确认 |
 
 ## 包概览
 
@@ -43,7 +43,7 @@
 
 | # | 级别 | 位置 | 所在符号 | 判断依据 |
 |---:|---|---|---|---|
-| 1 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:1` | - | 代码行 5254 ≥ 1200 |
+| 1 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:1` | - | 代码行 5326 ≥ 1200 |
 
 </details>
 
@@ -100,26 +100,26 @@
 | 4 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:696` | `ContentSettingInst.AddSlider` | 非 self 参数 12 个 > 5 |
 | 5 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:723` | `ContentSettingInst.AddCollapsibleMenu` | 非 self 参数 7 个 > 5 |
 | 6 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:746` | `ContentSettingInst.AddItemPicker` | 非 self 参数 8 个 > 5 |
-| 7 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:1043` | `AddCardToggleOption` | 非 self 参数 9 个 > 5 |
+| 7 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:1046` | `AddCardToggleOption` | 非 self 参数 12 个 > 5 |
 | 8 | 警告 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Toast.py:267` | `ShowToast` | 非 self 参数 12 个 > 5 |
 
 </details>
 
 ### 过宽 except 吞掉异常（确认是否有意防御）
 
-**规则：** `try.masking.broad-except-swallow`  |  **级别：** 警告 / 风险 / 提示  |  **数量：** 211
+**规则：** `try.masking.broad-except-swallow`  |  **级别：** 警告 / 风险 / 提示  |  **数量：** 215
 
 > **处理建议：** 确认是否为有意的环境/兼容防御（如 PC 独占 API 在服务器不存在）：若是则忽略；try 体越大越可能吞掉真实业务错误，此时应收窄异常类型或补上下文后重抛。
 
 <details>
-<summary>查看 211 处位置</summary>
+<summary>查看 215 处位置</summary>
 
 | # | 级别 | 位置 | 所在符号 | 判断依据 |
 |---:|---|---|---|---|
 | 1 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:297` | `SliderContentItem.GetDisplayText` | except Exception 捕获过宽 |
 | 2 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:877` | `_NotifyCardChanged` | except Exception as e 捕获过宽 |
 | 3 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:886` | `_NotifyContentChanged` | except Exception as e 捕获过宽 |
-| 4 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:1318` | `IsNavigateBlocked` | except Exception as e 捕获过宽 |
+| 4 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py:1329` | `IsNavigateBlocked` | except Exception as e 捕获过宽 |
 | 5 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:40` | `_OnSyncStoreEvent` | except Exception as e 捕获过宽 |
 | 6 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:213` | `MyClientSystem.OnPopScreen` | except Exception as e 捕获过宽 |
 | 7 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:219` | `MyClientSystem.OnPopScreen` | except Exception as e 捕获过宽 |
@@ -137,7 +137,7 @@
 | 19 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:522` | `MyClientSystem.OnGridComponentSizeChanged` | except Exception as e 捕获过宽 |
 | 20 | 提示 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py:533` | `MyClientSystem.OnUIInitFinished` | except Exception as e 捕获过宽 |
 
-还有 **191** 处未展开；可使用 `--max-per-rule 0` 输出全部位置。
+还有 **195** 处未展开；可使用 `--max-per-rule 0` 输出全部位置。
 
 </details>
 
@@ -160,7 +160,7 @@
 
 | 文件 | 诊断数 |
 |---|---:|
-| `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py` | 193 |
+| `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/Client.py` | 197 |
 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/CardRegistry.py` | 11 |
 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/SyncControl.py` | 10 |
 | `behavior_pack_GQ74TKax/Script_NeteaseMod9sPMlz0K/SettingState.py` | 9 |

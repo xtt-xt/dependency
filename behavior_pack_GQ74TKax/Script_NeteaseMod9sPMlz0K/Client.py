@@ -5296,6 +5296,8 @@ class CardToggleScreenNode(ScreenNode):
         self.mBackBound = False
         self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl, locked, editInputCtrl), ...]
         self.mBtnCtrls = []          # 底部自定义按钮控件（重建前先清掉，避免重复叠加）
+        self.mRowBtnCtrls = {}       # option_id -> (textCtrl, finishCtrl)，按钮行点完后切换成图标
+        self.mRowBtnFinished = set() # 已点过的按钮行 option_id（弹窗会话内保留，重建后仍显示图标）
         self.mStates = {}            # option_id -> bool（缓存当前开关状态）
         self.mToggleId = ""
         self.mMode = "multi"
@@ -5346,9 +5348,16 @@ class CardToggleScreenNode(ScreenNode):
         self._ClearRows()
         from SettingState import GetCardToggleState
         for i, op in enumerate(options):
-            # options 元素兼容 5 元组(旧) / 7 元组(新: 含 ctrl_type, locked) /
-            # 8 元组(新: 含 default_value 编辑框默认文本)
-            if len(op) >= 8:
+            # options 元素兼容 5 元组(旧) / 7 元组(含 ctrl_type, locked) /
+            # 8 元组(含 default_value 编辑框默认文本) /
+            # 11 元组(含 button_text, on_click, close_popup 按钮行参数)
+            button_text = ""
+            row_btn_cb = None
+            row_btn_close = False
+            if len(op) >= 11:
+                (option_id, item_name, item_aux, desc, default_on, ctrl_type, locked,
+                 default_value, button_text, row_btn_cb, row_btn_close) = op[:11]
+            elif len(op) >= 8:
                 option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value = op[:8]
             elif len(op) >= 7:
                 option_id, item_name, item_aux, desc, default_on, ctrl_type, locked = op[:7]
@@ -5362,6 +5371,8 @@ class CardToggleScreenNode(ScreenNode):
                 template = 'setting.card_toggle_text'
             elif ctrl_type == "toggle_edit_box":
                 template = 'setting.card_toggle_edit_box'
+            elif ctrl_type == "toggle_button":
+                template = 'setting.card_toggle_button'
             else:
                 ctrl_type = "toggle"
                 template = 'setting.card_toggle'
@@ -5432,6 +5443,34 @@ class CardToggleScreenNode(ScreenNode):
                     editBoxCtrl.SetTouchEnable(not locked)
                 except Exception as e:
                     dlog.client_print("==== CardToggleScreenNode edit box lock error: %s ====" % str(e))
+            # 按钮行（toggle_button）：物品 + 文字 + 行内按钮（其余行没有 button 子控件，自动跳过）
+            rowBtnCtrl = base.GetChildByName('button')
+            if rowBtnCtrl:
+                btnTextCtrl = rowBtnCtrl.GetChildByName('text')
+                btnFinishCtrl = rowBtnCtrl.GetChildByName('finish')
+                clicked = option_id in self.mRowBtnFinished
+                if btnTextCtrl:
+                    _SetLabelText(btnTextCtrl, button_text or "执行",
+                                  "CardToggleScreenNode.row_btn_text")
+                    # 与右侧「按钮内容项」一致：未点过显示文字，点过后换成 finish 图标
+                    btnTextCtrl.SetVisible(not clicked)
+                if btnFinishCtrl:
+                    btnFinishCtrl.SetVisible(clicked)
+                self.mRowBtnCtrls[option_id] = (btnTextCtrl, btnFinishCtrl)
+                btnLockCtrl = rowBtnCtrl.GetChildByName('lock')
+                if btnLockCtrl:
+                    btnLockCtrl.SetVisible(bool(locked))
+                rowBtn = rowBtnCtrl.asButton()
+                if rowBtn:
+                    try:
+                        rowBtn.SetTouchEnable(not locked)
+                    except Exception as e:
+                        dlog.client_print("==== CardToggle row button touch error: %s ====" % str(e))
+                    if not locked:
+                        rowBtn.AddTouchEventParams({})
+                        rowBtn.SetButtonTouchUpCallback(
+                            lambda args, oid=option_id, cb=row_btn_cb, cls=row_btn_close:
+                            self._OnRowButtonClick(oid, cb, cls))
             self.mRowCtrls.append((option_id, toggleObj, ctrl, locked, editInputCtrl))
         self.mPanelApplied = True
         dlog.client_print("==== CardToggle applied: rows=%d/%d ====" % (len(self.mRowCtrls), len(options)))
@@ -5455,6 +5494,7 @@ class CardToggleScreenNode(ScreenNode):
             except Exception:
                 pass
         self.mRowCtrls = []
+        self.mRowBtnCtrls = {}
         self.mStates = {}
 
     def _ClearButtons(self):
@@ -5507,6 +5547,42 @@ class CardToggleScreenNode(ScreenNode):
             callback(sn, self.mToggleId, dict(self.mStates))
         except Exception as e:
             dlog.client_print("==== CardToggleScreenNode button callback error: %s ====" % str(e))
+
+    def _OnRowButtonClick(self, option_id, callback, close_popup):
+        """行内按钮点击（toggle_button 行）：先落盘最新状态，再回调，按需关闭弹窗。
+
+        视觉与右侧「按钮内容项」（`OnRightButtonClick`）一致：点过之后隐藏按钮文字、
+        显示 `finish` 图标；已点过的 option_id 记在 `mRowBtnFinished`，Refresh 重建后
+        仍保持图标态（关闭弹窗即重置）。
+
+        回调签名 callback(screenNode, toggle_id, option_id)，与底部按钮的
+        (screenNode, toggle_id, state_dict) 区分开。
+        """
+        self.mRowBtnFinished.add(option_id)
+        try:
+            pair = self.mRowBtnCtrls.get(option_id)
+            if pair:
+                textCtrl, finishCtrl = pair
+                if textCtrl:
+                    textCtrl.SetVisible(False)
+                if finishCtrl:
+                    finishCtrl.SetVisible(True)
+        except Exception as e:
+            dlog.client_print("==== CardToggle row button visual error: %s ====" % str(e))
+        try:
+            self._PersistStates()
+        except Exception as e:
+            dlog.client_print("==== CardToggle row button persist error: %s ====" % str(e))
+        if callback is not None:
+            try:
+                sn = None
+                if _g_ClientSystem:
+                    sn = _g_ClientSystem.mSettingsScreenNode
+                callback(sn, self.mToggleId, option_id)
+            except Exception as e:
+                dlog.client_print("==== CardToggle row button callback error: %s ====" % str(e))
+        if close_popup and _g_ClientSystem:
+            _g_ClientSystem.CloseCardToggle()
 
     def _OnBackClick(self):
         """返回按钮：关闭组合开关弹窗。"""
@@ -5596,6 +5672,8 @@ class CardToggleScreenNode(ScreenNode):
         self.mBackBound = False
         self.mRowCtrls = []
         self.mBtnCtrls = []
+        self.mRowBtnCtrls = {}
+        self.mRowBtnFinished = set()
         self.mStates = {}
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mCardToggleScreenNode is self:

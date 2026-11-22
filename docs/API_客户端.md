@@ -682,12 +682,13 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ## 组合开关（CardToggle）API
 
-组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**三种行控件**：
+组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**四种行控件**：
 - `toggle`（默认）：**物品图标 + 自定义描述文字 + 开关**
 - `toggle_text`：**纯文字 + 开关**（无物品图标）
 - `toggle_edit_box`：**物品图标 + 自定义描述文字 + 输入框**
+- `toggle_button`：**物品图标 + 自定义描述文字 + 行内按钮**（按钮文字/回调/点完是否关弹窗由参数指定）
 
-同一弹窗可**任意混合**三种行控件；每行可单独**锁定**（开关行锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`；编辑框行锁定后不可输入，显示 edit_box 内置 lock 覆盖层）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项状态独立持久化（不挂靠任何内容项/分组）。弹窗中间区域为**滚动面板**：行数超出可视高度时自动滚动。
+同一弹窗可**任意混合**四种行控件；每行可单独**锁定**（开关行锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`；编辑框行锁定后不可输入，显示 edit_box 内置 lock 覆盖层；按钮行锁定后按钮禁用，显示 button 内置 lock 层）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项状态独立持久化（不挂靠任何内容项/分组）。弹窗中间区域为**滚动面板**：行数超出可视高度时自动滚动。
 
 先注册数据集（标题、模式、选项、底部按钮），再通过任意按钮用 `OpenCardToggle(toggle_id)` 打开。
 
@@ -702,7 +703,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | mode | str | 否 | `"multi"` 多选独立（默认）；`"single"` 单选互斥 |
 | buttons | list | 否 | 底部自定义按钮 `[(text, callback), ...]`，`callback(screenNode, toggle_id, state_dict)` |
 
-### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False, default_value="")
+### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False, default_value="", button_text="执行", on_click=None, close_popup=False)
 
 向已注册的组合开关追加一个选项；`option_id` 重复追加会覆盖旧选项。
 
@@ -713,13 +714,18 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | item_name | str | 否* | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标；`ctrl_type="toggle_text"` 时传 `""` |
 | item_aux | int | 否 | 物品附加值 |
 | desc | str | 否 | 该行自定义描述文字 |
-| default_on | bool | 否 | 默认是否开启（`toggle_edit_box` 类型忽略） |
-| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关）/ `"toggle_edit_box"`（物品+文字+编辑框） |
-| locked | bool | 否 | 是否锁定：开关行锁定后不可交互并显示锁定图标；编辑框行锁定后不可输入并显示 lock 覆盖层 |
+| default_on | bool | 否 | 默认是否开启（`toggle_edit_box` / `toggle_button` 类型忽略） |
+| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关）/ `"toggle_edit_box"`（物品+文字+编辑框）/ `"toggle_button"`（物品+文字+按钮） |
+| locked | bool | 否 | 是否锁定：开关行不可交互并显示锁定图标；编辑框行不可输入并显示 lock 覆盖层；按钮行按钮禁用并显示 lock 层 |
 | default_value | str | 否 | 编辑框初始文本（仅 `toggle_edit_box` 类型有效） |
+| button_text | str | 否 | 行内按钮文字（仅 `toggle_button` 类型有效；空串回落 `"执行"`） |
+| on_click | callable | 否 | 行内按钮回调 `callback(screenNode, toggle_id, option_id)`（仅 `toggle_button` 类型有效） |
+| close_popup | bool | 否 | 行内按钮点完后是否关闭弹窗，默认 `False`（仅 `toggle_button` 类型有效） |
 
-> \* `ctrl_type="toggle"` 时 `item_name` 必填；`ctrl_type="toggle_text"` / `"toggle_edit_box"` 时可省略（传 `""`）。
-> 同一弹窗内可**任意混合**三种行控件。
+> \* `ctrl_type="toggle"` / `"toggle_button"` 时 `item_name` 必填；`ctrl_type="toggle_text"` / `"toggle_edit_box"` 时可省略（传 `""`）。
+> 同一弹窗内可**任意混合**四种行控件。
+> 行内按钮回调签名与底部按钮不同：行内是 `(screenNode, toggle_id, option_id)`，底部是 `(screenNode, toggle_id, state_dict)`。点行内按钮前会先落盘当前开关/编辑框状态。
+> 行内按钮的点击视觉与右侧「按钮内容项」（`OnRightButtonClick`）一致：点过之后隐藏按钮文字、显示 `finish` 图标；`RefreshCardToggle` 重建后仍保持图标态，关闭弹窗后重置（`mRowBtnFinished` 是弹窗会话级状态，不落盘）。
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
@@ -744,7 +750,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### GetCardToggle(toggle_id)
 
-获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value)`（旧版 5/7 元组数据同样兼容）。
+获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value, button_text, on_click, close_popup)`（旧版 5 / 7 / 8 元组数据同样兼容，缺失的尾项按默认值补齐）。
 
 ### GetCardToggleOptions(toggle_id) / GetCardToggleOptionIds(toggle_id)
 
@@ -786,7 +792,15 @@ AddCardToggleOption("my_toggles", "b", "", desc="吃个苹果", ctrl_type="toggl
 # ctrl_type="toggle_edit_box"：物品图标 + 文字 + 编辑框（default_value 为初始文本）
 AddCardToggleOption("my_toggles", "d", "minecraft:paper", desc="输入数量",
                     ctrl_type="toggle_edit_box", default_value="16")
-# 锁定行：开关不可交互，显示锁定图标
+# ctrl_type="toggle_button"：物品图标 + 文字 + 行内按钮
+#   回调签名 (screenNode, toggle_id, option_id)；close_popup=True 时点完关弹窗
+def OnRowButton(sn, toggle_id, option_id):
+    print "点了行内按钮", toggle_id, option_id
+
+AddCardToggleOption("my_toggles", "f", "minecraft:book", desc="点按钮打日志",
+                    ctrl_type="toggle_button", button_text="执行",
+                    on_click=OnRowButton, close_popup=False)
+# 锁定行：开关不可交互，显示锁定图标（按钮行 locked 则按钮禁用并显示 lock 层）
 AddCardToggleOption("my_toggles", "c", "minecraft:emerald", desc="绿宝石（锁定）", locked=True)
 # 锁定的编辑框行：不可输入，显示 lock 覆盖层
 AddCardToggleOption("my_toggles", "e", "minecraft:book", desc="锁定输入框",
