@@ -27,24 +27,47 @@ _IS_GLOBAL = True   # 跨存档配置（存在应用内，所有存档共用；�
 # 内存缓存（启动时由 LoadSettingData 从本地配置加载；SDK 缺失时作为降级存储）
 # 注意：同一个文件可能被两条导入路径加载成两个模块对象
 # （扁平 `SettingState` 与带包名的 `Script_NeteaseModXXX.SettingState`）。
-# 若各自持有一份 _memStore，"整包写入"就会把对方存的数据抹掉，
-# 因此把可变状态统一挂到共享槽位，两条路径看到同一份数据。
+# 若各自持有一份 _memStore，UI 侧从一份读、API 侧往另一份写，就会出现
+# "改了值界面不刷新、重进世界才生效"，因此把可变状态统一挂到共享槽位，
+# 两条路径看到同一份数据。
+_SHARED_KEY = "_XTT_DEP_SETTING_STATE"
+
+
+def _NewSharedState():
+    return {
+        "memStore": {},         # 内存缓存（整包写入的唯一数据源）
+        "comp": None,           # ConfigClient 组件
+        "external": {},         # 外部键 item_id -> (provider, persist)
+        "afterPersist": None,   # 写入成功回调
+        "uiChanged": None,      # 设置值变更回调
+    }
+
+
 def _SharedState():
+    """返回进程级共享状态字典（两条导入路径指向同一份）。
+
+    宿主必须选「平台模块白名单」内的模块：官方文档《Python模块白名单》
+    规定 SDK 2.9 起白名单以外的模块属违规导入，`__builtin__` / `builtins`
+    都不在白名单内。顶层包 `mod` 在白名单内，且无论从哪条路径导入都只有
+    一份，用它做宿主最稳。
+    无 SDK 环境（静态检查/单测）下退化为本模块内的单例。
+    """
+    host = None
     try:
-        import __builtin__ as _b          # Python 2
+        import mod as _m      # 白名单内的 SDK 顶层包，进程内唯一
+        host = _m
     except ImportError:
-        import builtins as _b             # Python 3
-    key = "_XTT_DEP_SETTING_STATE"
-    st = getattr(_b, key, None)
+        host = None
+    if host is None:
+        st = globals().get(_SHARED_KEY)
+        if st is None:
+            st = _NewSharedState()
+            globals()[_SHARED_KEY] = st
+        return st
+    st = getattr(host, _SHARED_KEY, None)
     if st is None:
-        st = {
-            "memStore": {},         # 内存缓存（整包写入的唯一数据源）
-            "comp": None,           # ConfigClient 组件
-            "external": {},         # 外部键 item_id -> (provider, persist)
-            "afterPersist": None,   # 写入成功回调
-            "uiChanged": None,      # 设置值变更回调
-        }
-        setattr(_b, key, st)
+        st = _NewSharedState()
+        setattr(host, _SHARED_KEY, st)
     return st
 
 
