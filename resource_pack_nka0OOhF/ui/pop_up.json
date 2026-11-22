@@ -95,9 +95,10 @@
                                                         "$pressed_button_name": "%netease_editor_template_namespace.click",
                                                         "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
                                                         "$texture_layer": 2,
-                                                        "anchor_to": "left_middle",
+                                                        "anchor_from": "right_middle",
+                                                        "anchor_to": "right_middle",
                                                         "offset": [
-                                                            "40%+0px",
+                                                            "-2%+0px",
                                                             "0%+0px"
                                                         ],
                                                         "size": [
@@ -314,9 +315,10 @@
                                                         "$pressed_button_name": "%netease_editor_template_namespace.click",
                                                         "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
                                                         "$texture_layer": 2,
-                                                        "anchor_to": "left_middle",
+                                                        "anchor_from": "right_middle",
+                                                        "anchor_to": "right_middle",
                                                         "offset": [
-                                                            "40%+0px",
+                                                            "-2%+0px",
                                                             "0%+0px"
                                                         ],
                                                         "size": [
@@ -519,9 +521,9 @@
                                                         "$pressed_button_name": "%netease_editor_template_namespace.click",
                                                         "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
                                                         "$texture_layer": 2,
-                                                        "anchor_from": "left_middle",
-                                                        "anchor_to": "left_middle",
-                                                        "offset": ["2px", "0%+0px"],
+                                                        "anchor_from": "right_middle",
+                                                        "anchor_to": "right_middle",
+                                                        "offset": ["-2%+0px", "0%+0px"],
                                                         "size": ["18px", "72%+0px"],
                                                         "layer": 2,
                                                         "button_mappings": [],
@@ -950,9 +952,10 @@
                                                         "$pressed_button_name": "%netease_editor_template_namespace.click",
                                                         "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
                                                         "$texture_layer": 2,
-                                                        "anchor_to": "left_middle",
+                                                        "anchor_from": "right_middle",
+                                                        "anchor_to": "right_middle",
                                                         "offset": [
-                                                            "40%+0px",
+                                                            "-2%+0px",
                                                             "0%+0px"
                                                         ],
                                                         "size": [
@@ -1145,9 +1148,10 @@
                                                         "$pressed_button_name": "%netease_editor_template_namespace.click",
                                                         "$pressed_texture": "textures/ui/pop_up/pop_up_back_pressing",
                                                         "$texture_layer": 2,
-                                                        "anchor_to": "left_middle",
+                                                        "anchor_from": "right_middle",
+                                                        "anchor_to": "right_middle",
                                                         "offset": [
-                                                            "40%+0px",
+                                                            "-2%+0px",
                                                             "0%+0px"
                                                         ],
                                                         "size": [
