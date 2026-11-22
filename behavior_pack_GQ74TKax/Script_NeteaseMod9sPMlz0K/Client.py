@@ -5290,6 +5290,28 @@ class CollapsibleMenuScreenNode(ScreenNode):
             pass
 
 
+class _CardTogglePickSeed(object):
+    """物品选择行（toggle_item_picker）打开弹窗时的「预选当前值」轻量行对象。
+
+    物品选择弹窗只用 GetItemName / GetItemAux 高亮当前物品；确认回写走
+    hasattr(row, "SetSelected")，本对象故意不实现——真正落盘由
+    CardToggleScreenNode._OnRowItemSelected 负责，避免重复写入。
+    """
+
+    def __init__(self, item_name, item_aux=0):
+        self.item_name = item_name or ""
+        try:
+            self.item_aux = int(item_aux or 0)
+        except (TypeError, ValueError):
+            self.item_aux = 0
+
+    def GetItemName(self):
+        return self.item_name
+
+    def GetItemAux(self):
+        return self.item_aux
+
+
 class CardToggleScreenNode(ScreenNode):
     """组合开关弹窗 ScreenNode：标题 + 中间多行开关卡片 + 底部自定义按钮。
 
@@ -5671,6 +5693,8 @@ class CardToggleScreenNode(ScreenNode):
 
         物品选择弹窗与右侧内容项共用同一个 ScreenNode，确认后走 on_select 回调；
         此时组合开关弹窗还在栈里，等 picker 出栈后它的 OnActive 会按新状态重建行。
+        打开前按该行已存状态（"物品名|附加值"）预选当前物品，否则弹窗里没有任何
+        勾选、页脚显示「未选择」，用户看不出当前生效的是哪件。
         """
         if not _g_ClientSystem:
             dlog.client_print("==== CardToggle pick: ClientSystem not ready ====")
@@ -5687,7 +5711,16 @@ class CardToggleScreenNode(ScreenNode):
         def _on_select(item_name, item_aux, display):
             self._OnRowItemSelected(option_id, item_name, item_aux, callback, close_popup)
 
-        ok = _g_ClientSystem.OpenItemPicker(picker_id, item=None, on_select=_on_select)
+        seed_name, seed_aux = "", 0
+        try:
+            from CardRegistry import DecodeItemPickerValue
+            seed_name, seed_aux = DecodeItemPickerValue(
+                self.mStates.get(option_id, ""))
+        except Exception as e:
+            dlog.client_print("==== CardToggle pick: decode seed error: %s ====" % str(e))
+        ok = _g_ClientSystem.OpenItemPicker(
+            picker_id, item=_CardTogglePickSeed(seed_name, seed_aux),
+            on_select=_on_select)
         if not ok:
             dlog.client_print(
                 "==== CardToggle pick: picker '%s' not registered ====" % picker_id)
@@ -5950,6 +5983,18 @@ class ItemPickerScreenNode(ScreenNode):
                 dlog.client_print("==== ItemPicker: reset search error: %s ====" % str(e))
         self.mSearchText = ""
         self.mPage = 0
+        # 有预选物品时直接翻到它所在页：勾选态落在别的页等于没选中
+        if self.mSelectedName:
+            pageSize = self._PageSize()
+            for _i, _it in enumerate(self.mAllItems):
+                try:
+                    _same = (_it[0] == self.mSelectedName
+                             and int(_it[1] or 0) == int(self.mSelectedAux or 0))
+                except (IndexError, TypeError, ValueError):
+                    _same = False
+                if _same:
+                    self.mPage = _i // pageSize
+                    break
         # 关闭 / 确定 / 取消 / 翻页（只绑定一次）
         if not self.mBackBound:
             closeCtrl = self.GetBaseUIControl(self.PATH_CLOSE_BUTTON)
