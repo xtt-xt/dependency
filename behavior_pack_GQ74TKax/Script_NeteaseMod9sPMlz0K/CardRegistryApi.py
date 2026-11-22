@@ -121,6 +121,7 @@ from SettingState import (
 
 from Toast import (
     ShowToast,
+    ShowItemNameToast,
     ToastTop,
     ToastTopRight,
     ToastUnder,

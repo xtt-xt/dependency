@@ -1523,6 +1523,12 @@ class SettingsScreenNode(ScreenNode):
             except Exception:
                 pass
             self.mEmbeddedUnderTimer = None
+        # 清理内嵌物品名提示的停留/淡出计时
+        if getattr(self, "mEmbeddedItemNameFade", None) is not None:
+            try:
+                self.mEmbeddedItemNameFade.Stop()
+            except Exception:
+                pass
         try:
             UnregisterContentListener(self._OnContentChanged)
             dlog.client_print("==== content change listener unregistered ====")
@@ -1671,8 +1677,77 @@ class SettingsScreenNode(ScreenNode):
                 pass
             register_settings_under_host(self)
             dlog.client_print("==== SettingsScreenNode: embedded under toast host registered ====")
+            # 同一个附加层里还挂着「物品名提示」副本（toast_item_name）
+            self._SetupEmbeddedItemNameToast(path)
         else:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
+
+    def _SetupEmbeddedItemNameToast(self, underToastPath):
+        """缓存设置界面内嵌「物品名提示」面板（item_name_toast）的控件引用。
+
+        它和 under_toast 是同一个 $additional_screen_content 面板下的兄弟节点，
+        结构与 toast.json 的 toast_item_name 完全一致（紫色底板 + 两行文字）。
+        淡出由 Toast.ItemNameFade 驱动，与叠加层版本共用同一套时序。
+        """
+        self.mEmbeddedItemNameRoot = None
+        self.mEmbeddedItemNameCtrls = []
+        self.mEmbeddedItemNameLabel = None
+        self.mEmbeddedItemNameNamespaceLabel = None
+        self.mEmbeddedItemNameFade = None
+        try:
+            from Toast import ItemNameFade
+        except ImportError:
+            return
+        path = underToastPath.rsplit("/", 1)[0] + "/item_name_toast"
+        try:
+            root = self.GetBaseUIControl(path)
+            if not root:
+                dlog.client_print("==== embedded item name toast panel not found ====")
+                return
+            imageCtrl = self.GetBaseUIControl(path + "/image")
+            nameCtrl = self.GetBaseUIControl(path + "/image/stack_panel/item_name")
+            namespaceCtrl = self.GetBaseUIControl(path + "/image/stack_panel/namespace")
+            self.mEmbeddedItemNameRoot = root
+            self.mEmbeddedItemNameCtrls = [c for c in (imageCtrl, nameCtrl, namespaceCtrl) if c]
+            self.mEmbeddedItemNameLabel = nameCtrl.asLabel() if nameCtrl else None
+            self.mEmbeddedItemNameNamespaceLabel = namespaceCtrl.asLabel() if namespaceCtrl else None
+            self.mEmbeddedItemNameFade = ItemNameFade()
+            # 默认隐藏：防止设置界面首次打开时闪出
+            root.SetVisible(False)
+            dlog.client_print("==== embedded item name toast found at: %s ====" % path)
+        except Exception as e:
+            dlog.client_print("==== embedded item name toast path error: %s ====" % str(e))
+
+    def ShowEmbeddedItemNameToast(self, cfg):
+        """在设置界面内部显示「物品名提示」（由 Toast.ShowItemNameToast 路由调用）。
+
+        时序与叠加层版本一致：立即不透明 -> 停留 2 秒 -> 2 秒淡出；重复调用即重置计时。
+        """
+        root = getattr(self, "mEmbeddedItemNameRoot", None)
+        fade = getattr(self, "mEmbeddedItemNameFade", None)
+        if not root or not fade:
+            return
+        if self.mEmbeddedItemNameLabel:
+            self.mEmbeddedItemNameLabel.SetText(cfg.get("text", ""), True)
+            color = cfg.get("color")
+            if color:
+                self.mEmbeddedItemNameLabel.SetTextColor(color)
+        if self.mEmbeddedItemNameNamespaceLabel:
+            self.mEmbeddedItemNameNamespaceLabel.SetText(cfg.get("namespace", ""), True)
+            color = cfg.get("namespace_color")
+            if color:
+                self.mEmbeddedItemNameNamespaceLabel.SetTextColor(color)
+        root.SetVisible(True)
+        fade.Restart(self.mEmbeddedItemNameCtrls, self._OnEmbeddedItemNameFadeEnd)
+
+    def _OnEmbeddedItemNameFadeEnd(self):
+        """淡出结束，隐藏内嵌物品名提示面板。"""
+        root = getattr(self, "mEmbeddedItemNameRoot", None)
+        if root:
+            try:
+                root.SetVisible(False)
+            except Exception:
+                pass
 
     def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
         """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。

@@ -72,7 +72,7 @@ from CardRegistryApi import (
     ResetSettingValue, ResetAllSettings, ResetGroupSettings,
     SaveGroupSettings, SaveAllSettings,
     # Toast 提示
-    ShowToast, ToastTop, ToastTopRight, ToastUnder,
+    ShowToast, ShowItemNameToast, ToastTop, ToastTopRight, ToastUnder,
 )
 ```
 
@@ -97,7 +97,7 @@ from CardRegistryApi import (
 | 设置项状态 | `MakeSettingKey` `GetSettingValue` `GetSettingLocked` `SetSettingValue` `ResetSettingValue` `ResetAllSettings` `ResetGroupSettings` `SaveGroupSettings` `SaveAllSettings` |
 | 导航 | `OpenSettings` |
 | 跳转拦截 | `SettingsNavigateEvent` `RegNavigateBlockCallback` `UnregNavigateBlockCallback` `IsNavigateBlocked` |
-| Toast | `ShowToast` `ToastTop` `ToastTopRight` `ToastUnder` |
+| Toast | `ShowToast` `ShowItemNameToast` `ToastTop` `ToastTopRight` `ToastUnder` |
 
 ### 服务端 API（详见 [API_服务端.md](API_服务端.md)）
 

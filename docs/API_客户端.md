@@ -953,7 +953,7 @@ RegisterItemPicker("my_item_picker", "选择物品", items=entries)
 
 ## Toast 提示 API
 
-轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。
+轻量提示系统：以**界面叠加层**方式显示（非弹窗，不打断游戏操作）。`top` / `top_right` 支持物品展示与图片两个图层（按需显示），三个位置均支持自定义文字与自定义文字颜色。进入(1s) → 停留(默认3s/可自定义) → 退出(1s) 三段动画，同一位置多个 toast 按调用顺序排队播放。另有不走滑入、靠透明度淡出的**物品名提示** `ShowItemNameToast`（见下方）。
 
 全参数：`ShowToast(position, text="", color=None, icon=None, item_name=None, item_aux=0, is_enchanted=False, duration=3.0, enter_sound=None, exit_sound=None, background=None, nine_slice=None)`
 
@@ -999,6 +999,34 @@ RegisterItemPicker("my_item_picker", "选择物品", items=entries)
 #### 排队规则
 
 同一位置的多个 toast 按调用顺序排队，一个播放完成后自动播放下一个。
+
+### ShowItemNameToast(text, namespace="", color=None, namespace_color=None)
+
+显示**物品名提示**——类原版点击物品弹出的名称框（JSON 控件 `toast_item_name`）：紫色底板 + 物品名（白色）+ 命名空间（紫色）两行。
+
+时序固定、不可配：**立即以完全不透明显示 → 停留 2 秒 → 用 2 秒把整块（底板与两行文字一起）线性淡到全透明 → 隐藏**。中途再次调用视为"重弹"：马上回到完全不透明并重新计时，**不排队、不叠加**。
+
+显示位置按当前打开的界面自动选择：
+
+- **设置界面打开且在 UI 栈顶时**：显示在设置界面内部的高层级附加层（`setting.under_toast_layer` 里的 `item_name_toast@toast.toast_item_name` 副本），天然盖在设置 UI 之上；
+- **设置界面被弹窗 / 背包等界面盖住、或未打开时**：`CreateUI` 叠加层（每次显示新建实例，层级锁定为"触发那一刻的当前 UI + 1000"，因此叠在弹窗之上也看得见）。
+
+> 判定用 `clientApi.GetTopScreen()`：设置主界面是 `render_only_when_topmost: true` 的，被别的界面盖住时整屏不渲染，此时若还塞给内嵌面板就会出现"提示已经播了但屏幕上什么都没有"。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| text | str | 是 | 物品显示名（第一行） |
+| namespace | str | 否 | 命名空间 / identifier（第二行，默认紫色）；空串则第二行为空 |
+| color | tuple | 否 | 第一行文字颜色 `(r, g, b)`，0~1；`None` 用 JSON 默认白色 |
+| namespace_color | tuple | 否 | 第二行文字颜色 `(r, g, b)`，0~1；`None` 用 JSON 默认紫色 |
+
+```python
+from CardRegistryApi import ShowItemNameToast
+
+ShowItemNameToast("钻石镐", "minecraft:diamond_pickaxe")
+```
+
+> 淡出由 JSON 的 `toast_item_name_fade`（`anim_type: alpha`，2 秒 1→0）实现。alpha **不会**从父控件传给子控件，且 `SetAlpha` / alpha 动画只对 `image` 与 `label` 生效，所以 Python 侧给紫色底板与两行文字**逐个**挂同一段动画。
 
 #### 外部模组使用示例（延迟导入）
 

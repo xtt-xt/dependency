@@ -497,6 +497,83 @@
             }
         ]
     },
+    "card_toggle_button": {
+        "type": "panel",
+        "size": [
+            "default",
+            30.0
+        ],
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "size": [
+                        "default",
+                        "100%+-2px"
+                    ],
+                    "layer": 1,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0
+                    ],
+                    "texture": "textures/ui/card_toggle_under",
+                    "controls": [
+                        {
+                            "item_renderer": {
+                                "type": "custom",
+                                "renderer": "inventory_item_renderer",
+                                "offset": [
+                                    "-40%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%y+0px",
+                                    "60%+0px"
+                                ],
+                                "layer": 1,
+                                "property_bag": {
+                                    "#item_id_aux": 131072
+                                }
+                            }
+                        },
+                        {
+                            "label": {
+                                "type": "label",
+                                "offset": [
+                                    "-5%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "60%+0px",
+                                    "default"
+                                ],
+                                "font_type": "default",
+                                "text": "Hello World!"
+                            }
+                        },
+                        {
+                            "button@setting.button": {
+                                "anchor_from": "right_middle",
+                                "anchor_to": "right_middle",
+                                "offset": [
+                                    "-20px",
+                                    0
+                                ],
+                                "size": [
+                                    "20%+0px",
+                                    22
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
     "card_toggle_edit_box": {
         "type": "panel",
         "size": [
@@ -564,140 +641,6 @@
                                 "size": [
                                     "18%+5px",
                                     24
-                                ]
-                            }
-                        }
-                    ]
-                }
-            }
-        ]
-    },
-    "card_toggle_text": {
-        "type": "panel",
-        "size": [
-            "default",
-            30.0
-        ],
-        "controls": [
-            {
-                "image": {
-                    "type": "image",
-                    "size": [
-                        "default",
-                        "100%+-2px"
-                    ],
-                    "layer": 1,
-                    "clip_direction": "left",
-                    "clip_ratio": 0.0,
-                    "nineslice_size": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0
-                    ],
-                    "texture": "textures/ui/card_toggle_under",
-                    "controls": [
-                        {
-                            "label": {
-                                "type": "label",
-                                "offset": [
-                                    "-10%+0px",
-                                    0.0
-                                ],
-                                "size": [
-                                    "70%+0px",
-                                    "default"
-                                ],
-                                "font_type": "default",
-                                "text": "Hello World!"
-                            }
-                        },
-                        {
-                            "switch@setting.switch": {
-                                "offset": [
-                                    "35%+0px",
-                                    0
-                                ],
-                                "size": [
-                                    "15%+0px",
-                                    "60%+0px"
-                                ]
-                            }
-                        }
-                    ]
-                }
-            }
-        ]
-    },
-    "card_toggle_button": {
-        "type": "panel",
-        "size": [
-            "default",
-            30.0
-        ],
-        "controls": [
-            {
-                "image": {
-                    "type": "image",
-                    "size": [
-                        "default",
-                        "100%+-2px"
-                    ],
-                    "layer": 1,
-                    "clip_direction": "left",
-                    "clip_ratio": 0.0,
-                    "nineslice_size": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0
-                    ],
-                    "texture": "textures/ui/card_toggle_under",
-                    "controls": [
-                        {
-                            "item_renderer": {
-                                "type": "custom",
-                                "renderer": "inventory_item_renderer",
-                                "offset": [
-                                    "-40%+0px",
-                                    0.0
-                                ],
-                                "size": [
-                                    "100%y+0px",
-                                    "60%+0px"
-                                ],
-                                "layer": 1,
-                                "property_bag": {
-                                    "#item_id_aux": 131072
-                                }
-                            }
-                        },
-                        {
-                            "label": {
-                                "type": "label",
-                                "offset": [
-                                    "-5%+0px",
-                                    0.0
-                                ],
-                                "size": [
-                                    "60%+0px",
-                                    "default"
-                                ],
-                                "font_type": "default",
-                                "text": "Hello World!"
-                            }
-                        },
-                        {
-                            "button@setting.button": {
-                                "anchor_from": "right_middle",
-                                "anchor_to": "right_middle",
-                                "offset": [
-                                    "-20px",
-                                    0.0
-                                ],
-                                "size": [
-                                    "20%+0px",
-                                    22
                                 ]
                             }
                         }
@@ -822,11 +765,68 @@
                                 "anchor_to": "right_middle",
                                 "offset": [
                                     "-20px",
-                                    0.0
+                                    0
                                 ],
                                 "size": [
                                     "6%+0px",
                                     24
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "card_toggle_text": {
+        "type": "panel",
+        "size": [
+            "default",
+            30.0
+        ],
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "size": [
+                        "default",
+                        "100%+-2px"
+                    ],
+                    "layer": 1,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0
+                    ],
+                    "texture": "textures/ui/card_toggle_under",
+                    "controls": [
+                        {
+                            "label": {
+                                "type": "label",
+                                "offset": [
+                                    "-10%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "70%+0px",
+                                    "default"
+                                ],
+                                "font_type": "default",
+                                "text": "Hello World!"
+                            }
+                        },
+                        {
+                            "switch@setting.switch": {
+                                "offset": [
+                                    "35%+0px",
+                                    0
+                                ],
+                                "size": [
+                                    "15%+0px",
+                                    "60%+0px"
                                 ]
                             }
                         }
@@ -1262,6 +1262,94 @@
             }
         ]
     },
+    "item_picker_button": {
+        "type": "button",
+        "size": [
+            "100%+0px",
+            "100%+0px"
+        ],
+        "layer": 1,
+        "button_mappings": [],
+        "default_control": "normal",
+        "hover_control": "hover",
+        "is_handle_button_move_event": true,
+        "pressed_control": "pressing",
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
+        "controls": [
+            {
+                "normal": {
+                    "type": "image",
+                    "size": [
+                        "100%+0px",
+                        "100%+0px"
+                    ],
+                    "layer": 1,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_default"
+                }
+            },
+            {
+                "hover": {
+                    "type": "image",
+                    "size": [
+                        "100%+0px",
+                        "100%+0px"
+                    ],
+                    "layer": 2,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        2.0,
+                        2.0,
+                        4.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_hovered"
+                }
+            },
+            {
+                "pressing": {
+                    "type": "image",
+                    "size": [
+                        "100%+0px",
+                        "100%+0px"
+                    ],
+                    "layer": 3,
+                    "visible": false,
+                    "keep_ratio": false,
+                    "nineslice_size": [
+                        2.0,
+                        4.0,
+                        2.0,
+                        2.0
+                    ],
+                    "texture": "textures/ui/pressable_elevated_secondary_pressing_black"
+                }
+            },
+            {
+                "arrow": {
+                    "type": "image",
+                    "anchor_from": "center",
+                    "anchor_to": "center",
+                    "size": [
+                        "10px",
+                        "10px"
+                    ],
+                    "layer": 4,
+                    "keep_ratio": true,
+                    "texture": "textures/ui/icon/arrow"
+                }
+            }
+        ]
+    },
     "item_picker_content": {
         "type": "image",
         "$desc_text": "你好\n114514\nhalloworld\nLoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong",
@@ -1382,64 +1470,6 @@
                             }
                         }
                     ]
-                }
-            }
-        ]
-    },
-    "item_picker_button": {
-        "type": "button",
-        "size": ["100%+0px", "100%+0px"],
-        "layer": 1,
-        "button_mappings": [],
-        "default_control": "normal",
-        "hover_control": "hover",
-        "pressed_control": "pressing",
-        "is_handle_button_move_event": true,
-        "sound_name": "random.click",
-        "sound_pitch": 1.0,
-        "sound_volume": 1.0,
-        "controls": [
-            {
-                "normal": {
-                    "type": "image",
-                    "size": ["100%+0px", "100%+0px"],
-                    "layer": 1,
-                    "keep_ratio": false,
-                    "nineslice_size": [2.0, 2.0, 2.0, 4.0],
-                    "texture": "textures/ui/pressable_elevated_secondary_default"
-                }
-            },
-            {
-                "hover": {
-                    "type": "image",
-                    "size": ["100%+0px", "100%+0px"],
-                    "layer": 2,
-                    "visible": false,
-                    "keep_ratio": false,
-                    "nineslice_size": [2.0, 2.0, 2.0, 4.0],
-                    "texture": "textures/ui/pressable_elevated_secondary_hovered"
-                }
-            },
-            {
-                "pressing": {
-                    "type": "image",
-                    "size": ["100%+0px", "100%+0px"],
-                    "layer": 3,
-                    "visible": false,
-                    "keep_ratio": false,
-                    "nineslice_size": [2.0, 4.0, 2.0, 2.0],
-                    "texture": "textures/ui/pressable_elevated_secondary_pressing_black"
-                }
-            },
-            {
-                "arrow": {
-                    "type": "image",
-                    "anchor_from": "center",
-                    "anchor_to": "center",
-                    "size": ["10px", "10px"],
-                    "layer": 4,
-                    "keep_ratio": true,
-                    "texture": "textures/ui/icon/arrow"
                 }
             }
         ]
@@ -2915,6 +2945,13 @@
             {
                 "under_toast@toast.toast_under": {
                     "$text": "",
+                    "visible": false
+                }
+            },
+            {
+                "item_name_toast@toast.toast_item_name": {
+                    "$text": "",
+                    "$namespace": "",
                     "visible": false
                 }
             }

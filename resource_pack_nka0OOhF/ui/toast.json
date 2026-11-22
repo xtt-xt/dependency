@@ -1,116 +1,96 @@
 {
     "namespace": "toast",
-    "toast_top_enter": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+0px",
-            "-60%+0px"
-        ],
-        "next": "",
-        "to": [
-            "0%+0px",
-            "-45%+0px"
-        ]
-    },
-    "toast_top_exit": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+0px",
-            "-45%+0px"
-        ],
-        "next": "",
-        "to": [
-            "0%+0px",
-            "-60%+0px"
-        ]
-    },
-    "toast_top_right_enter": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "70%+0px",
-            "-45%+0px"
-        ],
-        "next": "",
-        "to": [
-            "35%+0px",
-            "-45%+0px"
-        ]
-    },
-    "toast_top_right_exit": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "35%+0px",
-            "-45%+0px"
-        ],
-        "next": "",
-        "to": [
-            "35%+0px",
-            "-60%+0px"
-        ]
-    },
-    "toast_under_enter": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+0px",
-            "60%+0px"
-        ],
-        "next": "",
-        "to": [
-            "0%+0px",
-            "40%+0px"
-        ]
-    },
-    "toast_under_exit": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+0px",
-            "40%+0px"
-        ],
-        "next": "",
-        "to": [
-            "0%+0px",
-            "60%+0px"
-        ]
-    },
-    "toast_under_shadow_enter": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+2px",
-            "60%+2px"
-        ],
-        "next": "",
-        "to": [
-            "0%+2px",
-            "40%+2px"
-        ]
-    },
-    "toast_under_shadow_exit": {
-        "anim_type": "offset",
-        "duration": 1.0,
-        "from": [
-            "0%+2px",
-            "40%+2px"
-        ],
-        "next": "",
-        "to": [
-            "0%+2px",
-            "60%+2px"
-        ]
-    },
-    "toast_top": {
+    "toast_item_name": {
         "type": "panel",
-        "layer": 1000,
+        "$namespace": "命名空间",
+        "$text": "halloworld",
         "size": [
             "100%",
             "100%"
         ],
+        "layer": 1000,
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "offset": [
+                        "0%+0px",
+                        "40%+0px"
+                    ],
+                    "size": [
+                        "100%c+7px",
+                        "100%c+7px"
+                    ],
+                    "layer": 2,
+                    "keep_ratio": false,
+                    "texture": "textures/ui/purpleBorder",
+                    "controls": [
+                        {
+                            "stack_panel": {
+                                "type": "stack_panel",
+                                "size": [
+                                    "100%cm+0px",
+                                    "default"
+                                ],
+                                "layer": 1,
+                                "controls": [
+                                    {
+                                        "item_name": {
+                                            "type": "label",
+                                            "$text|default": "",
+                                            "offset": [
+                                                0.0,
+                                                1.0
+                                            ],
+                                            "size": [
+                                                "default",
+                                                10.0
+                                            ],
+                                            "layer": 3,
+                                            "font_type": "unicode",
+                                            "text": "$text",
+                                            "text_alignment": "center"
+                                        }
+                                    },
+                                    {
+                                        "namespace": {
+                                            "type": "label",
+                                            "$namespace|default": "",
+                                            "$text|default": "",
+                                            "offset": [
+                                                0.0,
+                                                1.0
+                                            ],
+                                            "size": [
+                                                "default",
+                                                10.0
+                                            ],
+                                            "layer": 3,
+                                            "color": [
+                                                0.3450980392156863,
+                                                0.3294117647058823,
+                                                0.7843137254901961
+                                            ],
+                                            "font_type": "unicode",
+                                            "text": "$namespace",
+                                            "text_alignment": "center"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "toast_top": {
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "layer": 1000,
         "controls": [
             {
                 "backdrop": {
@@ -182,15 +162,41 @@
             }
         ]
     },
+    "toast_top_enter": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+0px",
+            "-60%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "-45%+0px"
+        ]
+    },
+    "toast_top_exit": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "-60%+0px"
+        ]
+    },
     "toast_top_right": {
         "type": "panel",
-        "layer": 1000,
+        "$icon": "",
+        "$text": "halloworld",
         "size": [
             "100%",
             "100%"
         ],
-        "$icon": "",
-        "$text": "halloworld",
+        "layer": 1000,
         "controls": [
             {
                 "backdrop": {
@@ -262,14 +268,40 @@
             }
         ]
     },
+    "toast_top_right_enter": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "70%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "35%+0px",
+            "-45%+0px"
+        ]
+    },
+    "toast_top_right_exit": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "35%+0px",
+            "-45%+0px"
+        ],
+        "next": "",
+        "to": [
+            "35%+0px",
+            "-60%+0px"
+        ]
+    },
     "toast_under": {
         "type": "panel",
-        "layer": 1000,
+        "$text": "halloworld",
         "size": [
             "100%",
             "100%"
         ],
-        "$text": "halloworld",
+        "layer": 1000,
         "controls": [
             {
                 "image": {
@@ -325,5 +357,64 @@
                 }
             }
         ]
+    },
+    "toast_under_enter": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+0px",
+            "60%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "40%+0px"
+        ]
+    },
+    "toast_under_exit": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+0px",
+            "40%+0px"
+        ],
+        "next": "",
+        "to": [
+            "0%+0px",
+            "60%+0px"
+        ]
+    },
+    "toast_under_shadow_enter": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+2px",
+            "60%+2px"
+        ],
+        "next": "",
+        "to": [
+            "0%+2px",
+            "40%+2px"
+        ]
+    },
+    "toast_under_shadow_exit": {
+        "anim_type": "offset",
+        "duration": 1,
+        "from": [
+            "0%+2px",
+            "40%+2px"
+        ],
+        "next": "",
+        "to": [
+            "0%+2px",
+            "60%+2px"
+        ]
+    },
+    "toast_item_name_fade": {
+        "anim_type": "alpha",
+        "duration": 2,
+        "from": 1.0,
+        "to": 0.0,
+        "next": ""
     }
 }
