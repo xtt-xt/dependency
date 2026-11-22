@@ -208,6 +208,13 @@
                         }
                     ]
                 }
+            },
+            {
+                "item_name_toast@toast.toast_item_name": {
+                    "$text": "",
+                    "$namespace": "",
+                    "visible": false
+                }
             }
         ]
     },
@@ -850,6 +857,13 @@
                             }
                         }
                     ]
+                }
+            },
+            {
+                "item_name_toast@toast.toast_item_name": {
+                    "$text": "",
+                    "$namespace": "",
+                    "visible": false
                 }
             }
         ]

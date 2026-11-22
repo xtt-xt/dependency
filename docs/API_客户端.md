@@ -384,6 +384,8 @@ inst.AddItemPicker(
 
 > 选中值以 `"物品名|附加值"` 字符串持久化（附加值为 0 时只存物品名），随 `SaveGroupSettings` / `SaveAllSettings` 保存，`ResetGroupSettings` 恢复为 `default_item`。确认后内容项图标实时刷新，无需重建面板。
 
+> **点预览格看物品名**：预览格（`setting.item_picker_content` 的 `icon`）上盖了一层透明按钮 `tap`，点格子会弹出「物品名提示」（第一行本地化名称、第二行紫色**命名空间**——identifier 冒号前那段，如 `minecraft`，停留 1.5 秒后 1 秒渐隐）；未选择时不弹。箭头按钮仍负责打开物品选择弹窗。
+
 #### Clear()
 
 清除当前分组的所有内容项。
@@ -729,6 +731,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 > 行内按钮回调签名与底部按钮不同：行内是 `(screenNode, toggle_id, option_id)`，底部是 `(screenNode, toggle_id, state_dict)`。点行内按钮前会先落盘当前开关/编辑框状态。
 > 行内按钮的点击视觉与右侧「按钮内容项」（`OnRightButtonClick`）一致：点过之后隐藏按钮文字、显示 `finish` 图标；`RefreshCardToggle` 重建后仍保持图标态，关闭弹窗后重置（`mRowBtnFinished` 是弹窗会话级状态，不落盘）。
 > 物品选择行用的是**固定箭头图标按钮**（与右侧「物品选择」内容项同款，`setting.item_picker_button`，尺寸 `6%` × 24），不回显 `finish` 图标（同一行可以反复改选）：点箭头把**现有的物品选择弹窗**（`pop_up.item_picker`，8 列 × 5 行网格 + 搜索 + 分页）叠在组合开关弹窗之上，点「确定」才回填预览格；**打开时会按该行已存状态预选当前物品**，并自动翻到该物品所在页（否则勾选落在别的页、页脚显示「未选择」，看不出当前生效的是哪件）；此时 ESC 先关物品选择弹窗、再关组合开关弹窗。选中值写入组合开关状态（键 `cardtoggle.<toggle_id>`，格式 `"物品名|附加值"`，与物品选择内容项一致），关闭弹窗 / 重进游戏都能读回；`default_value` 为空且从未选过时预览格不画图标。
+> 点**预览格本身**（`preview` 上盖的透明按钮 `tap`）会弹出「物品名提示」（本地化名称 + 命名空间（identifier 冒号前那段，如 `minecraft`），停留 1.5 秒后 1 秒渐隐），行被锁定时也允许查看（锁定只禁改选）；未选择的预览格不弹。
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
@@ -868,7 +871,7 @@ AddCardToggleButton("my_toggles", "删末尾一行", OnRemoveRow)
 
 ## 物品选择弹窗（ItemPicker）API
 
-从一组**固定物品**中选一个：8 列 × 4 行（32 格/页）翻页网格、搜索框按 identifier/说明过滤、搜索框右侧 `<` 页码 `>` 翻页；点格子只选中高亮，点「确定」才写回；取消 / 右上角关闭 / ESC 都不生效。
+从一组**固定物品**中选一个：8 列 × 4 行（32 格/页）翻页网格、搜索框按 identifier/说明过滤、搜索框右侧 `<` 页码 `>` 翻页；点格子只选中高亮，点「确定」才写回；取消 / 右上角关闭 / ESC 都不生效。点格子的同时会弹出「物品名提示」（第一行本地化名称、第二行紫色命名空间——identifier 冒号前那段，如 `minecraft`，停留 1.5 秒后 1 秒渐隐），该提示显示在弹窗自己的 `item_name_toast` 副本上（`pop_up.item_picker` 根节点，盖住弹窗内容），不走 `CreateUI` 叠加层。
 
 ### RegisterItemPicker(picker_id, title, items=None, columns=8, page_size=40)
 
@@ -1004,19 +1007,20 @@ RegisterItemPicker("my_item_picker", "选择物品", items=entries)
 
 显示**物品名提示**——类原版点击物品弹出的名称框（JSON 控件 `toast_item_name`）：紫色底板 + 物品名（白色）+ 命名空间（紫色）两行。
 
-时序固定、不可配：**立即以完全不透明显示 → 停留 2 秒 → 用 2 秒把整块（底板与两行文字一起）线性淡到全透明 → 隐藏**。中途再次调用视为"重弹"：马上回到完全不透明并重新计时，**不排队、不叠加**。
+时序固定、不可配：**立即以完全不透明显示 → 停留 1.5 秒 → 用 1 秒把整块（底板与两行文字一起）线性淡到全透明 → 隐藏**。中途再次调用视为"重弹"：马上回到完全不透明并重新计时，**不排队、不叠加**。
 
-显示位置按当前打开的界面自动选择：
+显示位置只看**当前最上层界面自己的内嵌副本**（随界面一起渲染，不使用 `CreateUI` 叠加层）：
 
-- **设置界面打开且在 UI 栈顶时**：显示在设置界面内部的高层级附加层（`setting.under_toast_layer` 里的 `item_name_toast@toast.toast_item_name` 副本），天然盖在设置 UI 之上；
-- **设置界面被弹窗 / 背包等界面盖住、或未打开时**：`CreateUI` 叠加层（每次显示新建实例，层级锁定为"触发那一刻的当前 UI + 1000"，因此叠在弹窗之上也看得见）。
+- **设置界面**：`setting.under_toast_layer` 里的 `item_name_toast@toast.toast_item_name` 副本，天然盖在设置 UI 之上；
+- **物品选择弹窗**：`pop_up.item_picker` 根节点下的 `item_name_toast` 副本；
+- **组合开关弹窗**：`pop_up.card_toggle_panel` 根节点下的 `item_name_toast` 副本（点它的物品选择行预览格时用）。
 
-> 判定用 `clientApi.GetTopScreen()`：设置主界面是 `render_only_when_topmost: true` 的，被别的界面盖住时整屏不渲染，此时若还塞给内嵌面板就会出现"提示已经播了但屏幕上什么都没有"。
+> 路由用 `clientApi.GetTopScreen()` 取栈顶界面，再按注册表（`register_item_name_host` / `unregister_item_name_host`，界面 Create/Destroy 时各自登记）挑出该界面自己的副本宿主。为什么不能只靠设置界面那一份：设置主界面是 `render_only_when_topmost: true` 的，被弹窗盖住时整屏不渲染，塞给它就是"提示已经播了但屏幕上什么都没有"；而弹窗是独立的 `screen`，副本必须挂在弹窗自己身上。只有栈顶界面没有任何副本（如纯游戏画面、背包）才退回 `CreateUI` 叠加层兜底。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | text | str | 是 | 物品显示名（第一行） |
-| namespace | str | 否 | 命名空间 / identifier（第二行，默认紫色）；空串则第二行为空 |
+| namespace | str | 否 | 第二行的命名空间文本（默认紫色）；空串则第二行为空。框架内部的「物品名提示」传的是 identifier 冒号前那段（`minecraft:diamond_sword` → `minecraft`），中文分类原样显示 |
 | color | tuple | 否 | 第一行文字颜色 `(r, g, b)`，0~1；`None` 用 JSON 默认白色 |
 | namespace_color | tuple | 否 | 第二行文字颜色 `(r, g, b)`，0~1；`None` 用 JSON 默认紫色 |
 
@@ -1026,7 +1030,7 @@ from CardRegistryApi import ShowItemNameToast
 ShowItemNameToast("钻石镐", "minecraft:diamond_pickaxe")
 ```
 
-> 淡出由 JSON 的 `toast_item_name_fade`（`anim_type: alpha`，2 秒 1→0）实现。alpha **不会**从父控件传给子控件，且 `SetAlpha` / alpha 动画只对 `image` 与 `label` 生效，所以 Python 侧给紫色底板与两行文字**逐个**挂同一段动画。
+> 淡出**不用属性动画**，而是用 `AddRepeatedTimer` 每 0.02 秒调一次 `SetAlpha` 逐帧推进（1 秒 = 50 步）。alpha **不会**从父控件传给子控件，且 `SetAlpha` 只对 `image` 与 `label` 生效，所以紫色底板与两行文字要**逐个**设同一个值。为什么不用 alpha 动画（2026-11-22 两次实测）：① 属性动画一经 `SetAnimation` 就常驻在控件的 alpha 属性上，之后再 `SetAnimation` 会刷 `[Error][SetAnimation] add_property_anim_to_control: property_name "alpha" already has animation`，**且这次设置不生效**（同一批控件被复用时的表现就是"点了不显示"）；② 反过来对没有动画的控件调 `StopAnimation` / `RemoveAnimation` 会刷 `there's no animation on control`。两者都是引擎错误日志、不是 Python 异常，`try/except` 拦不住，而控件上有没有动画从 Python 侧也查不到 —— 所以这里彻底改用 `SetAlpha`，只依赖可确定控制的透明度接口。定时器一律用 `CancelTimer` 取消（Game 组件**没有** `KillTimer`），回调带代次号，避免已取消但已排队的旧回调改 alpha 或隐藏新一轮面板。
 
 #### 外部模组使用示例（延迟导入）
 

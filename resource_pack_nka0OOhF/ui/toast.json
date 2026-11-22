@@ -409,12 +409,5 @@
             "0%+2px",
             "60%+2px"
         ]
-    },
-    "toast_item_name_fade": {
-        "anim_type": "alpha",
-        "duration": 2,
-        "from": 1.0,
-        "to": 0.0,
-        "next": ""
     }
 }

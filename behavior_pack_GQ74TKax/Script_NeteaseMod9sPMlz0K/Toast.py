@@ -10,8 +10,10 @@ Toast 提示系统
 - 进入(1s) -> 停留(默认3s/可自定义) -> 退出(1s) 三段动画。
 - 同一位置的多个 toast 按调用顺序排队播放（一个播完播下一个）。
 - 另有「物品名提示」（ShowItemNameToast，对应 toast_item_name 控件）：不滑入，
-  立即不透明显示，停留 2 秒后在 2 秒内把整块（底板 + 物品名 + 命名空间两行文字）
+  立即不透明显示，停留 1.5 秒后在 1 秒内把整块（底板 + 物品名 + 命名空间两行文字）
   淡到全透明；中途重复触发即"回到不透明并重新计时"，不排队。
+  它显示在**当前最上层界面自己的内嵌副本**上（设置界面 / 物品选择弹窗 /
+  组合开关弹窗各一份），不走 CreateUI 叠加层。
 
 对外 API 由 CardRegistryApi 再导出（ShowToast / ShowItemNameToast / ToastTop /
 ToastTopRight / ToastUnder），外部模组需在 UiInitFinished 内延迟导入调用。
@@ -49,12 +51,14 @@ _DEFAULT_SOUNDS = {
 }
 
 # ────────────────── 物品名提示（toast_item_name） ──────────────────
-# 与上面三个滑入式位置不同：不走 offset 动画、不排队。显示时序固定为
-# 「立即不透明 -> 停留 _ITEM_NAME_HOLD 秒 -> 用 2 秒淡到全透明」。
+# 与上面三个滑入式位置不同：不走位移、不排队。显示时序固定为
+# 「立即不透明 -> 停留 _ITEM_NAME_HOLD 秒 -> 用 _ITEM_NAME_FADE 秒淡到全透明」。
+# 淡出不用 JSON 属性动画，而是 AddRepeatedTimer 逐帧 SetAlpha（原因见 ItemNameFade 注释）。
 _ITEM_NAME_UI_KEY = "ToastItemName"
 _ITEM_NAME_SCREEN = "toast.toast_item_name"
-_ITEM_NAME_HOLD = 2.0                     # 不透明停留时长（秒）
-_ITEM_NAME_FADE_ANIM = "toast_item_name_fade"   # toast.json 里的 2 秒 alpha 动画
+_ITEM_NAME_HOLD = 1.5                     # 不透明停留时长（秒）
+_ITEM_NAME_FADE = 1.0                     # 淡出总时长（秒）
+_ITEM_NAME_FADE_STEP = 0.02               # 淡出每步间隔（秒），1 秒 = 50 步
 # 参与淡出的控件（相对 toast_item_name 根节点）。
 # alpha 不会从父控件传给子控件（要继承得配 propagate_alpha），而 SetAlpha / alpha
 # 动画只对 image 与 label 生效，所以底板与两行文字必须逐个淡。
@@ -100,32 +104,64 @@ def unregister_settings_under_host(host):
         _settings_under_host = None
 
 
-def _SettingsScreenOnTop():
-    """设置界面是否正位于 UI 栈顶（弹窗 / 背包等盖在上面时返回 False）。
 
-    设置主界面是 `render_only_when_topmost: true` 的：被别的界面盖住时整屏不渲染，
-    所以"设置界面存在"≠"它内部的附加层看得见"。物品名提示要求"点了就看得见"，
-    这里用 clientApi.GetTopScreen() 判断；栈顶不是设置界面时改用叠加层
-    （CreateUI 的层级锁定为当前 UI + 1000，天然盖在任何界面之上）。
+# 物品名提示的「内嵌副本」宿主注册表。
+# 设置界面、物品选择弹窗、组合开关弹窗各自在 JSON 里放一份 toast.toast_item_name
+# 副本，界面 Create 时把自己的 ScreenNode 登记进来（需实现 ShowEmbeddedItemNameToast），
+# Destroy 时注销。触发时按**栈顶界面**挑宿主——副本跟着它所在的界面一起渲染，
+# 不使用 CreateUI 叠加层（叠加层的层级/显示都不受界面生命周期控制）。
+_item_name_hosts = []
+
+
+def register_item_name_host(host):
+    """登记物品名提示的内嵌副本宿主（界面 Create 时调用）。"""
+    if host is None:
+        return
+    if host not in _item_name_hosts:
+        _item_name_hosts.append(host)
+
+
+def unregister_item_name_host(host):
+    """注销内嵌副本宿主（界面 Destroy 时调用）。"""
+    try:
+        _item_name_hosts.remove(host)
+    except ValueError:
+        pass
+
+
+def _FindItemNameHost():
+    """返回当前栈顶界面登记的内嵌副本宿主；没有对应界面则返回 None。
+
+    为什么按栈顶挑：设置主界面是 render_only_when_topmost 的，弹窗盖上来后它内部
+    的副本不再渲染；而每个弹窗是独立 screen，副本只能挂在弹窗自己身上。
     """
-    if _settings_under_host is None:
-        return False
+    if not _item_name_hosts:
+        return None
     getter = getattr(clientApi, "GetTopScreen", None)
     if getter is None:
-        # 老版本引擎没有该接口：沿用"设置界面存在即视为可见"的旧判定
-        return True
+        # 老引擎拿不到栈顶：仅当只有一个宿主时沿用（插件只有一个可见界面）
+        return _item_name_hosts[0] if len(_item_name_hosts) == 1 else None
     try:
         top = getter()
     except Exception:
-        return True
+        top = None
     if top is None:
-        return False
-    if top is _settings_under_host:
-        return True
+        return None
+    if top in _item_name_hosts:
+        return top
     try:
-        return str(top.GetScreenName() or "") == "setting.main"
+        name = str(top.GetScreenName() or "")
     except Exception:
-        return True
+        return None
+    if not name:
+        return None
+    for host in _item_name_hosts:
+        try:
+            if str(host.GetScreenName() or "") == name:
+                return host
+        except Exception:
+            continue
+    return None
 
 
 def RegisterToastScreens():
@@ -140,7 +176,7 @@ def RegisterToastScreens():
             "Script_NeteaseMod9sPMlz0K.Toast.ToastScreenNode",
             screen_path
         )
-    # 物品名提示（独立 ScreenNode：没有 offset 进出场，靠 alpha 动画淡出）
+    # 物品名提示（独立 ScreenNode：没有 offset 进出场，靠逐帧 SetAlpha 淡出）
     clientApi.RegisterUI(
         "Script_NeteaseMod9sPMlz0K",
         _ITEM_NAME_UI_KEY,
@@ -321,64 +357,136 @@ class ToastScreenNode(ScreenNode):
 
 
 class ItemNameFade(object):
-    """物品名提示的显示计时与淡出（叠加层与设置界面内嵌面板共用）。
+    """物品名提示的显示计时与淡出（各界面内嵌副本共用）。
 
-    时序：立即 alpha=1（不透明）-> 停留 _ITEM_NAME_HOLD 秒 -> 2 秒线性淡到 0。
+    时序：立即 alpha=1（不透明）-> 停留 _ITEM_NAME_HOLD 秒 -> 用 _ITEM_NAME_FADE 秒
+    线性淡到 0 -> 回调调用方隐藏面板 -> alpha 基线复位成 1.0。
     Restart 会掐掉上一轮计时、把控件拉回不透明再重新计时，所以"中途再弹一次"
     既不会叠加计时，也不会从半透明接着变暗。
+
+    为什么不用 JSON 属性动画（2026-11-22 两次实测）：
+    1. alpha 动画一旦 `SetAnimation` 就常驻在控件的 alpha 属性上，之后再
+       `SetAnimation` 会刷 `add_property_anim_to_control: property_name "alpha"
+       already has animation`，且这次的动画不会生效（叠加层 CreateUI 复用同一批
+       控件时表现为"点了不显示"）。
+    2. 反过来，对**没有**动画的控件调 `StopAnimation` / `RemoveAnimation` 会刷
+       `there's no animation on control`。
+    两者都是引擎错误日志、不是 Python 异常，try/except 拦不住，而控件上到底有没有
+    动画从 Python 侧无从查询。所以这里完全不用属性动画，改成 AddRepeatedTimer
+    逐帧 SetAlpha：只依赖 SetAlpha（对 image/label 有效），没有动画注册表状态，
+    重复触发、复用控件都能确定地回到完全不透明。
     """
 
     def __init__(self):
-        self.mTimer = None      # 停留计时（进入淡出前唯一需要清理的 timer）
+        self.mHoldTimer = None  # 停留计时
+        self.mFadeTimer = None  # 淡出计时（重复 timer）
         self.mCtrls = []        # 参与淡出的控件（image + label）
         self.mOnDone = None     # 淡出结束回调（隐藏面板）
+        self.mSteps = 1         # 本轮淡出总步数
+        self.mStep = 0          # 已完成步数
+        # 代次号：每次计时器都把它当参数传进去，回调先比对代次；Stop/重启时
+        # 代次自增，已被取消（或引擎已排队）的旧回调看到代次不符就直接返回，
+        # 绝不会再去改 alpha 或隐藏新一轮的面板。
+        self.mGen = 0
 
     def Restart(self, ctrls, on_done=None):
         """重新开始一轮：控件回到完全不透明，_ITEM_NAME_HOLD 秒后开始淡出。"""
         self.Stop()
+        self.mGen += 1
+        gen = self.mGen
         self.mCtrls = [ctrl for ctrl in ctrls if ctrl]
         self.mOnDone = on_done
-        for ctrl in self.mCtrls:
-            # 上一轮淡出可能还挂着 alpha 动画（残留值 0），先摘掉再手动置 1
-            try:
-                ctrl.StopAnimation("alpha")
-                ctrl.RemoveAnimation("alpha")
-            except Exception:
-                pass
-            ctrl.SetAlpha(1.0)
+        self._ApplyAlpha(1.0)
         if not self.mCtrls:
             return
         try:
-            game_comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-            self.mTimer = game_comp.AddTimer(_ITEM_NAME_HOLD, self._StartFade)
+            self.mHoldTimer = self._Game().AddTimer(_ITEM_NAME_HOLD, self._StartFade, gen)
         except Exception as e:
             dlog.client_print("==== ItemNameFade: timer error: %s ====" % str(e))
 
-    def _StartFade(self):
-        """停留结束：给每个控件挂上 2 秒 alpha 动画并同时播放。"""
-        self.mTimer = None
+    @staticmethod
+    def _Game():
+        return clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+
+    def _ApplyAlpha(self, alpha):
+        """给所有参与淡出的控件设置同一个 alpha（逐个设，alpha 不向子控件传递）。"""
         for ctrl in self.mCtrls:
             try:
-                ctrl.SetAnimation("alpha", _ANIM_NS, _ITEM_NAME_FADE_ANIM)
-                ctrl.PlayAnimation("alpha")
-            except Exception as e:
-                dlog.client_print("==== ItemNameFade: play fade error: %s ====" % str(e))
-        # 结束回调只挂一个控件即可（三个动画同时开始、时长相同）
-        if self.mCtrls and self.mOnDone:
-            try:
-                self.mCtrls[0].SetAnimEndCallback(_ITEM_NAME_FADE_ANIM, self.mOnDone)
-            except Exception as e:
-                dlog.client_print("==== ItemNameFade: end callback error: %s ====" % str(e))
-
-    def Stop(self):
-        """掐掉停留计时（淡出动画由调用方按需摘除）。"""
-        if self.mTimer is not None:
-            try:
-                game_comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-                game_comp.KillTimer(self.mTimer)
+                ctrl.SetAlpha(alpha)
             except Exception:
                 pass
-            self.mTimer = None
+
+    def _StartFade(self, gen):
+        """停留结束：启动逐帧淡出计时。"""
+        if gen != self.mGen:
+            return
+        self.mHoldTimer = None
+        if not self.mCtrls:
+            return
+        total = _ITEM_NAME_FADE / _ITEM_NAME_FADE_STEP
+        self.mSteps = max(1, int(round(total)))
+        self.mStep = 0
+        try:
+            self.mFadeTimer = self._Game().AddRepeatedTimer(
+                _ITEM_NAME_FADE_STEP, self._OnFadeTick, gen)
+        except Exception as e:
+            dlog.client_print("==== ItemNameFade: fade timer error: %s ====" % str(e))
+            self._Finish()
+
+    def _OnFadeTick(self, gen):
+        """淡出每步：把 alpha 从 1 线性推到 0，走完则收尾。"""
+        if gen != self.mGen:
+            return
+        self.mStep += 1
+        if self.mStep >= self.mSteps:
+            self._ApplyAlpha(0.0)
+            self._Finish()
+            return
+        self._ApplyAlpha(1.0 - float(self.mStep) / float(self.mSteps))
+
+    def _Finish(self):
+        """淡出结束：停计时 -> 通知调用方隐藏面板 -> alpha 基线复位成 1.0。"""
+        self.mGen += 1          # 让可能还在排队的旧 tick 失效
+        self._CancelTimer("mFadeTimer")
+        self._ApplyAlpha(0.0)
+        done = self.mOnDone
+        if done:
+            try:
+                done()
+            except Exception as e:
+                dlog.client_print("==== ItemNameFade: on done error: %s ====" % str(e))
+        # 面板已隐藏，先把基线拉回不透明，下一轮 Restart 直接可见
+        self._ApplyAlpha(1.0)
+
+    def _CancelTimer(self, attr):
+        """取消计时器。
+
+        注意：官方 Game 组件只有 `CancelTimer(timer)`，**没有 `KillTimer`**。
+        以前这里写的是 `KillTimer`，AttributeError 被 try/except 吞掉 → 计时器从未取消，
+        旧的一轮淡出仍在每 20ms 把 alpha 写回 0，表现为"再点一下只闪一帧就继续变暗"、
+        叠加层里干脆一直看不见。这里优先 CancelTimer，KillTimer 仅作旧版兜底。
+        """
+        tid = getattr(self, attr, None)
+        if tid is None:
+            return
+        game = self._Game()
+        for name in ("CancelTimer", "KillTimer"):
+            cancel = getattr(game, name, None)
+            if cancel is None:
+                continue
+            try:
+                cancel(tid)
+                break
+            except Exception:
+                pass
+        setattr(self, attr, None)
+
+    def Stop(self):
+        """掐掉停留计时与淡出计时（旧代次的回调随之失效）。"""
+        self.mGen += 1
+        self._CancelTimer("mHoldTimer")
+        self._CancelTimer("mFadeTimer")
+
 
 
 class ItemNameToastScreenNode(ScreenNode):
@@ -500,12 +608,13 @@ def ShowItemNameToast(text, namespace="", color=None, namespace_color=None):
     """
     显示「物品名提示」（类原版点击物品弹出的名称框，对应 toast_item_name 控件）。
 
-    时序固定，不可配：立即以完全不透明显示 -> 停留 2 秒 -> 2 秒内把整块
+    时序固定，不可配：立即以完全不透明显示 -> 停留 1.5 秒 -> 1 秒内把整块
     （紫色底板 + 物品名 + 命名空间两行文字）线性淡到全透明 -> 隐藏。
     中途再次调用视为"重弹"：马上回到完全不透明并重新计时，不排队、不叠加。
 
-    显示位置按当前打开界面决定：设置界面打开时显示在设置界面内部
-    （盖在设置 UI 之上，与底部 toast 同一套路由）；否则用 CreateUI 叠加层。
+    显示位置只看**当前最上层界面自己的内嵌副本**：设置界面 / 物品选择弹窗 /
+    组合开关弹窗各有一份 item_name_toast，随界面一起渲染。弹窗打开时不会退回
+    CreateUI 叠加层；只有栈顶界面没有任何副本（比如纯游戏画面）才用叠加层兜底。
 
     :param text:           物品显示名（第一行，白色）
     :param namespace:      命名空间/identifier（第二行，默认紫色，可传空串只显示名称）
@@ -518,15 +627,16 @@ def ShowItemNameToast(text, namespace="", color=None, namespace_color=None):
         "color": color,
         "namespace_color": namespace_color,
     }
-    # 设置界面开着且在最上层时显示在界面内部的高层级面板上；
-    # 界面被弹窗盖住（render_only_when_topmost 不渲染）或没开时走 CreateUI 叠加层
-    host = _settings_under_host
-    if host is not None and _SettingsScreenOnTop() and hasattr(host, "ShowEmbeddedItemNameToast"):
+    # 栈顶界面（设置界面 / 物品选择弹窗 / 组合开关弹窗）内部各有一份副本
+    host = _FindItemNameHost()
+    if host is not None and hasattr(host, "ShowEmbeddedItemNameToast"):
         try:
+            dlog.client_print("==== ShowItemNameToast: 走栈顶界面的内嵌副本 ====")
             host.ShowEmbeddedItemNameToast(cfg)
             return
         except Exception as e:
             dlog.client_print("==== ShowItemNameToast: embedded host error: %s ====" % str(e))
+    dlog.client_print("==== ShowItemNameToast: 栈顶界面无副本，退回 CreateUI 叠加层 ====")
 
     # 每次显示都重建（与 _PlayNext 同理）：CreateUI 的层级在创建那一刻锁定为
     # "当前 UI + 1000"，沿用旧实例会在打开新界面后被盖住；重建同时天然把

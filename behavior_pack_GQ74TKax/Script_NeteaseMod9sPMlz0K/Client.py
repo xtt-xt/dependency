@@ -1352,6 +1352,94 @@ class Test1ScreenNode(ScreenNode):
         dlog.client_print("==== Test1 sub_card sub_%d_%s selected ====" % (index, key))
 
 
+# ────────────── 界面内嵌「物品名提示」副本（item_name_toast）──────────────
+# 物品名提示不走 CreateUI 叠加层：设置界面、物品选择弹窗、组合开关弹窗各自在
+# JSON 里放一份 toast.toast_item_name 副本（控件名 item_name_toast）。界面 Create
+# 时缓存控件并把自己登记为宿主，触发时 Toast.ShowItemNameToast 按栈顶界面挑宿主，
+# 于是提示永远跟着当前界面一起渲染。淡出复用 Toast.ItemNameFade（逐帧 SetAlpha）。
+# 三个界面共用下面这组模块级函数，ScreenNode 只留薄壳方法给 Toast 调用。
+
+
+def _SetupEmbeddedItemNameToast(node, paths):
+    """在界面 node 上找 item_name_toast 副本并缓存控件（paths 为候选绝对路径）。"""
+    node.mEmbeddedItemNameRoot = None
+    node.mEmbeddedItemNameCtrls = []
+    node.mEmbeddedItemNameLabel = None
+    node.mEmbeddedItemNameNamespaceLabel = None
+    node.mEmbeddedItemNameFade = None
+    try:
+        from Toast import ItemNameFade, register_item_name_host
+    except ImportError:
+        return
+    for path in paths:
+        try:
+            root = node.GetBaseUIControl(path)
+            if not root:
+                continue
+            imageCtrl = node.GetBaseUIControl(path + "/image")
+            nameCtrl = node.GetBaseUIControl(path + "/image/stack_panel/item_name")
+            namespaceCtrl = node.GetBaseUIControl(path + "/image/stack_panel/namespace")
+            node.mEmbeddedItemNameRoot = root
+            node.mEmbeddedItemNameCtrls = [c for c in (imageCtrl, nameCtrl, namespaceCtrl) if c]
+            node.mEmbeddedItemNameLabel = nameCtrl.asLabel() if nameCtrl else None
+            node.mEmbeddedItemNameNamespaceLabel = namespaceCtrl.asLabel() if namespaceCtrl else None
+            node.mEmbeddedItemNameFade = ItemNameFade()
+            # 默认隐藏：防止界面首次打开时内嵌面板闪出
+            root.SetVisible(False)
+            register_item_name_host(node)
+            dlog.client_print("==== embedded item name toast found at: %s ====" % path)
+            return
+        except Exception as e:
+            dlog.client_print("==== embedded item name toast path error %s: %s ====" % (path, str(e)))
+    dlog.client_print("==== embedded item name toast panel not found ====")
+
+
+def _ShowEmbeddedItemNameToast(node, cfg):
+    """在界面内部显示「物品名提示」：立即不透明 -> 停留 -> 淡出（重复调用即重置）。"""
+    root = getattr(node, "mEmbeddedItemNameRoot", None)
+    fade = getattr(node, "mEmbeddedItemNameFade", None)
+    if not root or not fade:
+        return
+    if node.mEmbeddedItemNameLabel:
+        node.mEmbeddedItemNameLabel.SetText(cfg.get("text", ""), True)
+        color = cfg.get("color")
+        if color:
+            node.mEmbeddedItemNameLabel.SetTextColor(color)
+    if node.mEmbeddedItemNameNamespaceLabel:
+        node.mEmbeddedItemNameNamespaceLabel.SetText(cfg.get("namespace", ""), True)
+        color = cfg.get("namespace_color")
+        if color:
+            node.mEmbeddedItemNameNamespaceLabel.SetTextColor(color)
+    root.SetVisible(True)
+    fade.Restart(node.mEmbeddedItemNameCtrls, lambda: _HideEmbeddedItemNameToast(node))
+
+
+def _HideEmbeddedItemNameToast(node):
+    """淡出结束（或界面销毁），隐藏内嵌物品名提示面板。"""
+    root = getattr(node, "mEmbeddedItemNameRoot", None)
+    if root:
+        try:
+            root.SetVisible(False)
+        except Exception:
+            pass
+
+
+def _TeardownEmbeddedItemNameToast(node):
+    """界面 Destroy 时调用：停掉淡出计时并注销副本宿主。"""
+    fade = getattr(node, "mEmbeddedItemNameFade", None)
+    if fade is not None:
+        try:
+            fade.Stop()
+        except Exception:
+            pass
+    node.mEmbeddedItemNameFade = None
+    try:
+        from Toast import unregister_item_name_host
+        unregister_item_name_host(node)
+    except ImportError:
+        pass
+
+
 class SettingsScreenNode(ScreenNode):
 
     def __init__(self, namespace, name, param):
@@ -1516,19 +1604,16 @@ class SettingsScreenNode(ScreenNode):
         except Exception:
             pass
         # 清理内嵌底部提示的停留定时器，避免关闭界面后残留回调
+        # 官方接口是 CancelTimer；KillTimer 不存在（旧写法被 try/except 静默吞掉）
         if getattr(self, "mEmbeddedUnderTimer", None) is not None:
             try:
                 comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-                comp.KillTimer(self.mEmbeddedUnderTimer)
+                comp.CancelTimer(self.mEmbeddedUnderTimer)
             except Exception:
                 pass
             self.mEmbeddedUnderTimer = None
-        # 清理内嵌物品名提示的停留/淡出计时
-        if getattr(self, "mEmbeddedItemNameFade", None) is not None:
-            try:
-                self.mEmbeddedItemNameFade.Stop()
-            except Exception:
-                pass
+        # 停止内嵌物品名提示的淡出计时，并注销副本宿主
+        _TeardownEmbeddedItemNameToast(self)
         try:
             UnregisterContentListener(self._OnContentChanged)
             dlog.client_print("==== content change listener unregistered ====")
@@ -1678,76 +1763,14 @@ class SettingsScreenNode(ScreenNode):
             register_settings_under_host(self)
             dlog.client_print("==== SettingsScreenNode: embedded under toast host registered ====")
             # 同一个附加层里还挂着「物品名提示」副本（toast_item_name）
-            self._SetupEmbeddedItemNameToast(path)
+            _SetupEmbeddedItemNameToast(
+                self, [path.rsplit("/", 1)[0] + "/item_name_toast"])
         else:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
 
-    def _SetupEmbeddedItemNameToast(self, underToastPath):
-        """缓存设置界面内嵌「物品名提示」面板（item_name_toast）的控件引用。
-
-        它和 under_toast 是同一个 $additional_screen_content 面板下的兄弟节点，
-        结构与 toast.json 的 toast_item_name 完全一致（紫色底板 + 两行文字）。
-        淡出由 Toast.ItemNameFade 驱动，与叠加层版本共用同一套时序。
-        """
-        self.mEmbeddedItemNameRoot = None
-        self.mEmbeddedItemNameCtrls = []
-        self.mEmbeddedItemNameLabel = None
-        self.mEmbeddedItemNameNamespaceLabel = None
-        self.mEmbeddedItemNameFade = None
-        try:
-            from Toast import ItemNameFade
-        except ImportError:
-            return
-        path = underToastPath.rsplit("/", 1)[0] + "/item_name_toast"
-        try:
-            root = self.GetBaseUIControl(path)
-            if not root:
-                dlog.client_print("==== embedded item name toast panel not found ====")
-                return
-            imageCtrl = self.GetBaseUIControl(path + "/image")
-            nameCtrl = self.GetBaseUIControl(path + "/image/stack_panel/item_name")
-            namespaceCtrl = self.GetBaseUIControl(path + "/image/stack_panel/namespace")
-            self.mEmbeddedItemNameRoot = root
-            self.mEmbeddedItemNameCtrls = [c for c in (imageCtrl, nameCtrl, namespaceCtrl) if c]
-            self.mEmbeddedItemNameLabel = nameCtrl.asLabel() if nameCtrl else None
-            self.mEmbeddedItemNameNamespaceLabel = namespaceCtrl.asLabel() if namespaceCtrl else None
-            self.mEmbeddedItemNameFade = ItemNameFade()
-            # 默认隐藏：防止设置界面首次打开时闪出
-            root.SetVisible(False)
-            dlog.client_print("==== embedded item name toast found at: %s ====" % path)
-        except Exception as e:
-            dlog.client_print("==== embedded item name toast path error: %s ====" % str(e))
-
     def ShowEmbeddedItemNameToast(self, cfg):
-        """在设置界面内部显示「物品名提示」（由 Toast.ShowItemNameToast 路由调用）。
-
-        时序与叠加层版本一致：立即不透明 -> 停留 2 秒 -> 2 秒淡出；重复调用即重置计时。
-        """
-        root = getattr(self, "mEmbeddedItemNameRoot", None)
-        fade = getattr(self, "mEmbeddedItemNameFade", None)
-        if not root or not fade:
-            return
-        if self.mEmbeddedItemNameLabel:
-            self.mEmbeddedItemNameLabel.SetText(cfg.get("text", ""), True)
-            color = cfg.get("color")
-            if color:
-                self.mEmbeddedItemNameLabel.SetTextColor(color)
-        if self.mEmbeddedItemNameNamespaceLabel:
-            self.mEmbeddedItemNameNamespaceLabel.SetText(cfg.get("namespace", ""), True)
-            color = cfg.get("namespace_color")
-            if color:
-                self.mEmbeddedItemNameNamespaceLabel.SetTextColor(color)
-        root.SetVisible(True)
-        fade.Restart(self.mEmbeddedItemNameCtrls, self._OnEmbeddedItemNameFadeEnd)
-
-    def _OnEmbeddedItemNameFadeEnd(self):
-        """淡出结束，隐藏内嵌物品名提示面板。"""
-        root = getattr(self, "mEmbeddedItemNameRoot", None)
-        if root:
-            try:
-                root.SetVisible(False)
-            except Exception:
-                pass
+        """在设置界面内部显示「物品名提示」（由 Toast.ShowItemNameToast 路由调用）。"""
+        _ShowEmbeddedItemNameToast(self, cfg)
 
     def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
         """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。
@@ -1794,10 +1817,11 @@ class SettingsScreenNode(ScreenNode):
             self.mEmbeddedUnderLabel.SetText(text, True)
             self.mEmbeddedUnderLabel.SetTextColor(color if color else (1.0, 1.0, 1.0))
         # 清掉上次未完成的停留定时器，避免提前隐藏本次提示
+        # 官方接口是 CancelTimer；KillTimer 不存在（旧写法被 try/except 静默吞掉）
         if self.mEmbeddedUnderTimer is not None:
             try:
                 comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-                comp.KillTimer(self.mEmbeddedUnderTimer)
+                comp.CancelTimer(self.mEmbeddedUnderTimer)
             except Exception:
                 pass
             self.mEmbeddedUnderTimer = None
@@ -4391,6 +4415,56 @@ def BuildCollapsibleMenuContent(screenNode, parent, item):
     screenNode.mRightContentCtrls.append(ctrl)
 
 
+def _ItemDisplayName(item_name):
+    """物品 identifier -> 本地化显示名（拿不到就用 identifier 本身）。"""
+    if not item_name:
+        return ""
+    try:
+        comp = clientApi.GetEngineCompFactory().CreateItem(clientApi.GetLevelId())
+        info = comp.GetItemBasicInfo(item_name)
+        if info:
+            return info.get("itemName") or item_name
+    except Exception:
+        pass
+    return item_name
+
+
+def _ItemNamespace(item_name):
+    """物品 identifier -> 命名空间（第一个冒号前那一段），原样返回。
+
+    例：`minecraft:diamond_sword` -> `minecraft`；模组物品 -> 它自己的命名空间。
+    原版/网易的分类若本身写成中文（如 `自然:xxx`）也原样显示 —— 这里**不要**过滤
+    非 ASCII、也不要硬编码成 `minecraft`。没有冒号的（无命名空间的旧 identifier）
+    返回空串，此时提示的第二行留空。
+    """
+    if not item_name:
+        return ""
+    name = str(item_name)
+    if ":" not in name:
+        return ""
+    return name.split(":", 1)[0].strip()
+
+
+def _ShowItemNameTip(item_name, display_name=None):
+    """点物品预览格 / 物品选择弹窗里的物品时，弹出「物品名提示」。
+
+    第一行是本地化名字，第二行（紫色）是**命名空间**（identifier 冒号前那段，如
+    `minecraft`；中文分类原样显示）；空物品与空气不弹。
+    显示位置由 Toast 按栈顶界面挑该界面自己的副本（设置界面 / 各弹窗各一份）。
+    """
+    if not item_name or item_name == "minecraft:air":
+        return
+    try:
+        from Toast import ShowItemNameToast
+    except ImportError:
+        return
+    try:
+        ShowItemNameToast(display_name or _ItemDisplayName(item_name),
+                          _ItemNamespace(item_name))
+    except Exception as e:
+        dlog.client_print("==== ShowItemNameTip error: %s ====" % str(e))
+
+
 def BuildItemPickerContent(screenNode, parent, item):
     """物品选择内容项 UI 创建：litle/desc + 当前物品图标 + 箭头按钮，点击打开物品选择弹窗。"""
     _RestoreItemLocked(screenNode, item)
@@ -4447,6 +4521,16 @@ def BuildItemPickerContent(screenNode, parent, item):
             dlog.client_print("==== BuildItemPickerContent: SetUiItem error: %s ====" % str(e))
     else:
         dlog.client_print("==== BuildItemPickerContent: item_renderer not found ====")
+    # 点预览格本身也能看到物品名：格子上盖了一层透明按钮（setting.json 里的 tap）
+    tapCtrl = iconCtrl.GetChildByName('tap') if iconCtrl else None
+    if tapCtrl:
+        tapBtn = tapCtrl.asButton()
+        if tapBtn:
+            tapBtn.AddTouchEventParams({})
+            tapBtn.SetButtonTouchUpCallback(
+                lambda args, itm=item: _ShowItemNameTip(itm.GetItemName()))
+    else:
+        dlog.client_print("==== BuildItemPickerContent: tap button not found ====")
     # 箭头按钮：不显示文字，只保留模板自带的箭头贴图
     buttonCtrl = ctrl.GetChildByName('open_button')
     if buttonCtrl:
@@ -5412,7 +5496,13 @@ class CardToggleScreenNode(ScreenNode):
 
     def Create(self):
         dlog.client_print("==== CardToggleScreenNode.Create called ====")
+        # 弹窗自己的「物品名提示」副本（pop_up.json 的 card_toggle_panel/item_name_toast）
+        _SetupEmbeddedItemNameToast(self, ["/item_name_toast"])
         self._ApplyPanel()
+
+    def ShowEmbeddedItemNameToast(self, cfg):
+        """在组合开关弹窗内部显示「物品名提示」（由 Toast 按栈顶界面路由调用）。"""
+        _ShowEmbeddedItemNameToast(self, cfg)
 
     def OnActive(self):
         dlog.client_print("==== CardToggleScreenNode.OnActive called ====")
@@ -5725,6 +5815,16 @@ class CardToggleScreenNode(ScreenNode):
             renderer = previewCtrl.GetChildByName('item_renderer')
         self.mRowItemCtrls[option_id] = renderer
         self._PaintRowItemPreview(renderer, name, aux)
+        # 点预览格本身也能看物品名（格子上盖了一层透明按钮 tap，锁定也允许查看）
+        tapCtrl = previewCtrl.GetChildByName('tap') if previewCtrl else None
+        if tapCtrl:
+            tapBtn = tapCtrl.asButton()
+            if tapBtn:
+                tapBtn.AddTouchEventParams({})
+                tapBtn.SetButtonTouchUpCallback(
+                    lambda args, oid=option_id: self._OnRowPreviewTap(oid))
+        else:
+            dlog.client_print("==== CardToggle pick row: preview tap button not found ====")
         # 锁定：箭头按钮禁用并把各状态贴图压暗。
         # item_picker_button 没有 button 内置的 lock 层，且 SetAlpha 对 button 本身无效，
         # 只能逐个压暗它的子 image（normal/hover/pressing/arrow）。
@@ -5762,6 +5862,16 @@ class CardToggleScreenNode(ScreenNode):
             renderer.SetVisible(True)
         except Exception as e:
             dlog.client_print("==== CardToggle preview paint error: %s ====" % str(e))
+
+    def _OnRowPreviewTap(self, option_id):
+        """点物品选择行的预览格：弹出当前物品的名字提示（未选择则不弹）。"""
+        try:
+            from CardRegistry import DecodeItemPickerValue
+            name, _aux = DecodeItemPickerValue(self.mStates.get(option_id, ""))
+        except Exception as e:
+            dlog.client_print("==== CardToggle preview tap decode error: %s ====" % str(e))
+            return
+        _ShowItemNameTip(name)
 
     def _OnRowPickItem(self, option_id, picker_id, callback, close_popup):
         """点「选择」：打开物品选择弹窗（叠在组合开关弹窗之上），选完回填预览。
@@ -5909,6 +6019,8 @@ class CardToggleScreenNode(ScreenNode):
 
     def Destroy(self):
         self.mPanelApplied = False
+        # 停止内嵌物品名提示的淡出计时，并注销副本宿主
+        _TeardownEmbeddedItemNameToast(self)
         self.mBackBound = False
         self.mRowCtrls = []
         self.mBtnCtrls = []
@@ -5998,7 +6110,13 @@ class ItemPickerScreenNode(ScreenNode):
     # ────────────── 生命周期 ──────────────
     def Create(self):
         dlog.client_print("==== ItemPickerScreenNode.Create called ====")
+        # 弹窗自己的「物品名提示」副本（pop_up.json 的 item_picker/item_name_toast）
+        _SetupEmbeddedItemNameToast(self, ["/item_name_toast"])
         self._ApplyPicker()
+
+    def ShowEmbeddedItemNameToast(self, cfg):
+        """在物品选择弹窗内部显示「物品名提示」（由 Toast 按栈顶界面路由调用）。"""
+        _ShowEmbeddedItemNameToast(self, cfg)
 
     def OnActive(self):
         dlog.client_print("==== ItemPickerScreenNode.OnActive called ====")
@@ -6006,6 +6124,8 @@ class ItemPickerScreenNode(ScreenNode):
 
     def Destroy(self):
         self.mApplied = False
+        # 停止内嵌物品名提示的淡出计时，并注销副本宿主
+        _TeardownEmbeddedItemNameToast(self)
         self.mCells = {}
         self.mBackBound = False
         self.mButtonsBound = False
@@ -6279,6 +6399,8 @@ class ItemPickerScreenNode(ScreenNode):
         self._RefreshFooter()
         self._FillGrid()
         dlog.client_print("==== ItemPicker: select %s aux=%s ====" % (name, aux))
+        # 点格子顺带弹出物品名提示（显示名 + 命名空间），显示在弹窗自己的副本上
+        _ShowItemNameTip(name, _desc or None)
 
     def _OnConfirm(self):
         """点「确定」：回写选中值并关闭弹窗。"""

@@ -755,6 +755,17 @@
                                                 "#item_id_aux": 131072
                                             }
                                         }
+                                    },
+                                    {
+                                        "tap": {
+                                            "type": "button",
+                                            "size": [
+                                                "100%+0px",
+                                                "100%+0px"
+                                            ],
+                                            "layer": 6,
+                                            "button_mappings": []
+                                        }
                                     }
                                 ]
                             }
@@ -1467,6 +1478,17 @@
                                 "property_bag": {
                                     "#item_id_aux": 131072
                                 }
+                            }
+                        },
+                        {
+                            "tap": {
+                                "type": "button",
+                                "size": [
+                                    "100%+0px",
+                                    "100%+0px"
+                                ],
+                                "layer": 6,
+                                "button_mappings": []
                             }
                         }
                     ]
