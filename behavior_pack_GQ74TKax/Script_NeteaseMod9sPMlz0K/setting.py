@@ -374,8 +374,15 @@ def _OnDevToggleRowBtn(screenNode, toggle_id, option_id):
         toggle_id, option_id))
 
 
+def _OnDevTogglePickItem(screenNode, toggle_id, option_id, item_name, item_aux):
+    """物品选择行回调（toggle_item_picker 行）：选完打印选中的物品。"""
+    dlog.client_print(
+        "==== dev card_toggle pick: toggle=%s option=%s item=%s aux=%s ====" % (
+            toggle_id, option_id, item_name, item_aux))
+
+
 def _RegisterDevToggleDemo():
-    """注册组合开关演示数据集：四种行控件混合 + 锁定行 + 底部增删/打印按钮。"""
+    """注册组合开关演示数据集：五种行控件混合 + 锁定行 + 底部增删/打印按钮。"""
     RegisterCardToggle(DEV_TOGGLE_ID, "组合开关演示", mode="multi")
     # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_toggle", "minecraft:diamond",
@@ -392,6 +399,13 @@ def _RegisterDevToggleDemo():
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_button", "minecraft:book",
                         desc="按钮行：点右侧按钮打日志", ctrl_type="toggle_button",
                         button_text="执行", on_click=_OnDevToggleRowBtn)
+    # ctrl_type="toggle_item_picker"：物品图标 + 文字 + 物品预览格 + 箭头按钮
+    # （picker_id 物品选择数据集 / default_value 初始选中物品）
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_picker", "minecraft:chest",
+                        desc="物品选择行：点右侧箭头挑一件",
+                        ctrl_type="toggle_item_picker",
+                        default_value="minecraft:stone",
+                        picker_id=DEMO_PICKER_ID, on_click=_OnDevTogglePickItem)
     # 锁定行：开关不可交互，显示 switch 内置锁定贴图
     AddCardToggleOption(DEV_TOGGLE_ID, "demo_locked", "minecraft:emerald",
                         desc="锁定行：开关不可点", locked=True)

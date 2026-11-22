@@ -682,13 +682,14 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ## 组合开关（CardToggle）API
 
-组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**四种行控件**：
+组合开关弹窗系统：用**普通按钮**（`AddButton` 的 `on_click` 回调调用 `OpenCardToggle`）打开一个弹窗，弹窗内逐行展示多个开关卡片，支持**五种行控件**：
 - `toggle`（默认）：**物品图标 + 自定义描述文字 + 开关**
 - `toggle_text`：**纯文字 + 开关**（无物品图标）
 - `toggle_edit_box`：**物品图标 + 自定义描述文字 + 输入框**
 - `toggle_button`：**物品图标 + 自定义描述文字 + 行内按钮**（按钮文字/回调/点完是否关弹窗由参数指定）
+- `toggle_item_picker`：**物品图标 + 自定义描述文字 + 物品预览格 + 箭头按钮**（箭头按钮复用「物品选择内容项」同款样式，点它打开物品选择弹窗，选完回填预览格并持久化）
 
-同一弹窗可**任意混合**四种行控件；每行可单独**锁定**（开关行锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`；编辑框行锁定后不可输入，显示 edit_box 内置 lock 覆盖层；按钮行锁定后按钮禁用，显示 button 内置 lock 层）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项状态独立持久化（不挂靠任何内容项/分组）。弹窗中间区域为**滚动面板**：行数超出可视高度时自动滚动。
+同一弹窗可**任意混合**五种行控件；每行可单独**锁定**（开关行锁定后开关不可交互，显示 switch 内置锁定贴图 `switch_on/off_lock`；编辑框行锁定后不可输入，显示 edit_box 内置 lock 覆盖层；按钮行锁定后按钮禁用，显示 button 内置 lock 层；物品选择行的箭头按钮锁定后禁用并把状态贴图压暗）。支持**单选 / 多选**模式，弹窗**底部可注册自定义按钮**，各选项状态独立持久化（不挂靠任何内容项/分组）。弹窗中间区域为**滚动面板**：行数超出可视高度时自动滚动。
 
 先注册数据集（标题、模式、选项、底部按钮），再通过任意按钮用 `OpenCardToggle(toggle_id)` 打开。
 
@@ -703,7 +704,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | mode | str | 否 | `"multi"` 多选独立（默认）；`"single"` 单选互斥 |
 | buttons | list | 否 | 底部自定义按钮 `[(text, callback), ...]`，`callback(screenNode, toggle_id, state_dict)` |
 
-### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False, default_value="", button_text="执行", on_click=None, close_popup=False)
+### AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0, desc="", default_on=False, ctrl_type="toggle", locked=False, default_value="", button_text="执行", on_click=None, close_popup=False, picker_id="")
 
 向已注册的组合开关追加一个选项；`option_id` 重复追加会覆盖旧选项。
 
@@ -714,18 +715,20 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 | item_name | str | 否* | 物品渲染名称（如 `"minecraft:diamond"`），用作该行图标；`ctrl_type="toggle_text"` 时传 `""` |
 | item_aux | int | 否 | 物品附加值 |
 | desc | str | 否 | 该行自定义描述文字 |
-| default_on | bool | 否 | 默认是否开启（`toggle_edit_box` / `toggle_button` 类型忽略） |
-| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关）/ `"toggle_edit_box"`（物品+文字+编辑框）/ `"toggle_button"`（物品+文字+按钮） |
-| locked | bool | 否 | 是否锁定：开关行不可交互并显示锁定图标；编辑框行不可输入并显示 lock 覆盖层；按钮行按钮禁用并显示 lock 层 |
-| default_value | str | 否 | 编辑框初始文本（仅 `toggle_edit_box` 类型有效） |
-| button_text | str | 否 | 行内按钮文字（仅 `toggle_button` 类型有效；空串回落 `"执行"`） |
-| on_click | callable | 否 | 行内按钮回调 `callback(screenNode, toggle_id, option_id)`（仅 `toggle_button` 类型有效） |
-| close_popup | bool | 否 | 行内按钮点完后是否关闭弹窗，默认 `False`（仅 `toggle_button` 类型有效） |
+| default_on | bool | 否 | 默认是否开启（`toggle_edit_box` / `toggle_button` / `toggle_item_picker` 类型忽略） |
+| ctrl_type | str | 否 | 行控件类型：`"toggle"`（物品+文字+开关，默认）/ `"toggle_text"`（纯文字+开关）/ `"toggle_edit_box"`（物品+文字+编辑框）/ `"toggle_button"`（物品+文字+按钮）/ `"toggle_item_picker"`（物品+文字+物品预览+箭头按钮） |
+| locked | bool | 否 | 是否锁定：开关行不可交互并显示锁定图标；编辑框行不可输入并显示 lock 覆盖层；按钮行按钮禁用并显示 lock 层；物品选择行箭头按钮禁用并压暗 |
+| default_value | str | 否 | 编辑框初始文本（`toggle_edit_box`）；物品选择行的**初始预览物品** `"物品名"` 或 `"物品名\|附加值"`，空串表示未选择（`toggle_item_picker`） |
+| button_text | str | 否 | 行内按钮文字（**仅** `toggle_button`；空串回落 `"执行"`）。`toggle_item_picker` 用的是固定箭头图标按钮，没有文字 |
+| on_click | callable | 否 | `toggle_button`：`callback(screenNode, toggle_id, option_id)`；`toggle_item_picker`：`callback(screenNode, toggle_id, option_id, item_name, item_aux)`（物品确认后触发） |
+| close_popup | bool | 否 | 点完是否关闭组合开关弹窗，默认 `False`；仅 `toggle_button` / `toggle_item_picker` 有效（物品选择行是"选完关"，会等物品选择弹窗出栈后才关） |
+| picker_id | str | 否* | 物品选择数据集 ID，须先 `RegisterItemPicker` 注册（仅 `toggle_item_picker` 类型） |
 
-> \* `ctrl_type="toggle"` / `"toggle_button"` 时 `item_name` 必填；`ctrl_type="toggle_text"` / `"toggle_edit_box"` 时可省略（传 `""`）。
-> 同一弹窗内可**任意混合**四种行控件。
+> \* `ctrl_type="toggle"` / `"toggle_button"` / `"toggle_item_picker"` 时 `item_name` 必填；`ctrl_type="toggle_text"` / `"toggle_edit_box"` 时可省略（传 `""`）。`toggle_item_picker` 的 `picker_id` 必填（须先 `RegisterItemPicker` 注册数据集）。
+> 同一弹窗内可**任意混合**五种行控件。
 > 行内按钮回调签名与底部按钮不同：行内是 `(screenNode, toggle_id, option_id)`，底部是 `(screenNode, toggle_id, state_dict)`。点行内按钮前会先落盘当前开关/编辑框状态。
 > 行内按钮的点击视觉与右侧「按钮内容项」（`OnRightButtonClick`）一致：点过之后隐藏按钮文字、显示 `finish` 图标；`RefreshCardToggle` 重建后仍保持图标态，关闭弹窗后重置（`mRowBtnFinished` 是弹窗会话级状态，不落盘）。
+> 物品选择行用的是**固定箭头图标按钮**（与右侧「物品选择」内容项同款，`setting.item_picker_button`，尺寸 `6%` × 24），不回显 `finish` 图标（同一行可以反复改选）：点箭头把**现有的物品选择弹窗**（`pop_up.item_picker`，8 列 × 5 行网格 + 搜索 + 分页）叠在组合开关弹窗之上，点「确定」才回填预览格；此时 ESC 先关物品选择弹窗、再关组合开关弹窗。选中值写入组合开关状态（键 `cardtoggle.<toggle_id>`，格式 `"物品名|附加值"`，与物品选择内容项一致），关闭弹窗 / 重进游戏都能读回；`default_value` 为空且从未选过时预览格不画图标。
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
@@ -750,7 +753,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### GetCardToggle(toggle_id)
 
-获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value, button_text, on_click, close_popup)`（旧版 5 / 7 / 8 元组数据同样兼容，缺失的尾项按默认值补齐）。
+获取数据集 `{"title", "mode", "buttons", "options"}` 或 `None`；`options` 元素为 `(option_id, item_name, item_aux, desc, default_on, ctrl_type, locked, default_value, button_text, on_click, close_popup, picker_id)`（旧版 5 / 7 / 8 / 11 元组数据同样兼容，缺失的尾项按默认值补齐）。
 
 ### GetCardToggleOptions(toggle_id) / GetCardToggleOptionIds(toggle_id)
 
@@ -760,12 +763,12 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 | API | 说明 |
 |-----|------|
-| `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项状态（开关行返回 bool；编辑框行返回文本字符串） |
-| `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项状态并持久化（开关行传 bool，编辑框行传文本字符串） |
+| `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项状态（开关行返回 bool；编辑框行返回文本字符串；物品选择行返回 `"物品名\|附加值"`） |
+| `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项状态并持久化（开关行传 bool，编辑框行传文本字符串，物品选择行传编码后的物品字符串） |
 | `RemoveCardToggleState(toggle_id, option_id)` | 删除单个选项的持久化状态（删行后清理用），其余选项不受影响 |
 | `ResetCardToggleStates(toggle_id)` | 清除该 toggle 全部持久化状态（回退 `default_on` / `default_value`） |
 
-状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。编辑框行的输入文本在关闭弹窗（返回 / ESC / 底部按钮）时统一回读并持久化。
+状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。编辑框行的输入文本在关闭弹窗（返回 / ESC / 底部按钮）时统一回读并持久化；物品选择行在**选中确认那一刻**就写盘（不等关闭弹窗）。
 
 ### OpenCardToggle(toggle_id) / CloseCardToggle()
 
@@ -800,6 +803,17 @@ def OnRowButton(sn, toggle_id, option_id):
 AddCardToggleOption("my_toggles", "f", "minecraft:book", desc="点按钮打日志",
                     ctrl_type="toggle_button", button_text="执行",
                     on_click=OnRowButton, close_popup=False)
+# ctrl_type="toggle_item_picker"：物品图标 + 文字 + 物品预览格 + 箭头按钮
+#   点右侧箭头叠一层物品选择弹窗（picker_id 须先 RegisterItemPicker 注册数据集），
+#   点「确定」才回填预览格并写入 cardtoggle 状态；回调签名多带选中物品
+def OnPickItem(sn, toggle_id, option_id, item_name, item_aux):
+    print "选中物品", toggle_id, option_id, item_name, item_aux
+
+RegisterItemPicker("my_picker", "选个东西", items=[("minecraft:stone", 0, "石头")])
+AddCardToggleOption("my_toggles", "g", "minecraft:chest", desc="挑一件物品",
+                    ctrl_type="toggle_item_picker", picker_id="my_picker",
+                    default_value="minecraft:stone",
+                    on_click=OnPickItem)
 # 锁定行：开关不可交互，显示锁定图标（按钮行 locked 则按钮禁用并显示 lock 层）
 AddCardToggleOption("my_toggles", "c", "minecraft:emerald", desc="绿宝石（锁定）", locked=True)
 # 锁定的编辑框行：不可输入，显示 lock 覆盖层

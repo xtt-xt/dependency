@@ -1015,8 +1015,8 @@ def GetCollapsibleMenuCards(menu_id):
 #               "buttons": [(text, callback), ...],
 #               "options": [(option_id, item_name, item_aux, desc, default_on,
 #                            ctrl_type, locked, default_value,
-#                            button_text, on_click, close_popup), ...]}
-# 旧数据允许 5 / 7 / 8 元组，Client 侧按长度兼容解析。
+#                            button_text, on_click, close_popup, picker_id), ...]}
+# 旧数据允许 5 / 7 / 8 / 11 元组，Client 侧按长度兼容解析。
 # 数据层纯注册表，不 import 引擎模块；状态读写走 SettingState 的独立 key。
 
 _cardToggles = {}
@@ -1046,7 +1046,7 @@ def RegisterCardToggle(toggle_id, title, mode="multi", buttons=None):
 def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
                         desc="", default_on=False, ctrl_type="toggle", locked=False,
                         default_value="", button_text="执行", on_click=None,
-                        close_popup=False):
+                        close_popup=False, picker_id=""):
     """
     向已注册的组合开关追加一个选项；toggle_id 不存在时自动初始化。
     同一 option_id 重复追加会覆盖（更新物品/描述/默认值）。
@@ -1057,24 +1057,35 @@ def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
                        ctrl_type 为 "toggle_text" 时传 "" 即可
     :param item_aux:   物品附加值
     :param desc:       该行 label 描述文字
-    :param default_on: 默认是否开启（toggle_edit_box / toggle_button 类型忽略）
+    :param default_on: 默认是否开启（toggle_edit_box / toggle_button / toggle_item_picker 类型忽略）
     :param ctrl_type:  行控件类型："toggle"（物品+文字+开关，默认）/
                        "toggle_text"（纯文字+开关）/
                        "toggle_edit_box"（物品+文字+编辑框）/
-                       "toggle_button"（物品+文字+按钮）
+                       "toggle_button"（物品+文字+按钮）/
+                       "toggle_item_picker"（物品+文字+物品预览+按钮，
+                       点按钮打开物品选择弹窗，选完回填预览并持久化）
     :param locked:     是否锁定（锁定后该行开关/编辑框/按钮不可交互，显示锁定图标/覆盖层）
-    :param default_value: 编辑框初始文本（仅 toggle_edit_box 类型有效）
-    :param button_text: 行内按钮文字（仅 toggle_button 类型有效，空串回退 "执行"）
-    :param on_click:   行内按钮回调 callback(screenNode, toggle_id, option_id)
-                       （仅 toggle_button 类型有效）
-    :param close_popup: 行内按钮点完后是否关闭弹窗（仅 toggle_button 类型有效）
+    :param default_value: 编辑框初始文本（仅 toggle_edit_box）；
+                       物品选择行（toggle_item_picker）则是最初预览的物品 identifier
+                       （空串表示"未选择"）
+    :param button_text: 行内按钮文字（仅 toggle_button / toggle_item_picker 类型有效，
+                       空串回退 "执行" / "选择"）
+    :param on_click:   行内按钮回调（仅 toggle_button / toggle_item_picker 类型有效）
+                       toggle_button:      callback(screenNode, toggle_id, option_id)
+                       toggle_item_picker: callback(screenNode, toggle_id, option_id,
+                                                    item_name, item_aux)
+    :param close_popup: 行内按钮/选完物品后是否关闭弹窗
+                       （仅 toggle_button / toggle_item_picker 类型有效）
+    :param picker_id:  物品选择数据集 ID（仅 toggle_item_picker 类型有效，
+                       须先用 RegisterItemPicker 注册）
     :returns:          True 成功；False 参数无效
     """
     if not toggle_id or not option_id:
         return False
-    if ctrl_type not in ("toggle", "toggle_text", "toggle_edit_box", "toggle_button"):
+    if ctrl_type not in ("toggle", "toggle_text", "toggle_edit_box", "toggle_button",
+                         "toggle_item_picker"):
         ctrl_type = "toggle"
-    if ctrl_type in ("toggle", "toggle_button") and not item_name:
+    if ctrl_type in ("toggle", "toggle_button", "toggle_item_picker") and not item_name:
         return False
     if not item_name:
         item_name = ""
@@ -1082,7 +1093,8 @@ def AddCardToggleOption(toggle_id, option_id, item_name, item_aux=0,
         "title": "", "mode": "multi", "buttons": [], "options": []})
     entry = (option_id, item_name, item_aux, desc, default_on,
              ctrl_type, bool(locked), default_value,
-             button_text or "", on_click, bool(close_popup))
+             button_text or "", on_click, bool(close_popup),
+             picker_id or "")
     for i, op in enumerate(menu["options"]):
         if op[0] == option_id:
             menu["options"][i] = entry
@@ -1136,7 +1148,8 @@ def GetCardToggle(toggle_id):
     获取组合开关数据集 {"title", "mode", "buttons", "options"} 或 None。
     options 元素为 (option_id, item_name, item_aux, desc, default_on,
                     ctrl_type, locked, default_value,
-                    button_text, on_click, close_popup)（兼容旧 5/7/8 元组）。
+                    button_text, on_click, close_popup, picker_id)
+    （兼容旧 5/7/8/11 元组）。
     """
     return _cardToggles.get(toggle_id)
 

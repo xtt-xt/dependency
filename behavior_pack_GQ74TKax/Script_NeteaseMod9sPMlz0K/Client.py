@@ -86,6 +86,7 @@ class MyClientSystem(ClientSystem):
         self.mAllItemIds = []              # 服务端下发的全部物品 identifier（演示数据集用）
         self.mPendingCloseSettings = False  # 确认关闭动画后：OnActive 时立即关闭设置界面
         self.mPendingToggleRefresh = None  # 待重建的组合开关 toggle_id（下一帧执行）
+        self.mPendingCloseCardToggle = False  # 物品选择行选完要关弹窗（等 picker 出栈再关）
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
         self.ListenForEvent(
@@ -264,12 +265,13 @@ class MyClientSystem(ClientSystem):
             if self.mCollapsibleMenuOpen:
                 dlog.client_print("==== ESC pressed, close CollapsibleMenu ====")
                 self.CloseCollapsibleMenu()
+            elif self.mItemPickerOpen:
+                # 物品选择弹窗可能叠在组合开关弹窗之上（toggle_item_picker 行），先关它
+                dlog.client_print("==== ESC pressed, close ItemPicker ====")
+                self.CloseItemPicker()
             elif self.mCardToggleOpen:
                 dlog.client_print("==== ESC pressed, close CardToggle ====")
                 self.CloseCardToggle()
-            elif self.mItemPickerOpen:
-                dlog.client_print("==== ESC pressed, close ItemPicker ====")
-                self.CloseItemPicker()
             elif self.mPopUpOpen:
                 dlog.client_print("==== ESC pressed, close PopUp only ====")
                 self.ClosePopUp()
@@ -505,6 +507,11 @@ class MyClientSystem(ClientSystem):
             self.mItemPickerScreenNode.OnTick()
         if self.mPendingToggleRefresh:
             self._FlushCardToggleRefresh()
+        if self.mPendingCloseCardToggle and not self.mItemPickerOpen:
+            # 物品选择行勾了 close_popup：等物品选择弹窗出栈后再关组合开关弹窗
+            self.mPendingCloseCardToggle = False
+            if self.mCardToggleOpen:
+                self.CloseCardToggle()
 
     def OnGridComponentSizeChanged(self, args):
         """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
@@ -5298,6 +5305,7 @@ class CardToggleScreenNode(ScreenNode):
         self.mBtnCtrls = []          # 底部自定义按钮控件（重建前先清掉，避免重复叠加）
         self.mRowBtnCtrls = {}       # option_id -> (textCtrl, finishCtrl)，按钮行点完后切换成图标
         self.mRowBtnFinished = set() # 已点过的按钮行 option_id（弹窗会话内保留，重建后仍显示图标）
+        self.mRowItemCtrls = {}      # option_id -> 预览格 item_renderer 控件（物品选择行）
         self.mStates = {}            # option_id -> bool（缓存当前开关状态）
         self.mToggleId = ""
         self.mMode = "multi"
@@ -5350,11 +5358,17 @@ class CardToggleScreenNode(ScreenNode):
         for i, op in enumerate(options):
             # options 元素兼容 5 元组(旧) / 7 元组(含 ctrl_type, locked) /
             # 8 元组(含 default_value 编辑框默认文本) /
-            # 11 元组(含 button_text, on_click, close_popup 按钮行参数)
+            # 11 元组(含 button_text, on_click, close_popup 按钮行参数) /
+            # 12 元组(再含 picker_id 物品选择行参数)
             button_text = ""
             row_btn_cb = None
             row_btn_close = False
-            if len(op) >= 11:
+            picker_id = ""
+            if len(op) >= 12:
+                (option_id, item_name, item_aux, desc, default_on, ctrl_type, locked,
+                 default_value, button_text, row_btn_cb, row_btn_close,
+                 picker_id) = op[:12]
+            elif len(op) >= 11:
                 (option_id, item_name, item_aux, desc, default_on, ctrl_type, locked,
                  default_value, button_text, row_btn_cb, row_btn_close) = op[:11]
             elif len(op) >= 8:
@@ -5373,6 +5387,8 @@ class CardToggleScreenNode(ScreenNode):
                 template = 'setting.card_toggle_edit_box'
             elif ctrl_type == "toggle_button":
                 template = 'setting.card_toggle_button'
+            elif ctrl_type == "toggle_item_picker":
+                template = 'setting.card_toggle_item_picker'
             else:
                 ctrl_type = "toggle"
                 template = 'setting.card_toggle'
@@ -5471,6 +5487,13 @@ class CardToggleScreenNode(ScreenNode):
                         rowBtn.SetButtonTouchUpCallback(
                             lambda args, oid=option_id, cb=row_btn_cb, cls=row_btn_close:
                             self._OnRowButtonClick(oid, cb, cls))
+            # 物品选择行（toggle_item_picker）：物品预览格 + 箭头按钮
+            # （用 pick_button 名字而非 button，避免与 toggle_button 行的分支混在一起）
+            pickBtnCtrl = base.GetChildByName('pick_button')
+            if pickBtnCtrl:
+                self._ApplyItemPickerRow(
+                    option_id, base, pickBtnCtrl, default_value,
+                    picker_id, row_btn_cb, row_btn_close, locked)
             self.mRowCtrls.append((option_id, toggleObj, ctrl, locked, editInputCtrl))
         self.mPanelApplied = True
         dlog.client_print("==== CardToggle applied: rows=%d/%d ====" % (len(self.mRowCtrls), len(options)))
@@ -5495,6 +5518,7 @@ class CardToggleScreenNode(ScreenNode):
                 pass
         self.mRowCtrls = []
         self.mRowBtnCtrls = {}
+        self.mRowItemCtrls = {}
         self.mStates = {}
 
     def _ClearButtons(self):
@@ -5583,6 +5607,114 @@ class CardToggleScreenNode(ScreenNode):
                 dlog.client_print("==== CardToggle row button callback error: %s ====" % str(e))
         if close_popup and _g_ClientSystem:
             _g_ClientSystem.CloseCardToggle()
+
+    def _ApplyItemPickerRow(self, option_id, base, pickBtnCtrl, default_value,
+                         picker_id, callback, close_popup, locked):
+        """物品选择行（toggle_item_picker）：预览格 + 箭头按钮。
+
+        按钮复用「物品选择内容项」同款的 `setting.item_picker_button`（下拉箭头图标，
+        尺寸与右侧内容项一致），点它把物品选择弹窗叠在组合开关弹窗之上。
+        选中值存进组合开关状态（`cardtoggle.<toggle_id>`），编码与物品选择内容项
+        一致（"物品名|附加值"，空串 = 未选择），所以关闭弹窗/重进游戏都读得回。
+        """
+        from SettingState import GetCardToggleState
+        from CardRegistry import DecodeItemPickerValue
+        stored = GetCardToggleState(self.mToggleId, option_id, default_value)
+        name, aux = DecodeItemPickerValue(stored)
+        self.mStates[option_id] = stored
+        renderer = None
+        previewCtrl = base.GetChildByName('preview')
+        if previewCtrl:
+            renderer = previewCtrl.GetChildByName('item_renderer')
+        self.mRowItemCtrls[option_id] = renderer
+        self._PaintRowItemPreview(renderer, name, aux)
+        # 锁定：箭头按钮禁用并把各状态贴图压暗。
+        # item_picker_button 没有 button 内置的 lock 层，且 SetAlpha 对 button 本身无效，
+        # 只能逐个压暗它的子 image（normal/hover/pressing/arrow）。
+        for childName in ('normal', 'hover', 'pressing', 'arrow'):
+            child = pickBtnCtrl.GetChildByName(childName)
+            if child:
+                try:
+                    child.SetAlpha(0.45 if locked else 1.0)
+                except Exception:
+                    pass
+        rowBtn = pickBtnCtrl.asButton()
+        if not rowBtn:
+            return
+        try:
+            rowBtn.SetTouchEnable(not locked)
+        except Exception as e:
+            dlog.client_print("==== CardToggle pick button touch error: %s ====" % str(e))
+        if not locked:
+            rowBtn.AddTouchEventParams({})
+            rowBtn.SetButtonTouchUpCallback(
+                lambda args, oid=option_id, pid=picker_id, cb=callback, cls=close_popup:
+                self._OnRowPickItem(oid, pid, cb, cls))
+
+    def _PaintRowItemPreview(self, renderer, name, aux):
+        """把物品画进预览格；未选择时隐藏图标（空位不能残留上一件的图标）。"""
+        if not renderer:
+            return
+        try:
+            if not name:
+                renderer.SetVisible(False)
+                return
+            it = renderer.asItemRenderer()
+            if it:
+                it.SetUiItem(name, int(aux or 0), False)
+            renderer.SetVisible(True)
+        except Exception as e:
+            dlog.client_print("==== CardToggle preview paint error: %s ====" % str(e))
+
+    def _OnRowPickItem(self, option_id, picker_id, callback, close_popup):
+        """点「选择」：打开物品选择弹窗（叠在组合开关弹窗之上），选完回填预览。
+
+        物品选择弹窗与右侧内容项共用同一个 ScreenNode，确认后走 on_select 回调；
+        此时组合开关弹窗还在栈里，等 picker 出栈后它的 OnActive 会按新状态重建行。
+        """
+        if not _g_ClientSystem:
+            dlog.client_print("==== CardToggle pick: ClientSystem not ready ====")
+            return
+        try:
+            self._PersistStates()
+        except Exception as e:
+            dlog.client_print("==== CardToggle pick persist error: %s ====" % str(e))
+        if not picker_id:
+            dlog.client_print(
+                "==== CardToggle pick: option '%s' has no picker_id ====" % option_id)
+            return
+
+        def _on_select(item_name, item_aux, display):
+            self._OnRowItemSelected(option_id, item_name, item_aux, callback, close_popup)
+
+        ok = _g_ClientSystem.OpenItemPicker(picker_id, item=None, on_select=_on_select)
+        if not ok:
+            dlog.client_print(
+                "==== CardToggle pick: picker '%s' not registered ====" % picker_id)
+
+    def _OnRowItemSelected(self, option_id, item_name, item_aux, callback, close_popup):
+        """物品选择弹窗确认后：持久化选中物品 + 刷新预览格 + 回调（可延迟关弹窗）。"""
+        from CardRegistry import EncodeItemPickerValue
+        from SettingState import SetCardToggleState
+        try:
+            value = EncodeItemPickerValue(item_name, item_aux)
+            self.mStates[option_id] = value
+            SetCardToggleState(self.mToggleId, option_id, value)
+            self._PaintRowItemPreview(self.mRowItemCtrls.get(option_id), item_name, item_aux)
+            dlog.client_print(
+                "==== CardToggle item selected: toggle=%s option=%s -> %s ====" % (
+                    self.mToggleId, option_id, value))
+        except Exception as e:
+            dlog.client_print("==== CardToggle item selected error: %s ====" % str(e))
+        if callback is not None:
+            try:
+                sn = _g_ClientSystem.mSettingsScreenNode if _g_ClientSystem else None
+                callback(sn, self.mToggleId, option_id, item_name, item_aux)
+            except Exception as e:
+                dlog.client_print("==== CardToggle item callback error: %s ====" % str(e))
+        if close_popup and _g_ClientSystem:
+            # 此刻物品选择弹窗还压在栈顶，直接 PopScreen 会关错层：排到下一帧再关
+            _g_ClientSystem.mPendingCloseCardToggle = True
 
     def _OnBackClick(self):
         """返回按钮：关闭组合开关弹窗。"""
@@ -5673,6 +5805,7 @@ class CardToggleScreenNode(ScreenNode):
         self.mRowCtrls = []
         self.mBtnCtrls = []
         self.mRowBtnCtrls = {}
+        self.mRowItemCtrls = {}
         self.mRowBtnFinished = set()
         self.mStates = {}
         global _g_ClientSystem

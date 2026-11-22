@@ -689,13 +689,144 @@
                         },
                         {
                             "button@setting.button": {
+                                "anchor_from": "right_middle",
+                                "anchor_to": "right_middle",
                                 "offset": [
-                                    "35%+0px",
-                                    3
+                                    "-20px",
+                                    0.0
                                 ],
                                 "size": [
                                     "20%+0px",
                                     22
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    "card_toggle_item_picker": {
+        "type": "panel",
+        "size": [
+            "default",
+            30.0
+        ],
+        "controls": [
+            {
+                "image": {
+                    "type": "image",
+                    "size": [
+                        "default",
+                        "100%+-2px"
+                    ],
+                    "layer": 1,
+                    "clip_direction": "left",
+                    "clip_ratio": 0.0,
+                    "nineslice_size": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0
+                    ],
+                    "texture": "textures/ui/card_toggle_under",
+                    "controls": [
+                        {
+                            "item_renderer": {
+                                "type": "custom",
+                                "renderer": "inventory_item_renderer",
+                                "offset": [
+                                    "-40%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "100%y+0px",
+                                    "60%+0px"
+                                ],
+                                "layer": 1,
+                                "property_bag": {
+                                    "#item_id_aux": 131072
+                                }
+                            }
+                        },
+                        {
+                            "label": {
+                                "type": "label",
+                                "offset": [
+                                    "-5%+0px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "60%+0px",
+                                    "default"
+                                ],
+                                "font_type": "default",
+                                "text": "Hello World!"
+                            }
+                        },
+                        {
+                            "preview": {
+                                "type": "panel",
+                                "anchor_from": "right_middle",
+                                "anchor_to": "right_middle",
+                                "offset": [
+                                    "-40px",
+                                    0.0
+                                ],
+                                "size": [
+                                    23.0,
+                                    23.0
+                                ],
+                                "layer": 2,
+                                "controls": [
+                                    {
+                                        "frame": {
+                                            "type": "image",
+                                            "size": [
+                                                "100%",
+                                                "100%"
+                                            ],
+                                            "layer": 1,
+                                            "keep_ratio": false,
+                                            "nineslice_size": [
+                                                2,
+                                                2,
+                                                2,
+                                                2
+                                            ],
+                                            "texture": "textures/ui/beacon_button_pressed"
+                                        }
+                                    },
+                                    {
+                                        "item_renderer": {
+                                            "type": "custom",
+                                            "renderer": "inventory_item_renderer",
+                                            "anchor_from": "center",
+                                            "anchor_to": "center",
+                                            "size": [
+                                                "80%+0px",
+                                                "80%+0px"
+                                            ],
+                                            "layer": 5,
+                                            "property_bag": {
+                                                "#item_id_aux": 131072
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "pick_button@setting.item_picker_button": {
+                                "anchor_from": "right_middle",
+                                "anchor_to": "right_middle",
+                                "offset": [
+                                    "-20px",
+                                    0.0
+                                ],
+                                "size": [
+                                    "6%+0px",
+                                    24
                                 ]
                             }
                         }
