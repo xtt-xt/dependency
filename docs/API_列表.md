@@ -47,9 +47,11 @@ from CardRegistryApi import (
     ShowCollapsibleMenu, CloseCollapsibleMenu,
     # 组合开关（CardToggle）
     RegisterCardToggle, AddCardToggleOption, AddCardToggleButton,
-    GetCardToggle, GetCardToggleOptions, GetCardToggleOptionIds,
-    GetCardToggleState, SetCardToggleState, ResetCardToggleStates,
-    OpenCardToggle, CloseCardToggle,
+    RemoveCardToggleOption, GetCardToggle, GetCardToggleOptions,
+    GetCardToggleOptionIds,
+    GetCardToggleState, SetCardToggleState, RemoveCardToggleState,
+    ResetCardToggleStates,
+    OpenCardToggle, CloseCardToggle, RefreshCardToggle,
     # 物品选择弹窗（ItemPicker）
     RegisterItemPicker, AddItemPickerItem, UnregisterItemPicker,
     GetItemPicker, GetItemPickerItems, GetAllItemPickerIds,
@@ -89,7 +91,7 @@ from CardRegistryApi import (
 | 内容项扩展 | `RegisterContentItemType` `GetContentItemFactory` `RegisterContentBuilder` `RegisterContentListener` `UnregisterContentListener` |
 | 弹窗 | `RegisterPopUp` `UnregisterPopUp` `GetPopUp` `GetAllPopUpIds` `ShowPopUp` `ClosePopUp` |
 | 折叠菜单 | `RegisterCollapsibleMenu` `AddCollapsibleMenuCard` `GetCollapsibleMenu` `GetCollapsibleMenuCards` `ShowCollapsibleMenu` `CloseCollapsibleMenu` |
-| 组合开关 | `RegisterCardToggle` `AddCardToggleOption` `AddCardToggleButton` `GetCardToggle` `GetCardToggleOptions` `GetCardToggleOptionIds` `GetCardToggleState` `SetCardToggleState` `ResetCardToggleStates` `OpenCardToggle` `CloseCardToggle` |
+| 组合开关 | `RegisterCardToggle` `AddCardToggleOption` `AddCardToggleButton` `RemoveCardToggleOption` `GetCardToggle` `GetCardToggleOptions` `GetCardToggleOptionIds` `GetCardToggleState` `SetCardToggleState` `RemoveCardToggleState` `ResetCardToggleStates` `OpenCardToggle` `CloseCardToggle` `RefreshCardToggle` |
 | 物品选择 | `RegisterItemPicker` `AddItemPickerItem` `UnregisterItemPicker` `GetItemPicker` `GetItemPickerItems` `GetAllItemPickerIds` `OpenItemPicker` `CloseItemPicker` `ItemPickerOpenEvent` |
 | 锁定 | `SetLocked` |
 | 设置项状态 | `MakeSettingKey` `GetSettingValue` `GetSettingLocked` `SetSettingValue` `ResetSettingValue` `ResetAllSettings` `ResetGroupSettings` `SaveGroupSettings` `SaveAllSettings` |

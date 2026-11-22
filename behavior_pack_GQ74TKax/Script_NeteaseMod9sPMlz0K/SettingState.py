@@ -385,6 +385,21 @@ def ResetCardToggleStates(toggle_id):
     return True
 
 
+def RemoveCardToggleState(toggle_id, option_id):
+    """删除单个选项的持久化状态（动态删行后清理用）。
+
+    下一帧重建时该选项读回 default_on / default_value；其余选项状态不受影响。
+
+    :returns: True 已删除；False 无该选项的存储记录
+    """
+    key = _CardToggleKey(toggle_id)
+    states = _Read(key)
+    if not isinstance(states, dict) or option_id not in states:
+        return False
+    del states[option_id]
+    return _Write(key, states)
+
+
 # ────────────────── 跨存档同步支撑 ──────────────────
 # 外部键：值由外部（服务端下发的本存档配置）提供，不写进跨存档配置。
 # item_id -> (provider, persist)

@@ -1098,6 +1098,29 @@ def AddCardToggleButton(toggle_id, text, callback):
     return True
 
 
+def RemoveCardToggleOption(toggle_id, option_id):
+    """
+    从组合开关中删除一个选项（动态增删行用）。
+
+    只改注册表数据，已打开的弹窗不会自己刷新：调用后需再调
+    RefreshCardToggle(toggle_id)（Client 侧，下一帧重建行）才可见。
+    该选项已持久化的状态不会自动清除，需要时另调 RemoveCardToggleState。
+
+    :param toggle_id: 组合开关 ID
+    :param option_id: 要删除的选项 ID
+    :returns:         True 已删除；False 数据集或选项不存在
+    """
+    menu = _cardToggles.get(toggle_id)
+    if not menu:
+        return False
+    options = menu.get("options") or []
+    for i, op in enumerate(options):
+        if op[0] == option_id:
+            del options[i]
+            return True
+    return False
+
+
 def GetCardToggle(toggle_id):
     """
     获取组合开关数据集 {"title", "mode", "buttons", "options"} 或 None。

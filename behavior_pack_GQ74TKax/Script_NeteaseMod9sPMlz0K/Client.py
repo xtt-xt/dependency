@@ -85,6 +85,7 @@ class MyClientSystem(ClientSystem):
         self.mCurrentItemPickerTitle = ""  # 当前弹窗标题
         self.mAllItemIds = []              # 服务端下发的全部物品 identifier（演示数据集用）
         self.mPendingCloseSettings = False  # 确认关闭动画后：OnActive 时立即关闭设置界面
+        self.mPendingToggleRefresh = None  # 待重建的组合开关 toggle_id（下一帧执行）
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
         self.ListenForEvent(
@@ -502,6 +503,8 @@ class MyClientSystem(ClientSystem):
             self.mSettingsScreenNode.OnTick()
         if self.mItemPickerScreenNode and hasattr(self.mItemPickerScreenNode, 'OnTick'):
             self.mItemPickerScreenNode.OnTick()
+        if self.mPendingToggleRefresh:
+            self._FlushCardToggleRefresh()
 
     def OnGridComponentSizeChanged(self, args):
         """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
@@ -851,6 +854,43 @@ class MyClientSystem(ClientSystem):
                     dlog.client_print("==== CloseCardToggle persist error: %s ====" % str(e))
             clientApi.PopScreen()
             self.mCardToggleOpen = False
+
+    def RefreshCardToggle(self, toggle_id=None):
+        """请求重建已打开的组合开关弹窗（供 Add/RemoveCardToggleOption 后调用）。
+
+        重建排到下一帧 OnScriptTickClient 执行：底部按钮回调里直接销毁自己所在的
+        控件不安全，延后一帧即可避开。
+
+        :param toggle_id: 要刷新的 toggle；None 表示当前打开的那个
+        :returns:         True 已排队；False 弹窗未打开 / 不是该 toggle
+        """
+        if not self.mCardToggleOpen or not self.mCardToggleScreenNode:
+            return False
+        if toggle_id and toggle_id != self.mCurrentToggleId:
+            return False
+        self.mPendingToggleRefresh = self.mCurrentToggleId
+        return True
+
+    def _FlushCardToggleRefresh(self):
+        """执行 RefreshCardToggle 排队的重建（下一帧）。"""
+        tid = self.mPendingToggleRefresh
+        self.mPendingToggleRefresh = None
+        if not tid or not self.mCardToggleOpen or not self.mCardToggleScreenNode:
+            return
+        if tid != self.mCurrentToggleId:
+            return
+        from CardRegistry import GetCardToggle
+        data = GetCardToggle(tid)
+        if not data:
+            dlog.client_print("==== RefreshCardToggle: toggle '%s' gone ====" % tid)
+            return
+        # 重新取引用：RegisterCardToggle 会整体替换 dict，屏幕里握着的是旧对象
+        self.mCurrentCardToggle = data
+        try:
+            self.mCardToggleScreenNode.Refresh()
+            dlog.client_print("==== RefreshCardToggle: '%s' rebuilt ====" % tid)
+        except Exception as e:
+            dlog.client_print("==== RefreshCardToggle error: %s ====" % str(e))
 
     def OpenItemPicker(self, picker_id, item=None, on_select=None, title=None, group=None):
         """
@@ -5255,6 +5295,7 @@ class CardToggleScreenNode(ScreenNode):
         self.mPanelApplied = False
         self.mBackBound = False
         self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl, locked, editInputCtrl), ...]
+        self.mBtnCtrls = []          # 底部自定义按钮控件（重建前先清掉，避免重复叠加）
         self.mStates = {}            # option_id -> bool（缓存当前开关状态）
         self.mToggleId = ""
         self.mMode = "multi"
@@ -5397,6 +5438,16 @@ class CardToggleScreenNode(ScreenNode):
         # 4. 底部自定义按钮
         self._BuildButtons(data.get("buttons", []) or [])
 
+    def Refresh(self):
+        """按最新数据集重建全部行与底部按钮（数据集动态增删后调用）。
+
+        先 _PersistStates 再重建：编辑框内容平时只在关闭弹窗时统一落盘，
+        直接重建会丢掉"已输入但未提交"的文本；开关状态同样先收集一次。
+        行状态随后从存储读回，不会丢。
+        """
+        self._PersistStates()
+        self._ApplyPanel()
+
     def _ClearRows(self):
         for _oid, _sc, ctrl, _lk, _ed in self.mRowCtrls:
             try:
@@ -5406,7 +5457,17 @@ class CardToggleScreenNode(ScreenNode):
         self.mRowCtrls = []
         self.mStates = {}
 
+    def _ClearButtons(self):
+        """清掉已建的底部按钮（_ApplyPanel 会被 Create/OnActive/刷新多次调用）。"""
+        for ctrl in self.mBtnCtrls:
+            try:
+                self.RemoveChildControl(ctrl)
+            except Exception:
+                pass
+        self.mBtnCtrls = []
+
     def _BuildButtons(self, buttons):
+        self._ClearButtons()
         underStack = self.GetBaseUIControl("/backdrop/stack_panel/under/stack_panel")
         if not underStack:
             dlog.client_print("==== CardToggleScreenNode: under stack not found ====")
@@ -5420,6 +5481,7 @@ class CardToggleScreenNode(ScreenNode):
             )
             if not btnCtrl:
                 continue
+            self.mBtnCtrls.append(btnCtrl)
             # 按钮文字：label 子控件
             try:
                 labelCtrl = btnCtrl.GetChildByName('label')
@@ -5533,6 +5595,7 @@ class CardToggleScreenNode(ScreenNode):
         self.mPanelApplied = False
         self.mBackBound = False
         self.mRowCtrls = []
+        self.mBtnCtrls = []
         self.mStates = {}
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mCardToggleScreenNode is self:

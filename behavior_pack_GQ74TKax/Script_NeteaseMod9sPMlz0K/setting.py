@@ -16,11 +16,15 @@ from CardRegistryApi import (
     ResetGroupSettings,
     GetSettingValue,
     SetSettingValue,
-    # 组合开关测试（临时，注释掉）
-    # RegisterCardToggle,
-    # AddCardToggleOption,
-    # AddCardToggleButton,
-    # OpenCardToggle,
+    # 组合开关（开发者选项的演示用）
+    RegisterCardToggle,
+    AddCardToggleOption,
+    AddCardToggleButton,
+    RemoveCardToggleOption,
+    GetCardToggleOptionIds,
+    RemoveCardToggleState,
+    RefreshCardToggle,
+    OpenCardToggle,
 )
 from DebugLog import dlog
 
@@ -47,6 +51,11 @@ DEV_NOTICE_TEXT = ("你正在使用「通用模组前置」的开发版本。\n"
                    "本版本可能不稳定，其中包含尚未确定的功能与内容，随时可能改动或移除。\n"
                    "请不要以本版本作为开发基准，正式接入请以发布版本为准。")
 DEV_NOTICE_COLOR = (1.0, 0.76, 0.35)   # 提示文字颜色（琥珀），AddText 的 color 参数
+
+# 组合开关演示（开发者选项）：三种行控件 + 锁定行 + 底部按钮动态增删行
+DEV_TOGGLE_ID = "dev_card_toggle"
+DEV_TOGGLE_OPEN_ID = "dev_toggle_open"
+_DEV_TOGGLE_SEQ = 0                    # 动态加行的序号（只增不减，避免与已有 option_id 撞车）
 
 
 def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
@@ -319,39 +328,65 @@ def _OnInfoButtonClick(screenNode, item_id):
     ShowPopUp(INFO_POPUP_ID, force_scroll=False)
 
 
-# ==================== 组合开关测试（临时，注释掉） ====================
+# ==================== 组合开关演示（开发者选项用，发布时随该块一起注释） ====================
 
-# def _OnTestToggleOpen(screenNode, item_id):
-#     """打开组合开关测试弹窗（普通 button 触发）。"""
-#     OpenCardToggle("test_card_toggles")
-
-
-# def _OnTestTogglePrint(screenNode, toggle_id, state_dict):
-#     """组合开关测试：打印当前开关状态。"""
-#     dlog.client_print("==== test card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
+def _OnDevToggleOpen(screenNode, item_id):
+    """打开组合开关演示弹窗（普通 button 触发）。"""
+    OpenCardToggle(DEV_TOGGLE_ID)
 
 
-# def _RegisterCardToggleTest():
-#     """注册组合开关测试数据集：混合三种行控件 + 锁定行。"""
-#     RegisterCardToggle("test_card_toggles", "组合开关测试", mode="multi",
-#                        buttons=[("打印状态", _OnTestTogglePrint)])
-#     # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
-#     AddCardToggleOption("test_card_toggles", "diamond", "minecraft:diamond",
-#                         desc="点亮钻石", default_on=True)
-#     # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
-#     AddCardToggleOption("test_card_toggles", "apple", "", desc="吃个苹果",
-#                         ctrl_type="toggle_text")
-#     # ctrl_type="toggle_edit_box"：物品图标 + 文字 + 编辑框（default_value 为初始文本）
-#     AddCardToggleOption("test_card_toggles", "paper", "minecraft:paper",
-#                         desc="输入数量", ctrl_type="toggle_edit_box",
-#                         default_value="16")
-#     # 锁定行：开关不可交互，显示 switch 内置锁定贴图
-#     AddCardToggleOption("test_card_toggles", "emerald", "minecraft:emerald",
-#                         desc="绿宝石（锁定）", locked=True)
-#     # 锁定的编辑框行：不可输入，显示 edit_box 内置 lock 覆盖层
-#     AddCardToggleOption("test_card_toggles", "locked_paper", "minecraft:book",
-#                         desc="锁定输入框", ctrl_type="toggle_edit_box",
-#                         default_value="只读", locked=True)
+def _OnDevTogglePrint(screenNode, toggle_id, state_dict):
+    """底部按钮：打印当前所有行的状态（开关行 bool，编辑框行文本）。"""
+    dlog.client_print("==== dev card_toggle '%s' states: %s ====" % (toggle_id, state_dict))
+
+
+def _OnDevToggleAddRow(screenNode, toggle_id, state_dict):
+    """底部按钮：动态追加一行并刷新弹窗（RefreshCardToggle 下一帧重建）。"""
+    global _DEV_TOGGLE_SEQ
+    _DEV_TOGGLE_SEQ += 1
+    n = _DEV_TOGGLE_SEQ
+    palette = (("minecraft:gold_ingot", "金锭"),
+               ("minecraft:redstone", "红石"),
+               ("minecraft:book", "书"),
+               ("minecraft:coal", "煤炭"))
+    item_name, label = palette[(n - 1) % len(palette)]
+    AddCardToggleOption(DEV_TOGGLE_ID, "extra_%d" % n, item_name,
+                        desc="动态新增第%d行（%s）" % (n, label))
+    RefreshCardToggle(DEV_TOGGLE_ID)
+    dlog.client_print("==== dev card_toggle add: extra_%d ====" % n)
+
+
+def _OnDevToggleRemoveRow(screenNode, toggle_id, state_dict):
+    """底部按钮：删除最后一行并刷新弹窗（顺带清掉该行已存状态）。"""
+    ids = GetCardToggleOptionIds(DEV_TOGGLE_ID)
+    if not ids:
+        return
+    removed = ids[-1]
+    if RemoveCardToggleOption(DEV_TOGGLE_ID, removed):
+        RemoveCardToggleState(DEV_TOGGLE_ID, removed)
+        RefreshCardToggle(DEV_TOGGLE_ID)
+        dlog.client_print("==== dev card_toggle remove: %s ====" % removed)
+
+
+def _RegisterDevToggleDemo():
+    """注册组合开关演示数据集：混合三种行控件 + 锁定行 + 底部增删/打印按钮。"""
+    RegisterCardToggle(DEV_TOGGLE_ID, "组合开关演示", mode="multi")
+    # 默认 ctrl_type="toggle"：物品图标 + 文字 + 开关
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_toggle", "minecraft:diamond",
+                        desc="开关行：物品图标 + 文字 + 开关", default_on=True)
+    # ctrl_type="toggle_text"：纯文字 + 开关（item_name 传 ""）
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_text", "",
+                        desc="纯文字行：没有物品图标", ctrl_type="toggle_text")
+    # ctrl_type="toggle_edit_box"：物品图标 + 文字 + 输入框（default_value 为初始文本）
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_edit", "minecraft:paper",
+                        desc="输入框行：文字可编辑", ctrl_type="toggle_edit_box",
+                        default_value="16")
+    # 锁定行：开关不可交互，显示 switch 内置锁定贴图
+    AddCardToggleOption(DEV_TOGGLE_ID, "demo_locked", "minecraft:emerald",
+                        desc="锁定行：开关不可点", locked=True)
+    AddCardToggleButton(DEV_TOGGLE_ID, "加一行", _OnDevToggleAddRow)
+    AddCardToggleButton(DEV_TOGGLE_ID, "删末尾一行", _OnDevToggleRemoveRow)
+    AddCardToggleButton(DEV_TOGGLE_ID, "打印状态", _OnDevTogglePrint)
 
 
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
@@ -473,11 +508,11 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
 
     # ══════════════════════════════════════════════════════════════════
     # 开发者选项（测试内容集中区）
-    #   - 以后新增的测试卡片 / 测试弹窗 / 演示内容都往这里加，照下面物品选择
-    #     演示的写法（RegisterMiddleCard + CreateContentInst）追加即可。
+    #   - 以后新增的测试卡片 / 测试弹窗 / 演示内容都往这里加，照下面物品选择、
+    #     组合开关两个演示的写法（RegisterMiddleCard + CreateContentInst）追加即可。
     #   - 顶部提示用 AddText(..., color=(r,g,b)) 上琥珀色，不需要额外内容项类型。
-    #   - 发布正式版时：把本块（从下面的 RegisterMiddleCard 到 _RegisterCardToggleTest
-    #     那一行）整块注释掉，该分页就不再注册；其余分页与已存配置不受影响。
+    #   - 发布正式版时：把本块（从下面的 RegisterMiddleCard 到 return ok 之前）
+    #     整块注释掉，该分页就不再注册；其余分页与已存配置不受影响。
     # ══════════════════════════════════════════════════════════════════
     RegisterMiddleCard(main_card_id, "client", DEV_CATEGORY_ID, "开发者选项",
                        icon="textures/ui/icon/advanced-icon")
@@ -487,20 +522,18 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
     # 这里先注册空数据集占位，数据到达前后弹窗都能正常打开。
     RegisterItemPicker(DEMO_PICKER_ID, "选择物品", items=[])
 
+    # 组合开关演示：混合三种行控件 + 锁定行，弹窗底部按钮可动态加/删行。
+    _RegisterDevToggleDemo()
+
     CreateContentInst(main_card_id, "client", DEV_CATEGORY_ID) \
         .AddText(DEV_NOTICE_ID, DEV_NOTICE_TITLE, DEV_NOTICE_TEXT,
                  color=DEV_NOTICE_COLOR) \
         .AddItemPicker(DEMO_ITEM_ID, "演示：点右侧箭头从列表中选择一个物品，用于测试物品选择弹窗",
                        DEMO_PICKER_ID, litle="物品选择",
-                       on_select=_OnDemoItemPicked)
-
-    # 组合开关测试（临时，需要时取消注释；_RegisterCardToggleTest 定义在本文件上方）
-    # RegisterMiddleCard(main_card_id, "client", "card_toggle_test", "组合开关测试")
-    # CreateContentInst(main_card_id, "client", "card_toggle_test") \
-    #     .AddText("ct_intro", "简介",
-    #              "测试组合开关：物品行 + 纯文字行 + 编辑框行 + 锁定行混合\n点击下方按钮打开弹窗") \
-    #     .AddButton("ct_open", "打开组合开关测试弹窗", "打开", on_click=_OnTestToggleOpen)
-    # _RegisterCardToggleTest()
+                       on_select=_OnDemoItemPicked) \
+        .AddButton(DEV_TOGGLE_OPEN_ID,
+                   "演示：弹窗里可动态加行 / 删行 / 打印状态，用于测试组合开关与 RefreshCardToggle",
+                   "打开组合开关演示", on_click=_OnDevToggleOpen)
 
     return ok
 

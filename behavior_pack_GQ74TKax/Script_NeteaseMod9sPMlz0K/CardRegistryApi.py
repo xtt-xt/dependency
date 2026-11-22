@@ -66,6 +66,7 @@ from CardRegistry import (
     RegisterCardToggle,
     AddCardToggleOption,
     AddCardToggleButton,
+    RemoveCardToggleOption,
     GetCardToggle,
     GetCardToggleOptions,
     GetCardToggleOptionIds,
@@ -112,6 +113,7 @@ from SettingState import (
     # 组合开关状态
     GetCardToggleState,
     SetCardToggleState,
+    RemoveCardToggleState,
     ResetCardToggleStates,
 )
 
@@ -174,6 +176,24 @@ def CloseCardToggle():
     """关闭当前组合开关弹窗（若打开）。"""
     if _g_ClientSystem:
         _g_ClientSystem.CloseCardToggle()
+
+
+def RefreshCardToggle(toggle_id=None):
+    """
+    刷新已打开的组合开关弹窗（配合 Add/RemoveCardToggleOption 做行动态增删）。
+
+    只对"当前已打开的那个弹窗"生效；重建排在下一帧（OnScriptTickClient）执行，
+    避免在弹窗底部按钮自己的回调里销毁正在被点击的控件。重建前会先把开关 /
+    编辑框里已改动但未落盘的内容持久化，故不会丢失输入。
+    副作用：整窗重建 → 滚动位置回到顶部。
+
+    :param toggle_id: 要刷新的 toggle ID；None 表示当前打开的那个
+    :returns:         True 已排队；False 弹窗未打开 / 不是该 toggle / ClientSystem 未就绪
+    """
+    if _g_ClientSystem:
+        return bool(_g_ClientSystem.RefreshCardToggle(toggle_id))
+    dlog.client_print("==== CardRegistryApi.RefreshCardToggle: ClientSystem not ready ====")
+    return False
 
 
 def OpenItemPicker(picker_id, item=None, on_select=None, title=None):

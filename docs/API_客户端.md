@@ -723,7 +723,24 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### AddCardToggleButton(toggle_id, text, callback)
 
-向已注册的组合开关追加一个底部自定义按钮；`text` 为显示文字，`callback(screenNode, toggle_id, state_dict)`。
+向已注册的组合开关追加一个底部自定义按钮；`text` 为显示文字，`callback(screenNode, toggle_id, state_dict)`。回调执行前会先把当前开关 / 编辑框状态落盘，`state_dict` 是 `option_id -> bool|str` 的当前快照。
+
+### RemoveCardToggleOption(toggle_id, option_id)
+
+从已注册的组合开关里删除一个选项（动态删行用）。同 `option_id` 重复 `AddCardToggleOption` 等于覆盖更新，所以"改一行"不需要先删。
+
+- 只改注册表数据；**已打开的弹窗不会自己刷新**，必须再调 `RefreshCardToggle(toggle_id)`。
+- 该选项已持久化的状态不会自动清除（重新加回同 id 会读回旧值），需要清掉时调 `RemoveCardToggleState`。
+- 返回 `True` 已删除；数据集或选项不存在返回 `False`。
+
+### RefreshCardToggle(toggle_id=None)
+
+重建**已打开**的组合开关弹窗（按最新数据集重排行与底部按钮），供动态增删后立即生效。
+
+- `toggle_id` 传 `None` 表示当前打开的那个；不是当前弹窗的 id 返回 `False`。
+- 重建排在**下一帧**（`OnScriptTickClient`）执行，避免在底部按钮自己的回调里销毁正在被点击的控件。
+- 重建前会先 `_PersistStates()`：开关状态与输入框里未提交的文字都不会丢。
+- **副作用**：整窗重建，滚动位置回到顶部（行数超过 4 行才看得出来）。
 
 ### GetCardToggle(toggle_id)
 
@@ -739,6 +756,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 |-----|------|
 | `GetCardToggleState(toggle_id, option_id, default_on=False)` | 读取某选项状态（开关行返回 bool；编辑框行返回文本字符串） |
 | `SetCardToggleState(toggle_id, option_id, state)` | 写入某选项状态并持久化（开关行传 bool，编辑框行传文本字符串） |
+| `RemoveCardToggleState(toggle_id, option_id)` | 删除单个选项的持久化状态（删行后清理用），其余选项不受影响 |
 | `ResetCardToggleStates(toggle_id)` | 清除该 toggle 全部持久化状态（回退 `default_on` / `default_value`） |
 
 状态按 `cardtoggle.<toggle_id>` 单独存储，退出/重进世界保持。编辑框行的输入文本在关闭弹窗（返回 / ESC / 底部按钮）时统一回读并持久化。
@@ -782,6 +800,41 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 ```
 
 > 单选模式（`mode="single"`）：打开某一项会自动关闭其他项。弹窗开关的增删改实时持久化，无需手动保存。
+
+### 动态增删行（运行中）
+
+改注册表后调 `RefreshCardToggle(toggle_id)` 就能让**已打开**的弹窗重建成最新行。典型做法是在底部按钮里增删：
+
+```python
+from CardRegistryApi import (
+    AddCardToggleOption, RemoveCardToggleOption, RemoveCardToggleState,
+    GetCardToggleOptionIds, RefreshCardToggle, AddCardToggleButton,
+)
+
+_seq = [0]   # Python 2：用列表兜住计数器，避免 global
+
+def OnAddRow(sn, toggle_id, state_dict):
+    _seq[0] += 1
+    AddCardToggleOption(toggle_id, "row_%d" % _seq[0], "minecraft:gold_ingot",
+                        desc="第 %d 行" % _seq[0])
+    RefreshCardToggle(toggle_id)        # 下一帧重建
+
+def OnRemoveRow(sn, toggle_id, state_dict):
+    ids = GetCardToggleOptionIds(toggle_id)
+    if not ids:
+        return
+    RemoveCardToggleOption(toggle_id, ids[-1])
+    RemoveCardToggleState(toggle_id, ids[-1])   # 顺带清掉该行已存状态
+    RefreshCardToggle(toggle_id)
+
+AddCardToggleButton("my_toggles", "加一行", OnAddRow)
+AddCardToggleButton("my_toggles", "删末尾一行", OnRemoveRow)
+```
+
+- 行顺序 = 选项注册顺序，新增行追加在末尾；没有"插入到中间"的参数。
+- `RefreshCardToggle` 是整窗重建：滚动位置回顶部，但已输入未提交的编辑框文字会先落盘，不会丢。
+- 若用 `RegisterCardToggle` 整体重注册（dict 被替换），也必须调一次 `RefreshCardToggle` 才能换成新数据。
+- 删行不会自动清状态：不加 `RemoveCardToggleState` 的话，重新加回同 `option_id` 会读回旧值。
 
 ---
 
