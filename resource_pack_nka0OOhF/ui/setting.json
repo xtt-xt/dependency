@@ -2965,6 +2965,24 @@
         ],
         "controls": [
             {
+                "collapsible_menu_host@pop_up.collapsible_menu_body": {
+                    "visible": false,
+                    "layer": 800
+                }
+            },
+            {
+                "popup_host@pop_up.popup_body": {
+                    "visible": false,
+                    "layer": 820
+                }
+            },
+            {
+                "popup_scroll_host@pop_up.popup_scroll_body": {
+                    "visible": false,
+                    "layer": 830
+                }
+            },
+            {
                 "item_picker_host@pop_up.item_picker_body": {
                     "visible": false,
                     "layer": 900

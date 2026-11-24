@@ -65,8 +65,11 @@ class MyClientSystem(ClientSystem):
         self.mCurrentPopUp = None  # 当前待显示/显示的弹窗数据 {"title": str, "content": str, "buttons": [...]}
         self.mPopUpOpen = False    # 弹窗 UI 是否在场景栈中
         self.mPopUpScreenNode = None  # 弹窗 ScreenNode 引用（用于已打开时刷新内容）
+        self.mPopUpEmbedded = False   # 当前弹窗是否走内嵌通道（不压栈）
+        self.mPendingCloseSettingsEmbedded = False  # 内嵌弹窗确认后：下一帧才真正关设置界面
         self.mReturningFromPopUp = False  # 弹窗刚关闭，设置界面 OnActive 时跳过重建，保留当前详情
-        self.mCollapsibleMenuOpen = False    # 折叠菜单弹窗是否在场景栈中
+        self.mCollapsibleMenuOpen = False    # 折叠菜单是否处于会话中（内嵌/压栈都算）
+        self.mCollapsibleMenuEmbedded = False  # 本次会话是否走内嵌通道（不压栈）
         self.mCollapsibleMenuScreenNode = None  # 折叠菜单 ScreenNode 引用
         self.mCurrentCollapsibleMenu = None  # 当前折叠菜单数据 {"title": str, "cards": [(card_id, name), ...]}
         self.mCurrentCollapsibleItem = None  # 关联的 CollapsibleMenuContentItem（用于读写选中状态）
@@ -214,6 +217,23 @@ class MyClientSystem(ClientSystem):
                 self.mCurrentItemPickerRow = None
                 self.mItemPickerOnSelect = None
                 dlog.client_print("==== embedded item picker cleared (settings closed) ====")
+            # 内嵌折叠菜单同理：没有压栈，界面一关控件树就没了，会话字段必须清干净
+            if self.mCollapsibleMenuOpen and self.mCollapsibleMenuEmbedded:
+                self.mCollapsibleMenuScreenNode = None
+                self.mCollapsibleMenuOpen = False
+                self.mCollapsibleMenuEmbedded = False
+                self.mCurrentCollapsibleMenu = None
+                self.mCurrentCollapsibleItem = None
+                dlog.client_print("==== embedded collapsible menu cleared (settings closed) ====")
+            # 内嵌普通弹窗同理：没有压栈，界面一关控件树就没了，会话字段清干净并补一次关闭广播
+            if self.mPopUpOpen and self.mPopUpEmbedded:
+                self.mPopUpScreenNode = None
+                self.mPopUpOpen = False
+                self.mPopUpEmbedded = False
+                self.mCurrentPopUp = None
+                self.mPendingCloseSettingsEmbedded = False
+                dlog.client_print("==== embedded popup cleared (settings closed) ====")
+                self._BroadcastPopUpClose()
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
             try:
                 from SettingState import SaveAllSettings
@@ -234,6 +254,7 @@ class MyClientSystem(ClientSystem):
             self.BroadcastEvent(SettingsUICloseEvent, eventData)
         elif screenDef in ('pop_up.main', 'pop_up.main_scroll'):
             self.mPopUpOpen = False
+            self.mPopUpEmbedded = False
             self.mCurrentPopUp = None
             # 不清 mReturningFromPopUp：保留给设置界面 OnActive 消费，避免退出弹窗后重建导致右侧面板回到顶部
             self._RestoreScrollAfterPopUp()
@@ -249,6 +270,7 @@ class MyClientSystem(ClientSystem):
             self.BroadcastEvent(PopUpCloseEvent, eventData)
         elif screenDef == 'pop_up.collapsible_menu':
             self.mCollapsibleMenuOpen = False
+            self.mCollapsibleMenuEmbedded = False
             self.mCurrentCollapsibleMenu = None
             self.mCurrentCollapsibleItem = None
             self._RestoreScrollAfterPopUp()
@@ -521,6 +543,13 @@ class MyClientSystem(ClientSystem):
             self.mPendingCloseCardToggle = False
             if self.mCardToggleOpen:
                 self.CloseCardToggle()
+        if self.mPendingCloseSettingsEmbedded:
+            # 内嵌弹窗里确认了"退出设置"：排到下一帧才 PopScreen（回调里销毁控件树不安全）
+            self.mPendingCloseSettingsEmbedded = False
+            if self.mSettingsUIOpen:
+                dlog.client_print("==== embedded popup: close settings now ====")
+                clientApi.PopScreen()
+                self.mSettingsUIOpen = False
 
     def OnGridComponentSizeChanged(self, args):
         """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
@@ -728,29 +757,37 @@ class MyClientSystem(ClientSystem):
     def ShowPopUp(self, popup_id, force_scroll=None):
         """
         打开指定 ID 的弹窗（须先 RegisterPopUp 注册）。
-        若弹窗已打开则刷新内容；否则压栈新弹窗界面。
+        若弹窗已打开则刷新内容；设置界面自己就是栈顶时内嵌，否则压栈新弹窗界面。
 
         :param popup_id:    弹窗唯一标识符
         :param force_scroll: True 强制使用滚动版；False 强制普通版；
                              None 自动根据内容长度决定（默认）
         """
-        from CardRegistry import GetPopUp, PopUpOpenEvent
+        from CardRegistry import GetPopUp
         data = GetPopUp(popup_id)
         if not data:
             dlog.client_print("==== ShowPopUp: popup '%s' not registered ====" % popup_id)
             return False
         self.mCurrentPopUp = data
+        useScroll = self._DecideScroll(data, force_scroll)
         if self.mPopUpOpen:
             # 弹窗已打开：重新 Push 会破坏场景栈，直接复用现有 ScreenNode 刷新
             dlog.client_print("==== ShowPopUp: popup already open, refresh content ====")
-            if self.mPopUpScreenNode:
-                try:
-                    self.mPopUpScreenNode._ApplyPopUp()
-                except Exception as e:
-                    dlog.client_print("==== ShowPopUp: refresh error: %s ====" % str(e))
-            return True
-        useScroll = self._DecideScroll(data, force_scroll)
+            if self._RefreshOpenPopUp(useScroll):
+                return True
+            dlog.client_print("==== ShowPopUp: refresh failed, drop old session ====")
+            self._DropPopUpSessionQuietly()
+            self.mCurrentPopUp = data
+        # 通道选择：设置界面自己开着且就是栈顶 → 内嵌（不压栈 → 不失活 → 右侧滚动位置不会丢）；
+        # 其余场景（背包/别处弹、别的本模组界面之上、取不到栈顶、宿主找不到）→ 原 PushScreen 通道。
+        if self._EmbeddedPopUpAllowed():
+            if self._OpenEmbeddedPopUp(useScroll):
+                self._BroadcastPopUpOpen(popup_id, useScroll)
+                return True
+            dlog.client_print("==== embedded popup unavailable, falling back to PushScreen ====")
+            self.mCurrentPopUp = data
         # 弹窗即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
+        self.mPopUpEmbedded = False
         self.mReturningFromPopUp = True
         self._CaptureRightScroll()
         if useScroll:
@@ -758,12 +795,141 @@ class MyClientSystem(ClientSystem):
         else:
             clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'PopUpUI')
         self.mPopUpOpen = True
-        eventData = self.CreateEventData()
-        eventData["playerId"] = clientApi.GetLocalPlayerId()
-        eventData["popupId"] = popup_id
-        eventData["useScroll"] = useScroll
-        self.BroadcastEvent(PopUpOpenEvent, eventData)
+        self._BroadcastPopUpOpen(popup_id, useScroll)
         return True
+
+    def _BroadcastPopUpOpen(self, popup_id, useScroll):
+        """广播弹窗打开事件（内嵌 / 压栈两条通道共用）。"""
+        try:
+            from CardRegistry import PopUpOpenEvent
+            eventData = self.CreateEventData()
+            eventData["playerId"] = clientApi.GetLocalPlayerId()
+            eventData["popupId"] = popup_id
+            eventData["useScroll"] = useScroll
+            self.BroadcastEvent(PopUpOpenEvent, eventData)
+        except Exception as e:
+            dlog.client_print("==== PopUpOpen broadcast error: %s ====" % str(e))
+
+    def _BroadcastPopUpClose(self):
+        """广播弹窗关闭事件并回滚跨存档同步开关（内嵌 / 压栈两条通道共用）。"""
+        try:
+            import SyncControl as SC
+            SC.OnPopUpClosed()
+        except Exception as e:
+            dlog.client_print("==== SyncControl OnPopUpClosed error: %s ====" % str(e))
+        try:
+            from CardRegistry import PopUpCloseEvent
+            eventData = self.CreateEventData()
+            eventData["playerId"] = clientApi.GetLocalPlayerId()
+            self.BroadcastEvent(PopUpCloseEvent, eventData)
+        except Exception as e:
+            dlog.client_print("==== PopUpClose broadcast error: %s ====" % str(e))
+
+    def _EmbeddedPopUpAllowed(self):
+        """普通弹窗能否走内嵌通道：设置界面开着、它就是栈顶、没有本模组其它层压着。"""
+        if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
+            return False
+        # 单层内嵌：别的层开着就先回落 PushScreen，避免 z-order 与 ESC 分层互相干扰
+        if self.mPopUpOpen or self.mItemPickerOpen or self.mCardToggleOpen or self.mCollapsibleMenuOpen:
+            return False
+        try:
+            top = clientApi.GetTopScreen()
+        except Exception:
+            top = None
+        if not top:
+            return False
+        try:
+            if top.GetScreenName() != "setting.main":
+                return False
+        except Exception:
+            return False
+        return hasattr(self.mSettingsScreenNode, "GetEmbeddedPopUp")
+
+    def _AttachEmbeddedPopUp(self, useScroll):
+        """显示指定版式的内嵌宿主并收起另一份，返回壳对象（失败 None）。"""
+        node = self.mSettingsScreenNode
+        if node is None:
+            return None
+        try:
+            shell = node.GetEmbeddedPopUp(useScroll)
+        except Exception as e:
+            dlog.client_print("==== embedded popup create error: %s ====" % str(e))
+            return None
+        if shell is None:
+            return None
+        if not node.SetEmbeddedPopUpVisible(useScroll, True):
+            return None
+        # 两份宿主互斥：显示新的必须收起旧的，否则暗层叠两层、按钮位置重叠
+        try:
+            node.SetEmbeddedPopUpVisible(not useScroll, False)
+        except Exception:
+            pass
+        self.mPopUpScreenNode = shell
+        return shell
+
+    def _OpenEmbeddedPopUp(self, useScroll):
+        """在设置界面内部打开普通弹窗（不压栈）。返回是否成功。"""
+        shell = self._AttachEmbeddedPopUp(useScroll)
+        if shell is None:
+            return False
+        self.mPopUpOpen = True
+        self.mPopUpEmbedded = True
+        try:
+            shell._ApplyPopUp()
+        except Exception as e:
+            dlog.client_print("==== embedded popup apply error: %s ====" % str(e))
+            self._CloseEmbeddedPopUp()
+            return False
+        dlog.client_print("==== popup opened embedded (no PushScreen): scroll=%s ====" % useScroll)
+        return True
+
+    def _RefreshOpenPopUp(self, useScroll):
+        """刷新已打开的弹窗；内嵌时版式变了要换一份宿主（滚动版 / 普通版是两份独立控件树）。"""
+        shell = self.mPopUpScreenNode
+        if shell is None:
+            return False
+        if self.mPopUpEmbedded and bool(getattr(shell, "mScroll", False)) != bool(useScroll):
+            shell = self._AttachEmbeddedPopUp(useScroll)
+            if shell is None:
+                return False
+            dlog.client_print("==== embedded popup switched to scroll=%s ====" % useScroll)
+        try:
+            shell._ApplyPopUp()
+            return True
+        except Exception as e:
+            dlog.client_print("==== ShowPopUp: refresh error: %s ====" % str(e))
+            return False
+
+    def _DropPopUpSessionQuietly(self):
+        """壳丢了但标志还在：只清会话字段，不动界面。"""
+        self.mPopUpScreenNode = None
+        self.mPopUpOpen = False
+        self.mPopUpEmbedded = False
+        self.mCurrentPopUp = None
+
+    def _CloseEmbeddedPopUp(self):
+        """收掉内嵌弹窗：隐藏宿主 + 清会话 + 补关闭广播 + 消费 mPendingCloseSettings。"""
+        shell = getattr(self, "mPopUpScreenNode", None)
+        node = self.mSettingsScreenNode
+        useScroll = bool(getattr(shell, "mScroll", False))
+        if node is not None:
+            try:
+                node.SetEmbeddedPopUpVisible(useScroll, False)
+                node.SetEmbeddedPopUpVisible(not useScroll, False)
+            except Exception as e:
+                dlog.client_print("==== close embedded popup error: %s ====" % str(e))
+        self.mPopUpScreenNode = None
+        self.mPopUpOpen = False
+        self.mPopUpEmbedded = False
+        self.mCurrentPopUp = None
+        dlog.client_print("==== popup closed (embedded) ====")
+        # 内嵌通道没有 OnActive（原来由它消费"退出设置"），必须在这里接住：
+        # 排到下一帧真正 PopScreen —— 不能在按钮回调里销毁正在派发事件的控件树
+        if self.mPendingCloseSettings:
+            self.mPendingCloseSettings = False
+            self.mPendingCloseSettingsEmbedded = True
+            dlog.client_print("==== embedded popup: settings close queued ====")
+        self._BroadcastPopUpClose()
 
     def _DecideScroll(self, data, force_scroll):
         """
@@ -787,10 +953,15 @@ class MyClientSystem(ClientSystem):
         return lines > 4
 
     def ClosePopUp(self):
-        """关闭当前弹窗（PopScreen 返回上一层）。"""
-        if self.mPopUpOpen:
-            clientApi.PopScreen()
-            self.mPopUpOpen = False
+        """关闭当前弹窗：内嵌只隐藏宿主，压栈的才 PopScreen 返回上一层。"""
+        if not self.mPopUpOpen:
+            return
+        if self.mPopUpEmbedded or getattr(self.mPopUpScreenNode, "mHost", None) is not None:
+            # 内嵌通道：只 SetVisible(False)，绝不能 PopScreen（会把设置界面一起关掉）
+            self._CloseEmbeddedPopUp()
+            return
+        clientApi.PopScreen()
+        self.mPopUpOpen = False
 
     def ShowCollapsibleMenu(self, menu_id, item):
         """
@@ -816,18 +987,33 @@ class MyClientSystem(ClientSystem):
                 except Exception as e:
                     dlog.client_print("==== ShowCollapsibleMenu refresh error: %s ====" % str(e))
             return True
+        # 通道选择：设置界面自己开着且就是栈顶 → 内嵌（不压栈，设置界面不失活，右侧滚动位置不会丢）；
+        # 其余场景（背包/别处弹、别的本模组界面之上、取不到栈顶、宿主找不到）→ 原 PushScreen 通道，行为一行不改。
+        if self._EmbeddedCollapsibleMenuAllowed():
+            if self._OpenEmbeddedCollapsibleMenu():
+                return True
+            dlog.client_print("==== embedded collapsible menu unavailable, falling back to PushScreen ====")
+            # 内嵌失败可能已经清过会话字段，回填后再走原通道
+            self.mCurrentCollapsibleMenu = data
+            self.mCurrentCollapsibleItem = item
         # 折叠菜单即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
         self._CaptureRightScroll()
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'CollapsibleMenuUI')
         self.mCollapsibleMenuOpen = True
+        self.mCollapsibleMenuEmbedded = False
         return True
 
     def CloseCollapsibleMenu(self):
-        """关闭当前折叠菜单弹窗（PopScreen 返回上一层）。"""
-        if self.mCollapsibleMenuOpen:
-            clientApi.PopScreen()
-            self.mCollapsibleMenuOpen = False
+        """关闭当前折叠菜单（内嵌只隐藏面板，压栈的才 PopScreen 返回上一层）。"""
+        if not self.mCollapsibleMenuOpen:
+            return
+        if self.mCollapsibleMenuEmbedded:
+            # 内嵌通道：只 SetVisible(False)，绝不能 PopScreen（会把设置界面一起关掉）
+            self._CloseEmbeddedCollapsibleMenu()
+            return
+        clientApi.PopScreen()
+        self.mCollapsibleMenuOpen = False
 
     def OpenCardToggle(self, toggle_id):
         """打开组合开关弹窗。供普通按钮 on_click / 外部模组调用。
@@ -909,7 +1095,7 @@ class MyClientSystem(ClientSystem):
             dlog.client_print("==== RefreshCardToggle error: %s ====" % str(e))
 
     def _EmbeddedPickerAllowed(self):
-        """能否走内嵌通道：设置界面开着、它就是栈顶、且没有本模组的其他弹窗压在上面。
+        """能否走内嵌通道：设置界面开着、它就是栈顶、且没有本模组"压栈"的弹窗在上面。
 
         内嵌 = 把弹窗做成设置界面内部的一层控件，不 PushScreen。这样设置界面全程是栈顶，
         不会被 deactivate，右侧面板的 scroll_view 内部位置也不会被引擎清零
@@ -917,7 +1103,11 @@ class MyClientSystem(ClientSystem):
         """
         if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
             return False
-        if self.mPopUpOpen or self.mCardToggleOpen or self.mCollapsibleMenuOpen:
+        if self.mPopUpOpen or self.mCardToggleOpen:
+            return False
+        # 折叠菜单只有"压栈"形态才挡路：内嵌形态是设置界面内部的一层控件，栈顶仍是
+        # setting.main，物品选择照样能内嵌、而且必须内嵌（否则又压栈，滚动位置照样丢）。
+        if self.mCollapsibleMenuOpen and not self.mCollapsibleMenuEmbedded:
             return False
         try:
             top = clientApi.GetTopScreen()
@@ -931,6 +1121,82 @@ class MyClientSystem(ClientSystem):
         except Exception:
             return False
         return True
+
+    def _EmbeddedCollapsibleMenuAllowed(self):
+        """折叠菜单能否走内嵌通道：设置界面开着、它就是栈顶、且没有本模组的其他层压着。"""
+        if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
+            return False
+        # 其它通道的弹窗压着时内嵌会和它们抢栈顶 → 必须回落 PushScreen
+        if self.mPopUpOpen or self.mItemPickerOpen or self.mCardToggleOpen:
+            return False
+        # 会话已存在 → 交给 ShowCollapsibleMenu 的 refresh 分支，不开第二层
+        if self.mCollapsibleMenuOpen:
+            return False
+        try:
+            top = clientApi.GetTopScreen()
+        except Exception:
+            top = None
+        if not top:
+            return False
+        try:
+            if top.GetScreenName() != "setting.main":
+                return False
+        except Exception:
+            return False
+        node = self.mSettingsScreenNode
+        if not hasattr(node, "_EmbeddedCollapsibleMenuHostPath"):
+            return False
+        try:
+            return bool(node._EmbeddedCollapsibleMenuHostPath())
+        except Exception:
+            return False
+
+    def _OpenEmbeddedCollapsibleMenu(self):
+        """在设置界面内部打开折叠菜单（不压栈）。返回是否成功。"""
+        node = self.mSettingsScreenNode
+        if node is None:
+            return False
+        try:
+            shell = node.GetEmbeddedCollapsibleMenu()
+        except Exception as e:
+            dlog.client_print("==== embedded collapsible menu create error: %s ====" % str(e))
+            return False
+        if not node.SetEmbeddedCollapsibleMenuVisible(True):
+            return False
+        self.mCollapsibleMenuScreenNode = shell
+        self.mCollapsibleMenuOpen = True
+        self.mCollapsibleMenuEmbedded = True
+        try:
+            shell._ApplyMenu()
+        except Exception as e:
+            dlog.client_print("==== embedded collapsible menu apply error: %s ====" % str(e))
+            self._CloseEmbeddedCollapsibleMenu()
+            return False
+        dlog.client_print("==== collapsible menu opened embedded (no PushScreen) ====")
+        return True
+
+    def _CloseEmbeddedCollapsibleMenu(self):
+        """收掉内嵌折叠菜单：隐藏宿主面板并清空会话字段（没有 PopScreen，本来就没压栈）。"""
+        node = self.mSettingsScreenNode
+        shell = self.mCollapsibleMenuScreenNode
+        if node is not None:
+            try:
+                node.SetEmbeddedCollapsibleMenuVisible(False)
+            except Exception as e:
+                dlog.client_print("==== close embedded collapsible menu error: %s ====" % str(e))
+        # 下次打开强制重建卡片：宿主控件树是复用的，直接复用旧卡片会让「同名菜单重新注册后
+        # 文案变了」显示成旧文案（压栈通道每次都是新 ScreenNode，没有这个坑）。
+        if shell is not None:
+            try:
+                shell.mCardsCreated = False
+            except Exception:
+                pass
+        self.mCollapsibleMenuOpen = False
+        self.mCollapsibleMenuEmbedded = False
+        self.mCollapsibleMenuScreenNode = None
+        self.mCurrentCollapsibleMenu = None
+        self.mCurrentCollapsibleItem = None
+        dlog.client_print("==== collapsible menu closed (embedded) ====")
 
     def _OpenEmbeddedItemPicker(self):
         """在设置界面内部打开物品选择（不压栈）。返回是否成功。"""
@@ -1864,6 +2130,15 @@ class SettingsScreenNode(ScreenNode):
             # 从设置界面里开物品选择时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
             self.mEmbeddedPickerPath = path.rsplit("/", 1)[0] + "/item_picker_host"
             self.mEmbeddedPicker = None
+            # 同一个附加层里还挂着「折叠菜单」内嵌宿主（setting.json 的 collapsible_menu_host）。
+            # 从设置界面里开折叠菜单时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
+            self.mEmbeddedCollapsibleMenuPath = path.rsplit("/", 1)[0] + "/collapsible_menu_host"
+            self.mEmbeddedCollapsibleMenu = None
+            # 同一层还挂着「普通弹窗」的两个内嵌宿主（普通版 / 滚动版各一份独立控件树）。
+            self.mEmbeddedPopUpPath = path.rsplit("/", 1)[0] + "/popup_host"
+            self.mEmbeddedPopUpScrollPath = path.rsplit("/", 1)[0] + "/popup_scroll_host"
+            self.mEmbeddedPopUp = None
+            self.mEmbeddedPopUpScroll = None
         else:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
 
@@ -1927,6 +2202,139 @@ class SettingsScreenNode(ScreenNode):
             dlog.client_print("==== embedded item picker visible error: %s ====" % str(e))
             return False
         dlog.client_print("==== embedded item picker %s ====" % ("shown" if visible else "hidden"))
+        return True
+
+    # ────────────── 内嵌折叠菜单 ──────────────
+    def _EmbeddedCollapsibleMenuHostPath(self):
+        """找内嵌折叠菜单宿主的实际路径（与 _EmbeddedPickerHostPath 同款多候选）。
+
+        collapsible_menu_host 与 under_toast 同在 $additional_screen_content 那一层，
+        该层相对 screen 面板的位置在不同引擎/布局下不完全一致，所以逐个候选试。
+        """
+        stored = getattr(self, "mEmbeddedCollapsibleMenuPath", None)
+        if stored:
+            try:
+                if self.GetBaseUIControl(stored):
+                    return stored
+            except Exception:
+                pass
+        base = getattr(self, "mBasePath", "") or ""
+        additional = base.replace("/root_screen_panel", "/additional_screen_content")
+        candidates = [
+            additional + "/collapsible_menu_host",
+            base + "/additional_screen_content/collapsible_menu_host",
+            "/screen_panel/additional_screen_content/collapsible_menu_host",
+            "/additional_screen_content/collapsible_menu_host",
+            "/under_toast_layer/collapsible_menu_host",
+        ]
+        for p in candidates:
+            try:
+                if self.GetBaseUIControl(p):
+                    self.mEmbeddedCollapsibleMenuPath = p
+                    dlog.client_print("==== embedded collapsible menu host resolved at: %s ====" % p)
+                    return p
+            except Exception:
+                continue
+        return stored
+
+    def GetEmbeddedCollapsibleMenu(self):
+        """取内嵌折叠菜单控制器（懒创建）：控件树就是 setting.json 引用的 pop_up.collapsible_menu_body。"""
+        node = getattr(self, "mEmbeddedCollapsibleMenu", None)
+        if node is None:
+            prefix = self._EmbeddedCollapsibleMenuHostPath() or "/under_toast_layer/collapsible_menu_host"
+            node = CollapsibleMenuEmbedded(self, prefix)
+            self.mEmbeddedCollapsibleMenu = node
+            dlog.client_print("==== embedded collapsible menu created at: %s ====" % prefix)
+        return node
+
+    def SetEmbeddedCollapsibleMenuVisible(self, visible):
+        """显示 / 隐藏内嵌折叠菜单（只切 visible，不压栈，不触发 OnActive/OnDeactive）。"""
+        prefix = self._EmbeddedCollapsibleMenuHostPath() or "/under_toast_layer/collapsible_menu_host"
+        ctrl = self.GetBaseUIControl(prefix)
+        if not ctrl:
+            dlog.client_print("==== embedded collapsible menu host not found: %s ====" % prefix)
+            return False
+        try:
+            ctrl.SetVisible(bool(visible))
+        except Exception as e:
+            dlog.client_print("==== embedded collapsible menu visible error: %s ====" % str(e))
+            return False
+        dlog.client_print("==== embedded collapsible menu %s ====" % ("shown" if visible else "hidden"))
+        return True
+
+    # ────────────── 内嵌普通弹窗 ──────────────
+    def _EmbeddedPopUpPrefix(self, useScroll):
+        """已解析过的内嵌弹窗宿主前缀（未解析时为空串）。"""
+        if useScroll:
+            return getattr(self, "mEmbeddedPopUpScrollPath", "") or ""
+        return getattr(self, "mEmbeddedPopUpPath", "") or ""
+
+    def _EmbeddedPopUpHostPath(self, useScroll):
+        """找内嵌弹窗宿主的实际路径（与 _EmbeddedPickerHostPath 同款多候选）。
+
+        普通版与滚动版是两份独立控件树（$scrolling_content 是解析期继承，运行时换不了），
+        用 useScroll 区分。
+        """
+        stored = self._EmbeddedPopUpPrefix(useScroll)
+        if stored:
+            try:
+                if self.GetBaseUIControl(stored):
+                    return stored
+            except Exception:
+                pass
+        name = "popup_scroll_host" if useScroll else "popup_host"
+        base = getattr(self, "mBasePath", "") or ""
+        additional = base.replace("/root_screen_panel", "/additional_screen_content")
+        candidates = [
+            additional + "/" + name,
+            base + "/additional_screen_content/" + name,
+            "/screen_panel/additional_screen_content/" + name,
+            "/additional_screen_content/" + name,
+            "/under_toast_layer/" + name,
+        ]
+        for p in candidates:
+            try:
+                if self.GetBaseUIControl(p):
+                    if useScroll:
+                        self.mEmbeddedPopUpScrollPath = p
+                    else:
+                        self.mEmbeddedPopUpPath = p
+                    dlog.client_print("==== embedded popup host resolved at: %s (scroll=%s) ====" % (p, useScroll))
+                    return p
+            except Exception:
+                continue
+        return stored
+
+    def GetEmbeddedPopUp(self, useScroll=False):
+        """取内嵌弹窗控制器（懒创建）：控件树就是 setting.json 引用的 pop_up.popup_body。"""
+        shell = self.mEmbeddedPopUpScroll if useScroll else self.mEmbeddedPopUp
+        if shell is not None:
+            return shell
+        prefix = self._EmbeddedPopUpHostPath(useScroll) or ""
+        if not prefix:
+            return None
+        shell = PopUpEmbedded(self, prefix, useScroll)
+        if useScroll:
+            self.mEmbeddedPopUpScroll = shell
+        else:
+            self.mEmbeddedPopUp = shell
+        dlog.client_print("==== embedded popup created at: %s (scroll=%s) ====" % (prefix, useScroll))
+        return shell
+
+    def SetEmbeddedPopUpVisible(self, useScroll, visible):
+        """显示 / 隐藏内嵌弹窗（只切 visible，不压栈，不触发 OnActive/OnDeactive）。"""
+        prefix = self._EmbeddedPopUpHostPath(useScroll) or ""
+        ctrl = self.GetBaseUIControl(prefix) if prefix else None
+        if not ctrl:
+            dlog.client_print("==== embedded popup host not found: %s ====" % prefix)
+            return False
+        try:
+            ctrl.SetVisible(bool(visible))
+        except Exception as e:
+            dlog.client_print("==== embedded popup visible error: %s ====" % str(e))
+            return False
+        dlog.client_print("==== embedded popup host %s (scroll=%s) ====" % (
+            "shown" if visible else "hidden", useScroll))
         return True
 
     def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
@@ -5302,11 +5710,43 @@ class PopUpScreenNode(ScreenNode):
 
     def __init__(self, namespace, name, param):
         ScreenNode.__init__(self, namespace, name, param)
-        self.mButtonsCreated = False
-        self.mBackBound = False
+        # 控件根：独立弹窗的正文挂在 /body 下（pop_up.main 只是外壳）；
+        # 内嵌形态由宿主把 PATH_PREFIX 指到设置界面里引用的 popup_body / popup_scroll_body。
+        self.mHost = None
+        self.PATH_PREFIX = (param or {}).get("prefix", "/body")
+        self._ResetPopUpFields()
         global _g_ClientSystem
         if _g_ClientSystem:
             _g_ClientSystem.mPopUpScreenNode = self
+
+    def _ResetPopUpFields(self):
+        """初始化与界面无关的运行时字段（独立弹窗与内嵌形态共用）。"""
+        self.mButtonsCreated = False
+        self.mBackBound = False
+        self.mScroll = False
+        self.mButtonCtrls = []         # 已创建的底部按钮控件（文案变了整体重建）
+        self.mButtonCallbacks = []     # 与按钮同序的回调，按索引取（宿主复用时能刷新）
+        self.mButtonsSignature = None  # 当前按钮文案签名
+        self.mButtonGen = 0            # 子控件名代次号：Remove 后同名重建可能取回旧控件
+
+    # ── 控件访问：独立弹窗拼 /body 前缀，内嵌形态转给宿主 ──
+    def GetBaseUIControl(self, path):
+        full = "%s%s" % (self.PATH_PREFIX or "", path)
+        if self.mHost is not None:
+            return self.mHost.GetBaseUIControl(full)
+        return ScreenNode.GetBaseUIControl(self, full)
+
+    def CreateChildControl(self, *args):
+        """CreateChildControl 是 ScreenNode 方法：内嵌壳必须转给宿主，否则按钮建不出来。"""
+        if self.mHost is not None:
+            return self.mHost.CreateChildControl(*args)
+        return ScreenNode.CreateChildControl(self, *args)
+
+    def RemoveChildControl(self, *args):
+        """RemoveChildControl 同理，内嵌壳转给宿主，否则旧按钮摘不掉。"""
+        if self.mHost is not None:
+            return self.mHost.RemoveChildControl(*args)
+        return ScreenNode.RemoveChildControl(self, *args)
 
     def Create(self):
         dlog.client_print("==== PopUpScreenNode.Create called ====")
@@ -5346,14 +5786,8 @@ class PopUpScreenNode(ScreenNode):
         else:
             dlog.client_print("==== PopUpScreenNode: content ctrl not found ====")
 
-        # 3. 底部按钮（仅首次创建）
-        if not self.mButtonsCreated:
-            panelCtrl = self.GetBaseUIControl("/backdrop/stack_panel/under/stack_panel")
-            if panelCtrl:
-                self._CreateButtons(panelCtrl, buttons)
-                self.mButtonsCreated = True
-            else:
-                dlog.client_print("==== PopUpScreenNode: under stack_panel not found ====")
+        # 3. 底部按钮（按文案签名维护：内嵌宿主会被复用，按钮数量/文案都可能变）
+        self._EnsureButtons(buttons)
 
         # 4. 返回按钮（仅绑定一次）
         if not self.mBackBound:
@@ -5380,27 +5814,50 @@ class PopUpScreenNode(ScreenNode):
                 lines += max(1, (len(seg) + 29) // 30)
         return max(1, lines) * 10
 
-    def _CreateButtons(self, panelCtrl, buttons):
-        """在 under 区域按注册顺序创建按钮（模板总高 24，按钮间自带空隙）。"""
-        for i, (text, cb) in enumerate(buttons):
-            btnCtrl = self.CreateChildControl(
-                'pop_up.pop_up_button',
-                'popup_btn_%d' % i,
-                panelCtrl,
-                True
-            )
+    def _EnsureButtons(self, buttons):
+        """按当前按钮列表维护底部按钮：文案变了整体重建（内嵌宿主复用，数量可能变）。"""
+        texts = tuple([str(b[0]) for b in buttons])
+        self.mButtonCallbacks = [b[1] for b in buttons]
+        self.mButtonsCreated = True
+        if texts == self.mButtonsSignature:
+            # 控件与索引绑定都在，只换回调即可
+            return
+        panelCtrl = self.GetBaseUIControl("/backdrop/stack_panel/under/stack_panel")
+        if not panelCtrl:
+            dlog.client_print("==== PopUpScreenNode: under stack_panel not found ====")
+            return
+        for ctrl in self.mButtonCtrls:
+            try:
+                self.RemoveChildControl(ctrl)
+            except Exception:
+                pass
+        self.mButtonCtrls = []
+        self.mButtonGen += 1
+        for i in xrange(len(buttons)):
+            # 子控件名带代次号：CreateChildControl 遇到同名子控件会直接返回旧控件
+            childName = "popup_btn_%d_%d" % (i, self.mButtonGen)
+            btnCtrl = self.CreateChildControl('pop_up.pop_up_button', childName, panelCtrl, True)
             if not btnCtrl:
                 dlog.client_print("==== PopUpScreenNode: create button %d failed ====" % i)
                 continue
             labelCtrl = btnCtrl.GetChildByName('label')
             if labelCtrl:
-                _SetLabelText(labelCtrl, text, "PopUpScreenNode.button_text")
+                _SetLabelText(labelCtrl, buttons[i][0], "PopUpScreenNode.button_text")
             btn = btnCtrl.asButton()
             if btn:
                 btn.AddTouchEventParams({})
                 btn.SetButtonTouchUpCallback(
-                    lambda args, cb=cb: self._OnButtonClick(cb)
+                    lambda args, idx=i: self._OnButtonClickIndex(idx)
                 )
+            self.mButtonCtrls.append(btnCtrl)
+        self.mButtonsSignature = texts
+
+    def _OnButtonClickIndex(self, idx):
+        """按索引取当前回调执行：宿主复用时 mButtonCallbacks 会被整体替换。"""
+        cb = None
+        if 0 <= idx < len(self.mButtonCallbacks):
+            cb = self.mButtonCallbacks[idx]
+        self._OnButtonClick(cb)
 
     def _OnButtonClick(self, callback):
         """弹窗按钮点击：执行回调，默认关闭弹窗；回调返回 False 时阻止关闭。"""
@@ -5423,13 +5880,17 @@ class PopUpScreenNode(ScreenNode):
     def Destroy(self):
         self.mButtonsCreated = False
         self.mBackBound = False
+        self.mButtonCtrls = []
+        self.mButtonCallbacks = []
+        self.mButtonsSignature = None
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mPopUpScreenNode is self:
             _g_ClientSystem.mPopUpScreenNode = None
-        try:
-            ScreenNode.Destroy(self)
-        except Exception:
-            pass
+        if self.mHost is None:
+            try:
+                ScreenNode.Destroy(self)
+            except Exception:
+                pass
 
 
 class PopUpScrollScreenNode(PopUpScreenNode):
@@ -5445,17 +5906,84 @@ class PopUpScrollScreenNode(PopUpScreenNode):
         PopUpScreenNode._ApplyPopUp(self)
 
 
+class PopUpEmbedded(PopUpScreenNode):
+    """普通弹窗的「内嵌」形态：控件长在设置界面里，不 PushScreen。
+
+    与 ItemPickerEmbedded 同构：不调 ScreenNode.__init__（不注册给引擎，只是逻辑壳），
+    控件访问与子控件创建全部转给宿主 SettingsScreenNode，生命周期由 MyClientSystem 显式驱动。
+    不压栈 ⇒ 设置界面不会 deactivate ⇒ 右侧面板 scroll_view 的位置不会被引擎清零。
+
+    普通版与滚动版是两份独立控件树（$scrolling_content 是解析期继承，运行时换不了绑定），
+    所以由 useScroll 决定指向哪一个宿主，内容版式不同就换壳。
+    """
+
+    def __init__(self, host, prefix, useScroll=False):
+        self.mHost = host
+        self.PATH_PREFIX = prefix
+        self._ResetPopUpFields()
+        # 注意顺序：_ResetPopUpFields 会把 mScroll 置 False，之后才能赋真值
+        self.mScroll = bool(useScroll)
+
+    def GetBaseUIControl(self, path):
+        return self.mHost.GetBaseUIControl("%s%s" % (self.PATH_PREFIX or "", path))
+
+    def _GetContentPath(self):
+        if self.mScroll:
+            # 与 PopUpScrollScreenNode 完全一致（$touch: true → scroll_touch 分支），仅由前缀区分宿主
+            return ("/backdrop/stack_panel/middle/scroll_view/scroll_touch/scroll_view/"
+                    "panel/background_and_viewport/scrolling_view_port/scrolling_content/text")
+        return "/backdrop/stack_panel/middle/text"
+
+    # 引擎回调内嵌形态不会触发；留空防止手误调基类实现把独立弹窗的副作用带进来
+    def Create(self):
+        pass
+
+    def OnActive(self):
+        pass
+
+    def Destroy(self):
+        pass
+
+
 class CollapsibleMenuScreenNode(ScreenNode):
     """折叠菜单弹窗 ScreenNode：标题 + 中间垂直卡片列表，卡片互斥选择，点击后选中并关闭。"""
 
     def __init__(self, namespace, name, param):
         ScreenNode.__init__(self, namespace, name, param)
-        self.mCardsCreated = False
-        self.mBackBound = False
-        self.mCardCtrls = []  # [(card_id, ctrl), ...]
+        # 控件根：独立弹窗的 body 挂在 /body 下（pop_up.collapsible_menu 只是外壳）；
+        # 内嵌形态由宿主把 PATH_PREFIX 指到设置界面里引用的 collapsible_menu_body。
+        self.mHost = None
+        self.PATH_PREFIX = (param or {}).get("prefix", "/body")
+        self._ResetCollapsibleMenuFields()
         global _g_ClientSystem
         if _g_ClientSystem:
             _g_ClientSystem.mCollapsibleMenuScreenNode = self
+
+    def _ResetCollapsibleMenuFields(self):
+        """初始化与界面无关的运行时字段（独立弹窗与内嵌形态共用）。"""
+        self.mCardsCreated = False
+        self.mBackBound = False
+        self.mCardCtrls = []  # [(card_id, ctrl), ...]
+        self.mAppliedCardsSignature = None  # 当前已建卡片的集合签名（换菜单时强制重建）
+
+    # ── 控件访问：独立弹窗拼 /body 前缀，内嵌形态转给宿主 ──
+    def GetBaseUIControl(self, path):
+        full = "%s%s" % (self.PATH_PREFIX or "", path)
+        if self.mHost is not None:
+            return self.mHost.GetBaseUIControl(full)
+        return ScreenNode.GetBaseUIControl(self, full)
+
+    def CreateChildControl(self, *args):
+        """CreateChildControl 是 ScreenNode 方法：内嵌壳必须转给宿主，否则卡片一张都建不出来。"""
+        if self.mHost is not None:
+            return self.mHost.CreateChildControl(*args)
+        return ScreenNode.CreateChildControl(self, *args)
+
+    def RemoveChildControl(self, *args):
+        """RemoveChildControl 同理，内嵌壳转给宿主，否则旧卡片摘不掉。"""
+        if self.mHost is not None:
+            return self.mHost.RemoveChildControl(*args)
+        return ScreenNode.RemoveChildControl(self, *args)
 
     def Create(self):
         dlog.client_print("==== CollapsibleMenuScreenNode.Create called ====")
@@ -5488,6 +6016,11 @@ class CollapsibleMenuScreenNode(ScreenNode):
         if not middleCtrl:
             dlog.client_print("==== CollapsibleMenuScreenNode: middle ctrl not found ====")
             return
+        # 换了一份菜单（卡片集合不同）时强制重建，否则会复用上一份菜单的卡片
+        sig = tuple([c[0] for c in cards])
+        if sig != self.mAppliedCardsSignature:
+            self.mAppliedCardsSignature = sig
+            self.mCardsCreated = False
         if not self.mCardsCreated:
             self._CreateCards(middleCtrl, cards)
             self.mCardsCreated = True
@@ -5612,6 +6145,36 @@ class CollapsibleMenuScreenNode(ScreenNode):
             ScreenNode.Destroy(self)
         except Exception:
             pass
+
+
+class CollapsibleMenuEmbedded(CollapsibleMenuScreenNode):
+    """折叠菜单的「内嵌」形态：控件长在设置界面里，不 PushScreen。
+
+    与 ItemPickerEmbedded 同构：不调 ScreenNode.__init__（对象不注册给引擎，只是逻辑壳），
+    GetBaseUIControl / CreateChildControl / RemoveChildControl 全部转给宿主 SettingsScreenNode，
+    生命周期由 MyClientSystem 显式驱动（开：SetVisible(True) + _ApplyMenu；关：SetVisible(False)）。
+
+    不压栈 ⇒ 设置界面全程是栈顶、不会 deactivate ⇒ 右侧面板 scroll_view 的位置不会被清零。
+    """
+
+    def __init__(self, host, prefix):
+        self.mHost = host
+        self.PATH_PREFIX = prefix
+        self._ResetCollapsibleMenuFields()
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mCollapsibleMenuScreenNode = self
+
+    # 下面的引擎回调内嵌形态永远不会被调用；显式留空，防止将来手误调基类实现
+    # 把独立弹窗那套副作用（ScreenNode.Destroy / 清全局引用）带进来。
+    def Create(self):
+        pass
+
+    def OnActive(self):
+        pass
+
+    def Destroy(self):
+        pass
 
 
 class _CardTogglePickSeed(object):
