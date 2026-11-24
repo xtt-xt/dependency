@@ -25,6 +25,9 @@ from CardRegistryApi import (
     RemoveCardToggleState,
     RefreshCardToggle,
     OpenCardToggle,
+    # 文档界面演示（开发者选项用）
+    RegisterDocBook,
+    RegisterDocPage,
 )
 from DebugLog import dlog
 
@@ -56,6 +59,43 @@ DEV_NOTICE_COLOR = (1.0, 0.76, 0.35)   # 提示文字颜色（琥珀），AddTex
 DEV_TOGGLE_ID = "dev_card_toggle"
 DEV_TOGGLE_OPEN_ID = "dev_toggle_open"
 _DEV_TOGGLE_SEQ = 0                    # 动态加行的序号（只增不减，避免与已有 option_id 撞车）
+
+# 文档界面演示（开发者选项）：一本 5 页的「文档界面演示」+ 一本无页的「空书（无页）」。
+# 只用于自测 doc.main（K 键 / 官方「打开文档」按钮 / `/doc_open`），发布时随本块一起注释。
+DEV_DOC_BOOK_ID = "dev_docs"
+DEV_DOC_EMPTY_BOOK_ID = "dev_docs_empty"
+
+_DEV_DOC_INTRO = u"""# 文档界面演示
+这是正文段落。文档界面复用设置界面的顶栏、返回键与左栏卡片，右栏是合并后的宽栏。
+## 二级标题
+段落之间会留一个 6px 的空隙。
+
+- 破折号列表项
+- 第二个列表项
+* 星号前缀也是列表
+## 长行折行
+这一行故意写得很长，用来确认 text 块按显示宽度自动折行、不会被右栏裁掉：通用模组前置的文档界面复用设置界面的卡片模板，右栏是合并后的宽栏，正文按块纵向排列，每块高度由 label 自动撑开，所以长行只影响行数、不影响布局。
+"""
+
+_DEV_DOC_LONG = u"\n".join(
+    [u"# 长页（滚动与归顶测试）",
+     u"下面是 40 行编号内容，用来把正文撑过一屏。"] +
+    [u"第 %02d 行 —— 拖动右栏看滚动；切到别的页再回来，正文应从顶部开始。" % i
+     for i in range(1, 41)] +
+    [u"# 末行",
+     u"能看到这一行说明已经滚到底了。"]
+)
+
+_DEV_DOC_WRAP = u"""# 超长行折行
+一行纯中文大约一百四十字，用来确认按显示宽度折行时不会丢字：通用模组前置的文档界面是给下游模组写教程用的，正文允许写比较长的段落，渲染侧按半角宽度计算折行位置，中文按两个半角宽计算，所以一行大约能放三十多个汉字，超出的部分自动换到下一行继续显示。
+一行纯英文没有空格：aaaaaaaaaabbbbbbbbbbccccccccccddddddddeeeeeeeeeeffffffffffgggggggggghhhhhhhhhh
+一行中英文混排：ModAPI 的 GetTopScreen() 只返回最后一次 PushScreen 创建的界面，栈空时返回 None。
+"""
+
+_DEV_DOC_UNDERSCORE = u"""# 页 id 带下划线
+这一页的 page_id 是 page_id_with_underscore。
+点它应该能正常选中，说明控件名里的下划线是按第一个下划线切分的（页 id 允许再含下划线）。
+"""
 
 
 def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
@@ -414,6 +454,25 @@ def _RegisterDevToggleDemo():
     AddCardToggleButton(DEV_TOGGLE_ID, "打印状态", _OnDevTogglePrint)
 
 
+def _RegisterDevDocDemo():
+    """注册文档界面演示书：格式 / 长页 / 折行 / 空正文 / id 带下划线 + 一本无页的书。
+
+    只用于自测 `doc.main`：K 键、官方「打开文档」按钮或 `/doc_open` 打开后，
+    左栏会出现「文档界面演示」（5 页）与「空书（无页）」（验「本书暂无页面」空态）。
+    """
+    RegisterDocBook(DEV_DOC_BOOK_ID, u"文档界面演示", "textures/ui/icon_setting")
+    RegisterDocPage(DEV_DOC_BOOK_ID, "intro", u"格式演示", body=_DEV_DOC_INTRO)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "long", u"长页（滚动/归顶）", body=_DEV_DOC_LONG)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "wrap", u"超长行折行", body=_DEV_DOC_WRAP)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "empty", u"空正文（空态）", body=u"")
+    RegisterDocPage(DEV_DOC_BOOK_ID, "page_id_with_underscore",
+                    u"页 id 带下划线", body=_DEV_DOC_UNDERSCORE)
+    # 第二本故意不注册任何页：用来验「本书暂无页面」空态
+    RegisterDocBook(DEV_DOC_EMPTY_BOOK_ID, u"空书（无页）", "textures/ui/bookshelf_flat")
+    dlog.client_print("==== dev docs registered: book=%s (5 pages) + %s (0 page) ====" % (
+        DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID))
+
+
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
                            icon="textures/ui/xtt_dependency"):
     """注册"设置配置"主卡片及其"显示"分类下的开关项，返回主卡片是否注册成功。
@@ -549,6 +608,9 @@ def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",
 
     # 组合开关演示：混合三种行控件 + 锁定行，弹窗底部按钮可动态加/删行。
     _RegisterDevToggleDemo()
+
+    # 文档界面演示：两本演示书（一本 5 页含格式/长页/折行/空正文/带下划线 id，一本无页）。
+    _RegisterDevDocDemo()
 
     CreateContentInst(main_card_id, "client", DEV_CATEGORY_ID) \
         .AddText(DEV_NOTICE_ID, DEV_NOTICE_TITLE, DEV_NOTICE_TEXT,
