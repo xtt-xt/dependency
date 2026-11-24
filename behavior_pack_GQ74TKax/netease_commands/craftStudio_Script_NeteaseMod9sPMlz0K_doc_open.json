@@ -1,0 +1,11 @@
+{
+	"format_version": "0.0.1",
+	"name": "doc_open",
+	"description": "打开模组文档界面，可选跳到指定书 / 页",
+	"permission_level": "any",
+	"args": [
+		{"name": "主卡片id", "type": "str", "default": ""},
+		{"name": "页面id", "type": "str", "default": ""},
+		{"name": "目标", "type": "target", "default": "@s"}
+	]
+}

@@ -2,7 +2,7 @@
 """
 服务端系统
 ==========
-1. 监听 CustomCommandTriggerServerEvent 处理 /setting_open 自定义指令。
+1. 监听 CustomCommandTriggerServerEvent 处理 /setting_open、/doc_open 两个自定义指令。
 2. 维护服务端全局调试日志开关（仅 OP 可改，ModAttr 持久化），并向各客户端同步。
 
 服务端日志开关相关事件：
@@ -26,6 +26,8 @@ ServerSystem = serverApi.GetServerSystemCls()
 
 # 服务端→客户端 自定义事件名（打开设置界面）
 SettingsOpenFromCommandEvent = "Script_NeteaseMod9sPMlz0K_OpenSettingsFromCommand"
+# 服务端→客户端 自定义事件名（打开文档界面），名称须与 Client.py 的监听一致
+DocsOpenFromCommandEvent = "Script_NeteaseMod9sPMlz0K_OpenDocsFromCommand"
 # 服务端日志开关：客户端→服务端
 ReqServerLogEvent = "Script_NeteaseMod9sPMlz0K_ReqServerLog"
 SetServerLogEvent = "Script_NeteaseMod9sPMlz0K_SetServerLog"
@@ -272,7 +274,7 @@ class MyServerSystem(ServerSystem):
             self._BroadcastServerLog()
         dlog.server_print("==== ResetGroup reset page=%s ====" % middle_card_id)
 
-    # ---------------- 打开设置界面指令 ----------------
+    # ---------------- 自定义指令（/setting_open、/doc_open） ----------------
 
     def OnCustomCommand(self, args):
         """
@@ -280,9 +282,13 @@ class MyServerSystem(ServerSystem):
         指令定义在 netease_commands/ 目录下的 JSON 文件中。
         """
         command = args.get('command', '')
-        if command != 'setting_open':
-            return
+        if command == 'setting_open':
+            self._OnSettingOpenCommand(args)
+        elif command == 'doc_open':
+            self._OnDocOpenCommand(args)
 
+    def _OnSettingOpenCommand(self, args):
+        """打开设置界面，可选导航到主卡片 / 中间卡片 / 子卡片。"""
         command_args = args.get('args', [])
         origin = args.get('origin', {})
         caller_id = origin.get('entityId', '')
@@ -320,6 +326,46 @@ class MyServerSystem(ServerSystem):
 
         dlog.server_print("==== /setting_open: 设置已打开：main=%s middle=%s sub=%s ====" % (
             main_card_id, middle_card_id, sub_key
+        ))
+
+    def _OnDocOpenCommand(self, args):
+        """打开文档界面，可选直达指定书 / 页。
+
+        与 /setting_open 同样强制只作用于调用者本人：命令参数里的 `目标` 只是
+        为了和其他命令保持一致，实际一律取 origin.entityId。
+        """
+        command_args = args.get('args', [])
+        origin = args.get('origin', {})
+        caller_id = origin.get('entityId', '')
+        if not caller_id:
+            dlog.server_print("==== /doc_open: no origin entityId ====")
+            return
+
+        target_id = caller_id
+
+        # 解析参数（按 name 匹配）：书 id 沿用命令定义里的"主卡片id"，
+        # 另外兼容"书id"（同一参数改名时不必同步改 JSON 与代码）
+        book_id = ""
+        page_id = ""
+
+        for arg in command_args:
+            arg_name = arg.get('name', '')
+            arg_value = arg.get('value')
+            if arg_name in (u'\u4e3b\u5361\u7247id', u'\u4e66id'):  # 主卡片id / 书id
+                book_id = arg_value if arg_value else ""
+            elif arg_name == u'\u9875\u9762id':  # 页面id
+                page_id = arg_value if arg_value else ""
+
+        eventData = self.CreateEventData()
+        eventData["book_id"] = book_id
+        eventData["page_id"] = page_id
+        self.NotifyToClient(target_id, DocsOpenFromCommandEvent, eventData)
+
+        # 命令成功反馈：聊天栏显示"文档已打开"
+        args["return_msg_key"] = "commands.custom.doc_open"
+
+        dlog.server_print("==== /doc_open: 文档已打开：book=%s page=%s ====" % (
+            book_id, page_id
         ))
 
     # ---------------- 跨存档同步（本存档配置，B 层） ----------------
