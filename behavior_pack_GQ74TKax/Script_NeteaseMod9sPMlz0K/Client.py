@@ -4575,6 +4575,675 @@ class SettingsScreenNode(ScreenNode):
                     break
         return ViewRequest.Nothing
 
+
+# ────────────── 文档/教程界面（DocRegistry 的渲染与跳转）──────────────
+# 骨架复用设置界面：同一套顶栏 / 返回键 / 左栏卡片模板，只是去掉中间栏、
+# 右栏合并成宽栏。正文「一行一个控件」竖向堆叠：label 高度用 auto（doc.json 里
+# size 高度写的是 default），由 stack_panel 的 100%c 量高。
+# 切页不写任何滚动接口（触屏分支 SetScrollViewPos 无效，2026-11-23 实测），
+# 而是把正文容器里的子控件全部摘掉重建 —— 内容一更新引擎天然回到顶部。
+
+DOC_WRAP_UNITS = 68      # 折行预算：ASCII 记 1、CJK 记 2（66.7% 宽栏，进游戏可调）
+DOC_BLOCK_LIMIT = 400    # 单页最多渲染块数，防超长正文一次建上千控件
+
+_DOC_CJK_MIN = 0x2E80    # 此码点起按双宽字符计算
+
+_DOC_BASE_CANDIDATES = [
+    "",
+    "/main_content",
+    "/root_screen_panel",
+    "/screen_panel/root_screen_panel",
+    "/safezone_screen_matrix/inner_matrix/safezone_screen_panel/screen_panel/root_screen_panel",
+    "/safezone_screen_matrix/inner_matrix/safezone_screen_panel/root_screen_panel",
+    "/variables_button_mappings_and_controls/safezone_screen_matrix/inner_matrix/safezone_screen_panel/screen_panel/root_screen_panel",
+    "/variables_button_mappings_and_controls/safezone_screen_matrix/inner_matrix/safezone_screen_panel/root_screen_panel",
+]
+
+_DOC_SCROLL_SUFFIXES = [
+    "/scroll_mouse/scroll_view/stack_panel/background_and_viewport/scrolling_view_port/scrolling_content",
+    "/scroll_touch/scroll_view/panel/background_and_viewport/scrolling_view_port/scrolling_content",
+    "/scroll_view/stack_panel/background_and_viewport/scrolling_view_port/scrolling_content",
+    "/scroll_view/panel/background_and_viewport/scrolling_view_port/scrolling_content",
+]
+
+
+def _DocCharWidth(ch):
+    """估算单字符显示宽度：ASCII / 拉丁 1，CJK 与全角 2。"""
+    try:
+        return 1 if ord(ch) < _DOC_CJK_MIN else 2
+    except Exception:
+        return 1
+
+
+def wrap_line(text, units=DOC_WRAP_UNITS):
+    """
+    按显示宽度把一行折成多行，返回行列表（空串返回 [""]）。
+
+    :param text:  原始单行文本（不要带换行）
+    :param units: 每行宽度预算，ASCII=1、CJK=2
+    """
+    if not text:
+        return [""]
+    if units is None or units <= 0:
+        return [text]
+    lines = []
+    buf = []
+    width = 0
+    for ch in text:
+        w = _DocCharWidth(ch)
+        if buf and width + w > units:
+            lines.append("".join(buf))
+            buf = []
+            width = 0
+        buf.append(ch)
+        width += w
+    if buf:
+        lines.append("".join(buf))
+    return lines or [""]
+
+
+def build_doc_blocks(body):
+    """
+    把正文 Markdown 源码切成渲染块（界面侧唯一的解析入口）。
+
+    本轮只认行首标记：`# ` → heading、`## ` → subheading、`- ` / `* ` → bullet、
+    空行 → gap（连续空行只留一个）、其余 → text。
+
+    :returns: [{"kind": str, "text": str, "runs": [{"text": str, "color": None}]}]
+              runs 目前恒为单段，留给以后做行内样式（颜色 / 链接）时不必改消费方。
+    """
+    if not body:
+        return []
+    blocks = []
+    for raw in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.rstrip()
+        stripped = line.lstrip()
+        if not stripped:
+            if blocks and blocks[-1]["kind"] != "gap":
+                blocks.append({"kind": "gap", "text": "", "runs": []})
+            continue
+        kind = "text"
+        text = stripped
+        if stripped.startswith("## "):
+            kind = "subheading"
+            text = stripped[3:]
+        elif stripped.startswith("# "):
+            kind = "heading"
+            text = stripped[2:]
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            kind = "bullet"
+            text = u"· " + stripped[2:]
+        blocks.append({"kind": kind, "text": text,
+                       "runs": [{"text": text, "color": None}]})
+    while blocks and blocks[-1]["kind"] == "gap":
+        blocks.pop()
+    if len(blocks) > DOC_BLOCK_LIMIT:
+        dlog.client_print("==== doc blocks truncated: %d -> %d ====" % (
+            len(blocks), DOC_BLOCK_LIMIT))
+        blocks = blocks[:DOC_BLOCK_LIMIT]
+    return blocks
+
+
+def _DocFindBasePath(node):
+    """探测文档界面的内容根路径（/left、/right 的父级）。"""
+    for base in _DOC_BASE_CANDIDATES:
+        probe = (base + "/left") if base else "/left"
+        try:
+            if node.GetBaseUIControl(probe):
+                dlog.client_print("==== doc base path found: '%s' ====" % base)
+                return base
+        except Exception as e:
+            dlog.client_print("==== doc base path check error '%s': %s ====" % (probe, str(e)))
+    dlog.client_print("==== doc: no base path candidate found ====")
+    return None
+
+
+def _DocFindScrollContent(node, base, section):
+    """按设置界面同款候选表取某一栏的 scrolling_content（section: left / right）。"""
+    modsPath = (base or "") + "/" + section + "/mods"
+    try:
+        if not node.GetBaseUIControl(modsPath):
+            dlog.client_print("==== doc: %s mods not found at %s ====" % (section, modsPath))
+            return None
+    except Exception as e:
+        dlog.client_print("==== doc: %s mods probe error: %s ====" % (section, str(e)))
+        return None
+    for suffix in _DOC_SCROLL_SUFFIXES:
+        path = modsPath + suffix
+        try:
+            ctrl = node.GetBaseUIControl(path)
+            if ctrl:
+                dlog.client_print("==== doc %s scroll content: %s ====" % (section, path))
+                return ctrl
+        except Exception as e:
+            dlog.client_print("==== doc %s scroll content error %s: %s ====" % (section, path, str(e)))
+    dlog.client_print("==== doc: %s scroll content not found ====" % section)
+    return None
+
+
+def _DocBindBackButton(node, base, callback):
+    """把顶栏返回键绑到 callback（与设置界面同款路径候选）。"""
+    paths = ["/background/back", "/main_content/background/back"]
+    if base is not None:
+        paths.insert(0, base + "/background/back")
+    for path in paths:
+        try:
+            ctrl = node.GetBaseUIControl(path)
+            if not ctrl:
+                continue
+            btn = ctrl.asButton()
+            if not btn:
+                continue
+            btn.AddTouchEventParams({})
+            btn.SetButtonTouchUpCallback(callback)
+            dlog.client_print("==== doc back button bound at: %s ====" % path)
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc back button bind error %s: %s ====" % (path, str(e)))
+    dlog.client_print("==== doc: back button not found ====")
+    return False
+
+
+class DocScreenNode(ScreenNode):
+    """文档/教程界面（screenDef `doc.main`）。
+
+    左栏是书卡片（setting.card_group），右栏是合并后的宽栏正文；点书展开该书
+    的页子卡片（setting.sub_card），点页切换正文。控件全量同步创建：书 / 页都在
+    个位数到十几个量级，不做懒加载（单本破百页再考虑分帧）。
+    """
+
+    def __init__(self, namespace, name, param):
+        ScreenNode.__init__(self, namespace, name, param)
+        self.mBasePath = None
+        self.mLeftContent = None
+        self.mRightContent = None
+        self.mBookIds = []          # 与 mBookWrappers 对齐
+        self.mBookWrappers = []
+        self.mBookBtns = []
+        self.mBookSubPanels = []
+        self.mPageCtrls = {}        # book_id -> [ctrl, ...]
+        self.mPageIds = {}          # book_id -> [page_id, ...]（建控件时的快照）
+        self.mRightCtrls = []       # 右栏当前正文控件，切换时逐个摘掉
+        self.mSelectedBookId = None
+        self.mSelectedPageId = None
+        self.mPendingNav = None     # (book_id, page_id) 待跳转
+
+    # ---------- 生命周期 ----------
+
+    def Create(self):
+        self.mBasePath = _DocFindBasePath(self)
+        if self.mBasePath is None:
+            return
+        self.mLeftContent = _DocFindScrollContent(self, self.mBasePath, "left")
+        self.mRightContent = _DocFindScrollContent(self, self.mBasePath, "right")
+        _DocBindBackButton(self, self.mBasePath, self.OnBackClick)
+
+        try:
+            from DocRegistry import SetDocChangedCallback
+            SetDocChangedCallback(self.OnDocsChanged)
+        except Exception as e:
+            dlog.client_print("==== doc: set changed callback error: %s ====" % str(e))
+
+        # 打开前由 ClientSystem 暂存的跳转目标
+        global _g_ClientSystem
+        pending = None
+        if _g_ClientSystem:
+            pending = getattr(_g_ClientSystem, "mPendingDocNavigation", None)
+            if pending:
+                try:
+                    _g_ClientSystem.mPendingDocNavigation = None
+                except Exception:
+                    pass
+        if pending:
+            self.mPendingNav = pending
+        self.RebuildBooks()
+        dlog.client_print("==== doc screen created: books=%d ====" % len(self.mBookIds))
+
+    def Destroy(self):
+        try:
+            from DocRegistry import SetDocChangedCallback
+            SetDocChangedCallback(None)
+        except Exception:
+            pass
+        self.mBookWrappers = []
+        self.mBookBtns = []
+        self.mBookSubPanels = []
+        self.mPageCtrls = {}
+        self.mPageIds = {}
+        self.mRightCtrls = []
+        dlog.client_print("==== doc screen destroyed ====")
+
+    def OnDocsChanged(self):
+        """注册表变更回调：按 id 原位重建（保留当前选中的书与页）。"""
+        try:
+            self.RebuildBooks()
+        except Exception as e:
+            dlog.client_print("==== doc: rebuild after registry change error: %s ====" % str(e))
+
+    def OnBackClick(self, args):
+        dlog.client_print("==== doc: back button clicked ====")
+        clientApi.PopScreen()
+        return ViewRequest.Nothing
+
+    # ---------- 左栏：书 ----------
+
+    def _ClearBooks(self):
+        for wrapper in self.mBookWrappers:
+            try:
+                self.RemoveChildControl(wrapper)
+            except Exception as e:
+                dlog.client_print("==== doc: remove book card error: %s ====" % str(e))
+        self.mBookIds = []
+        self.mBookWrappers = []
+        self.mBookBtns = []
+        self.mBookSubPanels = []
+        self.mPageCtrls = {}
+        self.mPageIds = {}
+
+    def RebuildBooks(self):
+        """按注册表重建左栏；保留当前 (书, 页) 选择，失效则回落到第一本 / 第一页。"""
+        from DocRegistry import GetAllDocBookIds, GetDocBook
+        if not self.mLeftContent:
+            dlog.client_print("==== doc: left content missing, skip rebuild ====")
+            return False
+        keepBook = self.mSelectedBookId
+        keepPage = self.mSelectedPageId
+        self._ClearBooks()
+        self.mSelectedBookId = None
+        self.mSelectedPageId = None
+
+        ids = GetAllDocBookIds()
+        for index, bookId in enumerate(ids):
+            info = GetDocBook(bookId) or {}
+            self._AddBookCard(index, bookId, info.get("name") or bookId,
+                              info.get("icon") or "")
+        if not self.mBookIds:
+            self._ShowRightHint(u"暂无文档")
+            dlog.client_print("==== doc: no books registered, empty state ====")
+            return False
+
+        index = 0
+        if keepBook in self.mBookIds:
+            index = self.mBookIds.index(keepBook)
+        pageId = keepPage if (keepBook == self.mBookIds[index]) else None
+        self.SelectBook(index, pageId)
+        self.TryPendingNavigation()
+        dlog.client_print("==== doc books rebuilt: %d book(s) ====" % len(self.mBookIds))
+        return True
+
+    def _AddBookCard(self, index, book_id, name, icon):
+        wrapper = None
+        try:
+            wrapper = self.CreateChildControl('setting.card_group',
+                                              'docbook_%d' % index,
+                                              self.mLeftContent, True)
+        except Exception as e:
+            dlog.client_print("==== doc: create book card error: %s ====" % str(e))
+        if not wrapper:
+            dlog.client_print("==== doc: book card %d not created ====" % index)
+            return None
+        btnCtrl = wrapper.GetChildByName('card_btn')
+        self.mBookIds.append(book_id)
+        self.mBookWrappers.append(wrapper)
+        self.mBookBtns.append(btnCtrl)
+        self.mBookSubPanels.append(wrapper.GetChildByName('sub_panel'))
+        if not btnCtrl:
+            dlog.client_print("==== doc: book card_btn missing (%s) ====" % book_id)
+            return wrapper
+        _SetLabelText(btnCtrl.GetChildByName('name'), name, "doc book name %s" % book_id)
+        try:
+            backdrop = btnCtrl.GetChildByName('icon_backdrop')
+            if backdrop and icon:
+                iconCtrl = backdrop.GetChildByName('icon')
+                img = iconCtrl.asImage() if iconCtrl else None
+                if img:
+                    img.SetSprite(icon)
+        except Exception as e:
+            dlog.client_print("==== doc: book icon error (%s): %s ====" % (book_id, str(e)))
+        self._BindTouch(btnCtrl, self.OnBookTouchUp)
+        self._SetBookVisual(index, "normal")
+        dlog.client_print("==== doc book added: %s -> %s ====" % (book_id, name))
+        return wrapper
+
+    def _BindTouch(self, ctrl, onUp):
+        """给按钮挂触摸回调（控件名里带自己的 index，回调自行解析路径）。"""
+        if not ctrl:
+            return False
+        try:
+            btn = ctrl.asButton()
+            if not btn:
+                return False
+            btn.AddTouchEventParams({})
+            btn.SetButtonTouchUpCallback(onUp)
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc: bind touch error: %s ====" % str(e))
+            return False
+
+    def _SetBookVisual(self, index, state):
+        if index < 0 or index >= len(self.mBookBtns):
+            return
+        ctrl = self.mBookBtns[index]
+        if not ctrl:
+            return
+        normalCtrl = ctrl.GetChildByName('normal')
+        pressCtrl = ctrl.GetChildByName('press')
+        if normalCtrl:
+            normalCtrl.SetVisible(state != "selected")
+        if pressCtrl:
+            pressCtrl.SetVisible(state == "selected")
+
+    def OnBookTouchUp(self, args):
+        buttonPath = str(args.get('ButtonPath', '') or '')
+        index = _DocParseIndex(buttonPath, "docbook_")
+        if index is None or index < 0 or index >= len(self.mBookIds):
+            return ViewRequest.Nothing
+        dlog.client_print("==== doc book clicked: index=%d ====" % index)
+        self.SelectBook(index)
+        return ViewRequest.Nothing
+
+    def SelectBook(self, index, page_id=None):
+        """选中第 index 本书：展开它的页，并选中指定页（默认第一页）。"""
+        from DocRegistry import GetDocPageIds
+        if index < 0 or index >= len(self.mBookIds):
+            return False
+        bookId = self.mBookIds[index]
+        self.mSelectedBookId = bookId
+        self.mSelectedPageId = None
+        for i in range(len(self.mBookIds)):
+            self._SetBookVisual(i, "selected" if i == index else "normal")
+        for i in range(len(self.mBookSubPanels)):
+            panel = self.mBookSubPanels[i]
+            if panel:
+                try:
+                    panel.SetVisible(i == index)
+                except Exception:
+                    pass
+        self.ShowPages(bookId)
+        pages = GetDocPageIds(bookId)
+        if page_id and page_id in pages:
+            self.SelectPage(bookId, page_id)
+        elif pages:
+            self.SelectPage(bookId, pages[0])
+        else:
+            self._ShowRightHint(u"本书暂无页面")
+            dlog.client_print("==== doc: book has no pages: %s ====" % bookId)
+        return True
+
+    # ---------- 页子卡片 ----------
+
+    def _ClearPages(self, book_id):
+        for ctrl in self.mPageCtrls.get(book_id, []):
+            try:
+                self.RemoveChildControl(ctrl)
+            except Exception:
+                pass
+        self.mPageCtrls.pop(book_id, None)
+        self.mPageIds.pop(book_id, None)
+
+    def ShowPages(self, book_id):
+        """在某本书的 sub_panel 下建页子卡片；页列表没变就只切可见性。"""
+        from DocRegistry import GetDocPageIds, GetDocPage
+        if book_id not in self.mBookIds:
+            return False
+        index = self.mBookIds.index(book_id)
+        panel = self.mBookSubPanels[index] if index < len(self.mBookSubPanels) else None
+        if not panel:
+            dlog.client_print("==== doc: sub_panel missing for %s ====" % book_id)
+            return False
+        ids = GetDocPageIds(book_id)
+        if book_id in self.mPageCtrls and self.mPageIds.get(book_id) == list(ids):
+            for ctrl in self.mPageCtrls[book_id]:
+                try:
+                    ctrl.SetVisible(True)
+                except Exception:
+                    pass
+            return True
+        self._ClearPages(book_id)
+        ctrls = []
+        for pageId in ids:
+            info = GetDocPage(book_id, pageId) or {}
+            try:
+                ctrl = self.CreateChildControl('setting.sub_card',
+                                               'docpage_%d_%s' % (index, pageId),
+                                               panel, True)
+            except Exception as e:
+                dlog.client_print("==== doc: create page card error: %s ====" % str(e))
+                ctrl = None
+            if not ctrl:
+                dlog.client_print("==== doc: page card not created: %s/%s ====" % (book_id, pageId))
+                continue
+            _SetLabelText(ctrl.GetChildByName('sub_label'), info.get("name") or pageId,
+                          "doc page label %s" % pageId)
+            try:
+                backdrop = ctrl.GetChildByName('icon_backdrop')
+                icon = info.get("icon") or ""
+                if backdrop and icon:
+                    iconCtrl = backdrop.GetChildByName('icon')
+                    img = iconCtrl.asImage() if iconCtrl else None
+                    if img:
+                        img.SetSprite(icon)
+            except Exception as e:
+                dlog.client_print("==== doc: page icon error (%s): %s ====" % (pageId, str(e)))
+            self._BindTouch(ctrl, self.OnPageTouchUp)
+            self._SetPageVisual(ctrl, "normal")
+            ctrls.append(ctrl)
+        self.mPageCtrls[book_id] = ctrls
+        self.mPageIds[book_id] = list(ids)
+        dlog.client_print("==== doc pages built: %s -> %d page(s) ====" % (book_id, len(ctrls)))
+        return True
+
+    def _SetPageVisual(self, ctrl, state):
+        if not ctrl:
+            return
+        normalCtrl = ctrl.GetChildByName('normal_bg')
+        pressingCtrl = ctrl.GetChildByName('pressing_bg')
+        pressCtrl = ctrl.GetChildByName('press_bg')
+        if normalCtrl:
+            normalCtrl.SetVisible(state == "normal")
+        if pressingCtrl:
+            pressingCtrl.SetVisible(state == "pressing")
+        if pressCtrl:
+            pressCtrl.SetVisible(state == "selected")
+
+    def OnPageTouchUp(self, args):
+        buttonPath = str(args.get('ButtonPath', '') or '')
+        parsed = _DocParsePagePath(buttonPath)
+        if not parsed:
+            return ViewRequest.Nothing
+        index, pageId = parsed
+        if index < 0 or index >= len(self.mBookIds):
+            return ViewRequest.Nothing
+        bookId = self.mBookIds[index]
+        if pageId not in self.mPageIds.get(bookId, []):
+            return ViewRequest.Nothing
+        dlog.client_print("==== doc page clicked: %s/%s ====" % (bookId, pageId))
+        self.mSelectedBookId = bookId
+        self.SelectPage(bookId, pageId)
+        return ViewRequest.Nothing
+
+    def SelectPage(self, book_id, page_id):
+        if book_id not in self.mPageCtrls:
+            self.ShowPages(book_id)
+        ids = self.mPageIds.get(book_id, [])
+        ctrls = self.mPageCtrls.get(book_id, [])
+        self.mSelectedPageId = page_id
+        for i in range(min(len(ids), len(ctrls))):
+            self._SetPageVisual(ctrls[i], "selected" if ids[i] == page_id else "normal")
+        self.RenderPage(book_id, page_id)
+        dlog.client_print("==== doc page selected: %s/%s ====" % (book_id, page_id))
+        return True
+
+    # ---------- 右栏：正文 ----------
+
+    def _ClearRight(self):
+        for ctrl in self.mRightCtrls:
+            try:
+                self.RemoveChildControl(ctrl)
+            except Exception as e:
+                dlog.client_print("==== doc: remove body control error: %s ====" % str(e))
+        self.mRightCtrls = []
+
+    def _AddRightControl(self, template, name):
+        if not self.mRightContent:
+            return None
+        try:
+            ctrl = self.CreateChildControl(template, name, self.mRightContent, True)
+        except Exception as e:
+            dlog.client_print("==== doc: create '%s' error: %s ====" % (template, str(e)))
+            return None
+        if ctrl:
+            self.mRightCtrls.append(ctrl)
+        return ctrl
+
+    def _ShowRightHint(self, text):
+        """右栏空态：清正文后写一行灰字。"""
+        self._ClearRight()
+        ctrl = self._AddRightControl('doc.empty_hint', 'doc_empty_hint')
+        _SetLabelText(ctrl, text, "doc empty hint")
+        return ctrl
+
+    def RenderPage(self, book_id, page_id):
+        """渲染某页正文：先清空右栏再逐块重建（重建即天然回到顶部）。"""
+        from DocRegistry import GetDocBook, GetDocPage
+        self._ClearRight()
+        if not self.mRightContent:
+            dlog.client_print("==== doc: right content missing, skip render ====")
+            return False
+        book = GetDocBook(book_id) or {}
+        meta = GetDocPage(book_id, page_id)
+        pageName = (meta or {}).get("name") or page_id
+        headText = u"%s · %s" % (book.get("name") or book_id, pageName)
+        head = self._AddRightControl('doc.page_head', 'doc_page_head')
+        _SetLabelText(head, headText, "doc page head")
+        if not meta:
+            hint = self._AddRightControl('doc.empty_hint', 'doc_empty_hint')
+            _SetLabelText(hint, u"（本页暂无内容）", "doc empty body")
+            dlog.client_print("==== doc: page meta missing: %s/%s ====" % (book_id, page_id))
+            return True
+        blocks = build_doc_blocks(meta.get("body") or "")
+        if not blocks:
+            hint = self._AddRightControl('doc.empty_hint', 'doc_empty_hint')
+            _SetLabelText(hint, u"（本页暂无内容）", "doc empty body")
+            dlog.client_print("==== doc: page body empty: %s/%s ====" % (book_id, page_id))
+            return True
+        for i, blk in enumerate(blocks):
+            kind = blk.get("kind")
+            if kind == "gap":
+                self._AddRightControl('doc.block_gap', 'docblk_%d' % i)
+                continue
+            template = _DOC_BLOCK_TEMPLATES.get(kind, 'doc.block_text')
+            ctrl = self._AddRightControl(template, 'docblk_%d' % i)
+            if ctrl:
+                lines = wrap_line(blk.get("text") or "")
+                _SetLabelText(ctrl, u"\n".join(lines), "doc block %d" % i)
+        dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
+            book_id, page_id, len(blocks)))
+        return True
+
+    # ---------- 跳转 ----------
+
+    def HasPendingNavigation(self):
+        return bool(self.mPendingNav)
+
+    def SetPendingNavigation(self, book_id=None, page_id=None):
+        """界面已打开时的直达入口：能立刻跳就跳，否则暂存（由 tick 重试）。"""
+        self.mPendingNav = (book_id or None, page_id or None)
+        return self.TryPendingNavigation()
+
+    def TryPendingNavigation(self):
+        """
+        消费暂存的跳转目标。返回 True 表示"有目标且已处理完"；
+        返回 False 表示当前没有可跳的目标（注册表还空等），由调用方下一帧重试。
+        """
+        from DocRegistry import GetAllDocBookIds, GetDocPageIds, FindDocPageByPageId
+        nav = self.mPendingNav
+        if not nav:
+            return False
+        bookId, pageId = nav
+        ids = GetAllDocBookIds()
+        if not ids:
+            dlog.client_print("==== doc pending nav: registry still empty, retry later ====")
+            return False
+        if not bookId and pageId:
+            hit = FindDocPageByPageId(pageId)
+            if hit:
+                bookId, pageId = hit
+                dlog.client_print("==== doc pending nav: page '%s' -> book '%s' ====" % (pageId, bookId))
+        if bookId and bookId not in ids:
+            dlog.client_print("==== doc pending nav: book '%s' missing, fallback to first ====" % bookId)
+            bookId = None
+            pageId = None
+        if not bookId:
+            bookId = ids[0]
+        pages = GetDocPageIds(bookId)
+        if pageId and pageId not in pages:
+            dlog.client_print("==== doc pending nav: page '%s' missing in '%s', fallback to first ====" % (
+                pageId, bookId))
+            pageId = None
+        if not pageId and pages:
+            pageId = pages[0]
+        self.mPendingNav = None
+        index = self.mBookIds.index(bookId) if bookId in self.mBookIds else None
+        if index is None:
+            # 书卡片还没建出来（注册表刚变）→ 留在 pending 里等下一帧
+            self.mPendingNav = (bookId, pageId)
+            dlog.client_print("==== doc pending nav: book card not built yet, retry later ====")
+            return False
+        self.SelectBook(index, pageId)
+        dlog.client_print("==== doc pending nav consumed: %s/%s ====" % (bookId, pageId))
+        return True
+
+
+_DOC_BLOCK_TEMPLATES = {
+    "heading": 'doc.block_heading',
+    "subheading": 'doc.block_subheading',
+    "bullet": 'doc.block_bullet',
+    "text": 'doc.block_text',
+}
+
+
+def _DocParseIndex(buttonPath, prefix):
+    """从按钮路径里取 index：控件名形如 `<prefix><index>[_<suffix>]`。"""
+    if not buttonPath:
+        return None
+    name = buttonPath.rstrip('/').split('/')[-1]
+    if not name.startswith(prefix):
+        return None
+    rest = name[len(prefix):]
+    head = rest.split('_')[0]
+    try:
+        return int(head)
+    except (TypeError, ValueError):
+        return None
+
+
+def _DocParsePagePath(buttonPath):
+    """
+    解析页子卡片路径，返回 (bookIndex, page_id)。
+
+    页控件名形如 `docpage_<bookIndex>_<page_id>`；page_id 允许再含下划线，
+    所以只按第一个下划线切分。
+    """
+    if not buttonPath:
+        return None
+    name = buttonPath.rstrip('/').split('/')[-1]
+    prefix = "docpage_"
+    if not name.startswith(prefix):
+        return None
+    rest = name[len(prefix):]
+    if '_' not in rest:
+        return None
+    head, pageId = rest.split('_', 1)
+    try:
+        index = int(head)
+    except (TypeError, ValueError):
+        return None
+    if not pageId:
+        return None
+    return (index, pageId)
+
+
 def RegisterContentBuilder(type_name, builder):
     """注册右侧内容项 UI 构建器。"""
     _contentBuilders[type_name] = builder
