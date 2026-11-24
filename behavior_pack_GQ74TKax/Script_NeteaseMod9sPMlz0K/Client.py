@@ -60,6 +60,7 @@ class MyClientSystem(ClientSystem):
             'pop_up.collapsible_menu',
             'pop_up.card_toggle_panel',
             'pop_up.item_picker',
+            'doc.main',
         ])
         self.mPendingNavigation = None  # 待处理导航参数 (main_card_id, sub_key, middle_card_id)
         self.mCurrentPopUp = None  # 当前待显示/显示的弹窗数据 {"title": str, "content": str, "buttons": [...]}
@@ -91,6 +92,12 @@ class MyClientSystem(ClientSystem):
         self.mPendingCloseSettings = False  # 确认关闭动画后：OnActive 时立即关闭设置界面
         self.mPendingToggleRefresh = None  # 待重建的组合开关 toggle_id（下一帧执行）
         self.mPendingCloseCardToggle = False  # 物品选择行选完要关弹窗（等 picker 出栈再关）
+        # 文档界面（doc.main）：与设置界面并列的一套会话字段，两者独立、互不顶替
+        self.mDocsUIOpen = False           # 文档界面是否在场景栈中
+        self.mDocScreenNode = None         # 文档 ScreenNode 引用（已打开时用于直达跳转 / 重试泵）
+        self.mPendingDocNavigation = None  # 打开前暂存的跳转目标 (book_id, page_id)
+        self.mDocNavRetryTicks = 0         # 待跳转兜底重试的节流计数（每 20 tick 试一次）
+        self.mDocNavRetryTries = 0         # 已重试次数（上限 10 次，防注册表空时刷日志）
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
         SetCardChangedCallback(self._OnCardChanged)
         self.ListenForEvent(
@@ -150,6 +157,14 @@ class MyClientSystem(ClientSystem):
             self,
             self.OnOpenSettingsFromCommand
         )
+        # 服务端 /doc_open 命令：打开文档界面并跳到指定书/页
+        self.ListenForEvent(
+            "Script_NeteaseMod9sPMlz0K",
+            "server",
+            "Script_NeteaseMod9sPMlz0K_OpenDocsFromCommand",
+            self,
+            self.OnOpenDocsFromCommand
+        )
         # 服务端全局日志开关同步（服务端->客户端）
         self.ListenForEvent(
             "Script_NeteaseMod9sPMlz0K",
@@ -198,6 +213,12 @@ class MyClientSystem(ClientSystem):
             eventData = self.CreateEventData()
             eventData["playerId"] = clientApi.GetLocalPlayerId()
             self.BroadcastEvent(SettingsUIOpenEvent, eventData)
+        elif screenDef == 'doc.main':
+            self.mDocsUIOpen = True
+            from DocRegistry import DocsUIOpenEvent
+            eventData = self.CreateEventData()
+            eventData["playerId"] = clientApi.GetLocalPlayerId()
+            self.BroadcastEvent(DocsUIOpenEvent, eventData)
 
     def OnPopScreen(self, args):
         screenDef = args.get('screenDef', 'unknown')
@@ -298,6 +319,15 @@ class MyClientSystem(ClientSystem):
             self.mCurrentItemPickerRow = None
             self.mItemPickerOnSelect = None
             self._RestoreScrollAfterPopUp()
+        elif screenDef == 'doc.main':
+            self.mDocsUIOpen = False
+            # 界面已销毁：清会话引用与残留跳转目标（下次打开重新 Push）
+            self.mDocScreenNode = None
+            self.mPendingDocNavigation = None
+            from DocRegistry import DocsUICloseEvent
+            eventData = self.CreateEventData()
+            eventData["playerId"] = clientApi.GetLocalPlayerId()
+            self.BroadcastEvent(DocsUICloseEvent, eventData)
 
     def OnKeyPressInGame(self, args):
         keyValue = int(args.get('key', 0))
@@ -318,6 +348,11 @@ class MyClientSystem(ClientSystem):
             elif self.mPopUpOpen:
                 dlog.client_print("==== ESC pressed, close PopUp only ====")
                 self.ClosePopUp()
+            elif self.mDocsUIOpen:
+                dlog.client_print("==== ESC pressed, close DocsUI ====")
+                clientApi.PopScreen()
+                # 立即置 False 防重复 Pop（PopScreenEvent 异步到达）
+                self.mDocsUIOpen = False
             elif self.mSettingsUIOpen:
                 dlog.client_print("==== ESC pressed, close SettingsUI ====")
                 clientApi.PopScreen()
@@ -371,8 +406,8 @@ class MyClientSystem(ClientSystem):
         """
         name = args.get('name', '')
         isDown = args.get('isDown', '')
-        dlog.client_print("==== OnCustomKeyPressInGame name: %s isDown: %s settingsOpen: %s ====" % (
-            name, isDown, self.mSettingsUIOpen
+        dlog.client_print("==== OnCustomKeyPressInGame name: %s isDown: %s settingsOpen: %s docsOpen: %s ====" % (
+            name, isDown, self.mSettingsUIOpen, self.mDocsUIOpen
         ))
         if name == '打开设置' and str(isDown) == '1' and not self.mSettingsUIOpen:
             dlog.client_print("==== custom key pressed: open settings ====")
@@ -380,6 +415,12 @@ class MyClientSystem(ClientSystem):
                 dlog.client_print("==== ignore key: another UI is open (not HUD) ====")
                 return
             self.OpenSettings()
+        elif name == '打开文档' and str(isDown) == '1' and not self.mDocsUIOpen:
+            dlog.client_print("==== custom key pressed: open docs ====")
+            if not self._CanOpenDocsFromKey():
+                dlog.client_print("==== ignore key: another UI is open (not HUD) ====")
+                return
+            self.OpenDocs()
 
     def _CanOpenSettingsFromKey(self):
         """快捷键只在游戏 HUD 层生效：栈顶有别的界面时才屏蔽。
@@ -387,7 +428,8 @@ class MyClientSystem(ClientSystem):
         判断方式改为直接问引擎（clientApi.GetTopScreen()，返回最后一次 PushScreen
         创建的界面，栈空返回 None），不再依赖自己累加的 Push/Pop 计数器——那个
         计数器只要漏收一次事件就会永久卡住，表现为 U 键再也打不开设置。
-        栈顶是本模组自己的界面时放行（弹窗层除外，避免设置界面叠在弹窗上面）。
+        栈顶是本模组自己的界面时放行（弹窗层除外，避免设置界面叠在弹窗上面；
+        文档界面 doc.main 也除外——两者是并列入口，不允许互相叠栈）。
         """
         getter = getattr(clientApi, "GetTopScreen", None)
         if getter is None:
@@ -402,9 +444,37 @@ class MyClientSystem(ClientSystem):
             name = str(top.GetScreenName() or "")
         except Exception:
             name = ""
+        if name == 'doc.main':
+            # 文档界面与设置界面是并列入口：文档开着时按 U 不允许把设置压上去（会叠栈）
+            dlog.client_print("==== open-settings gate: blocked by docs screen ====")
+            return False
         if name in self.mOwnScreenDefs and not name.startswith("pop_up."):
             return True
         dlog.client_print("==== open-settings gate: blocked by top screen '%s' ====" % name)
+        return False
+
+    def _CanOpenDocsFromKey(self):
+        """文档快捷键 K 的栈顶门禁：只有栈顶为空或就是文档界面才放行。
+
+        与设置界面同一口径（直接问 clientApi.GetTopScreen()，不信自己累加的计数器）：
+        设置界面/背包/聊天/任意弹窗在栈顶时都屏蔽，避免文档界面被压在别的界面下面。
+        """
+        getter = getattr(clientApi, "GetTopScreen", None)
+        if getter is None:
+            return True
+        try:
+            top = getter()
+        except Exception:
+            return True
+        if not top:
+            return True
+        try:
+            name = str(top.GetScreenName() or "")
+        except Exception:
+            name = ""
+        if name == 'doc.main':
+            return True
+        dlog.client_print("==== open-docs gate: blocked by top screen '%s' ====" % name)
         return False
 
     def OnOpenSettingsFromCommand(self, args):
@@ -570,6 +640,28 @@ class MyClientSystem(ClientSystem):
                 dlog.client_print("==== embedded popup: close settings now ====")
                 clientApi.PopScreen()
                 self.mSettingsUIOpen = False
+        # 文档界面：跳转目标当时还消费不了（注册表还空 / 控件树未建）时的兜底重试。
+        # 注册表变化会走 OnDocsChanged → RebuildBooks → TryPendingNavigation，所以这里只
+        # 做兜底：约每秒一次、最多 10 次；注册表一直为空也不至于每帧刷日志。
+        docNode = self.mDocScreenNode
+        if (docNode is not None and getattr(docNode, "HasPendingNavigation", None)
+                and docNode.HasPendingNavigation()):
+            self.mDocNavRetryTicks += 1
+            if self.mDocNavRetryTicks >= 20:
+                self.mDocNavRetryTicks = 0
+                if self.mDocNavRetryTries < 10:
+                    self.mDocNavRetryTries += 1
+                    try:
+                        docNode.TryPendingNavigation()
+                    except Exception as e:
+                        dlog.client_print("==== doc pending nav tick error: %s ====" % str(e))
+                elif self.mDocNavRetryTries == 10:
+                    # 只吼一次，之后静默等待注册表变化（OnDocsChanged 会再消费）
+                    self.mDocNavRetryTries += 1
+                    dlog.client_print("==== doc pending nav: give up after 10 retries ====")
+        else:
+            self.mDocNavRetryTicks = 0
+            self.mDocNavRetryTries = 0
 
     def OnGridComponentSizeChanged(self, args):
         """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
@@ -654,6 +746,14 @@ class MyClientSystem(ClientSystem):
         )
         dlog.client_print("==== ItemPickerUI registered ====")
 
+        clientApi.RegisterUI(
+            'Script_NeteaseMod9sPMlz0K',
+            'DocsUI',
+            'Script_NeteaseMod9sPMlz0K.Client.DocScreenNode',
+            'doc.main'
+        )
+        dlog.client_print("==== DocsUI registered ====")
+
         # 注册 Toast 系统
         try:
             from Toast import RegisterToastScreens
@@ -682,6 +782,9 @@ class MyClientSystem(ClientSystem):
             comp = clientApi.GetEngineCompFactory().CreatePlayerView(clientApi.GetLevelId())
             success = comp.RegisterCustomKeyMapping("打开设置", 85, "模组设置")
             dlog.client_print("==== RegisterCustomKeyMapping open_settings: %s ====" % str(success))
+            # 文档界面：K = 75（85/U 已被设置界面占用）
+            docOk = comp.RegisterCustomKeyMapping("打开文档", 75, "模组设置")
+            dlog.client_print("==== RegisterCustomKeyMapping open_docs: %s ====" % str(docOk))
         except Exception as e:
             dlog.client_print("==== RegisterCustomKeyMapping error: %s ====" % str(e))
 
@@ -703,6 +806,14 @@ class MyClientSystem(ClientSystem):
                     "打开设置",
                     self._OnOfficialSettingButtonClick,
                     1
+                )
+                # 第二个入口：文档/教程界面（优先级 2，排在设置按钮之后）
+                setting_inst.AddButton(
+                    "open_docs",
+                    "打开模组的文档 / 教程界面",
+                    "打开文档",
+                    self._OnOfficialDocButtonClick,
+                    2
                 )
                 dlog.client_print("==== official settings button registered ====")
             else:
@@ -726,6 +837,22 @@ class MyClientSystem(ClientSystem):
         """官方通用设置界面关闭后，打开本模组设置界面。"""
         self.OpenSettings()
 
+    def _OnOfficialDocButtonClick(self, key, value=None):
+        """官方通用设置按钮回调：关闭官方设置界面，稍后打开文档界面。"""
+        dlog.client_print("==== official docs button click: %s ====" % str(key))
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateNeteaseWindow(clientApi.GetLevelId())
+            comp.CloseSettingUI()
+        except Exception as e:
+            dlog.client_print("==== CloseSettingUI error: %s ====" % str(e))
+        # 等官方界面关闭完成后再打开文档界面，避免压栈冲突
+        game_comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+        game_comp.AddTimer(0.15, self._OpenMyDocs)
+
+    def _OpenMyDocs(self):
+        """官方通用设置界面关闭后，打开文档界面。"""
+        self.OpenDocs()
+
     def OpenSettings(self, main_card_id=None, sub_key=None, middle_card_id=None):
         """
         打开设置 UI，可选导航到指定卡片。
@@ -744,6 +871,63 @@ class MyClientSystem(ClientSystem):
             return
         self.mPendingNavigation = (main_card_id, sub_key, middle_card_id)
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'SettingsUI')
+
+    # ===== 文档界面（doc.main）：与设置界面并列的第二个界面 =====
+
+    def OpenDocs(self, book_id=None, page_id=None):
+        """
+        打开文档界面，可选直达指定书 / 页（须先 RegisterDocBook / RegisterDocPage）。
+
+        :param book_id: 书 ID；None 表示用第一本书
+        :param page_id: 页 ID；只给 page_id 时会在所有书里反查
+        :returns:       True 已打开或已转成导航（门面 CardRegistryApi.OpenDocs 直接返回它）
+        """
+        dlog.client_print("==== OpenDocs: book=%s page=%s ====" % (book_id, page_id))
+        if self.mDocsUIOpen or self.mDocScreenNode is not None:
+            # 已打开：不重复压栈，转成导航（界面下一帧消费，注册表还空时逐帧重试）
+            if self.mDocScreenNode is not None:
+                self.mDocScreenNode.SetPendingNavigation(book_id, page_id)
+            else:
+                self.mPendingDocNavigation = (book_id or None, page_id or None)
+            return True
+        self.mPendingDocNavigation = (book_id or None, page_id or None)
+        clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'DocsUI')
+        return True
+
+    def CloseDocs(self):
+        """关闭文档界面（只在它确实开着时 Pop，避免误关别的界面）。"""
+        if not (self.mDocsUIOpen or self.mDocScreenNode is not None):
+            dlog.client_print("==== CloseDocs: docs UI not open, ignore ====")
+            return
+        dlog.client_print("==== CloseDocs ====")
+        clientApi.PopScreen()
+        # 立即置 False 防重复 Pop（PopScreenEvent 异步到达）
+        self.mDocsUIOpen = False
+
+    def RegisterDocScreenNode(self, screenNode):
+        self.mDocScreenNode = screenNode
+
+    def UnregisterDocScreenNode(self, screenNode):
+        if self.mDocScreenNode is screenNode:
+            self.mDocScreenNode = None
+
+    def OnOpenDocsFromCommand(self, args):
+        """服务端 /doc_open 通知客户端打开文档界面。
+
+        与 /setting_open 一致：打开前先广播 DocsNavigateEvent 供外部模组监听
+        （本轮只广播，不带拦截回调）。
+        """
+        book_id = args.get("book_id", "") or None
+        page_id = args.get("page_id", "") or None
+        playerId = clientApi.GetLocalPlayerId()
+        dlog.client_print("==== OnOpenDocsFromCommand: book=%s page=%s ====" % (book_id, page_id))
+        from DocRegistry import DocsNavigateEvent
+        navData = self.CreateEventData()
+        navData["playerId"] = playerId
+        navData["book_id"] = book_id
+        navData["page_id"] = page_id
+        self.BroadcastEvent(DocsNavigateEvent, navData)
+        self.OpenDocs(book_id, page_id)
 
     def _CaptureRightScroll(self):
         """弹窗压栈前：记录设置界面右侧面板的滚动位置，弹窗关闭返回后恢复。"""
@@ -4771,6 +4955,12 @@ class DocScreenNode(ScreenNode):
     # ---------- 生命周期 ----------
 
     def Create(self):
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            try:
+                _g_ClientSystem.RegisterDocScreenNode(self)
+            except Exception as e:
+                dlog.client_print("==== doc: register to client system error: %s ====" % str(e))
         self.mBasePath = _DocFindBasePath(self)
         if self.mBasePath is None:
             return
@@ -4785,7 +4975,6 @@ class DocScreenNode(ScreenNode):
             dlog.client_print("==== doc: set changed callback error: %s ====" % str(e))
 
         # 打开前由 ClientSystem 暂存的跳转目标
-        global _g_ClientSystem
         pending = None
         if _g_ClientSystem:
             pending = getattr(_g_ClientSystem, "mPendingDocNavigation", None)
@@ -4800,6 +4989,12 @@ class DocScreenNode(ScreenNode):
         dlog.client_print("==== doc screen created: books=%d ====" % len(self.mBookIds))
 
     def Destroy(self):
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            try:
+                _g_ClientSystem.UnregisterDocScreenNode(self)
+            except Exception as e:
+                dlog.client_print("==== doc: unregister from client system error: %s ====" % str(e))
         try:
             from DocRegistry import SetDocChangedCallback
             SetDocChangedCallback(None)
