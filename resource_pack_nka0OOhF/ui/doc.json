@@ -392,6 +392,28 @@
         "text_alignment": "left",
         "text": "$doc_text"
     },
+    "block_heading3": {
+        "type": "label",
+        "$doc_text": "",
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [
+            0,
+            0
+        ],
+        "size": [
+            "100%+0px",
+            "default"
+        ],
+        "color": [
+            1,
+            1,
+            1
+        ],
+        "font_scale_factor": 1.05,
+        "text_alignment": "left",
+        "text": "$doc_text"
+    },
     "block_text": {
         "type": "label",
         "$doc_text": "",
