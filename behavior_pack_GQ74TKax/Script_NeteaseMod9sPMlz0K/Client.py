@@ -662,6 +662,12 @@ class MyClientSystem(ClientSystem):
         else:
             self.mDocNavRetryTicks = 0
             self.mDocNavRetryTries = 0
+        # 文档界面的 icon_backdrop 序列帧：ScreenNode 没有引擎 OnTick，逐帧转调
+        if docNode is not None and getattr(docNode, "Tick", None):
+            try:
+                docNode.Tick()
+            except Exception as e:
+                dlog.client_print("==== doc tick error: %s ====" % str(e))
 
     def OnGridComponentSizeChanged(self, args):
         """grid 滚动复用导致格子重新排列：通知物品选择弹窗按索引重填图标与回调。"""
@@ -4767,8 +4773,19 @@ class SettingsScreenNode(ScreenNode):
 # 切页不写任何滚动接口（触屏分支 SetScrollViewPos 无效，2026-11-23 实测），
 # 而是把正文容器里的子控件全部摘掉重建 —— 内容一更新引擎天然回到顶部。
 
-DOC_WRAP_UNITS = 68      # 折行预算：ASCII 记 1、CJK 记 2（66.7% 宽栏，进游戏可调）
+# 正文栏在右栏里左右各内缩 8%（doc.json 的 doc_scroll_content：offset 8% / size 84%），
+# 让正文落在右栏的视觉中心、不再贴着左缘；栏宽变了折行预算跟着按比例缩（68×84/99≈57）。
+DOC_WRAP_UNITS = 57      # 折行预算：ASCII 记 1、CJK 记 2（84% 宽栏，进游戏可调）
 DOC_BLOCK_LIMIT = 400    # 单页最多渲染块数，防超长正文一次建上千控件
+
+# 卡片 icon_backdrop 的序列帧：textures/ui/icon_backdrop.png 是 12×96 的竖条，即 8 帧
+# 12×12。与设置界面同一套（AddCard / _StartBackdropAnimation）：不设 UV 尺寸时整条贴图
+# 会被压进卡片高度，看起来就像「没图片」；选中时从第 1 帧播到第 8 帧、每帧 2 tick。
+DOC_BACKDROP_FRAMES = 8
+DOC_BACKDROP_FRAME_SIZE = 12
+DOC_BACKDROP_FRAME_TICKS = 2
+# 空注册表时左栏大图显示的底图（= doc.json 里 icon_under/image 的原贴图）
+_DOC_PREVIEW_FALLBACK = "textures/netease/common/image/default"
 
 _DOC_CJK_MIN = 0x2E80    # 此码点起按双宽字符计算
 
@@ -4928,12 +4945,41 @@ def _DocBindBackButton(node, base, callback):
     return False
 
 
+def _DocBindPreviewIcon(node, base):
+    """绑定左栏大图预览（`left/icon_under/image`，设置界面同款控件），返回 image 控件。
+
+    doc.json 是从 setting.main_content 复制的，`icon_under` 也一起抄了过来；设置界面
+    用它显示当前卡片的图标，文档界面不接就是一直显示底图（进游戏看就是一块占位图）。
+    """
+    paths = ["/left/icon_under/image"]
+    if base is not None:
+        paths.insert(0, base + "/left/icon_under/image")
+    for path in paths:
+        try:
+            ctrl = node.GetBaseUIControl(path)
+            if not ctrl:
+                continue
+            img = ctrl.asImage()
+            if not img:
+                continue
+            dlog.client_print("==== doc preview icon bound at: %s ====" % path)
+            return img
+        except Exception as e:
+            dlog.client_print("==== doc preview icon bind error %s: %s ====" % (path, str(e)))
+    dlog.client_print("==== doc: preview icon not found ====")
+    return None
+
+
 class DocScreenNode(ScreenNode):
     """文档/教程界面（screenDef `doc.main`）。
 
     左栏是书卡片（setting.card_group），右栏是合并后的宽栏正文；点书展开该书
     的页子卡片（setting.sub_card），点页切换正文。控件全量同步创建：书 / 页都在
     个位数到十几个量级，不做懒加载（单本破百页再考虑分帧）。
+
+    视觉与交互照设置界面：卡片三态（normal / pressing / press）+ 触摸三回调
+    （down 显示按压、cancel 还原、up 选中），选中时播 icon_backdrop 序列帧；
+    左栏大图显示当前书的图标。
     """
 
     def __init__(self, namespace, name, param):
@@ -4941,16 +4987,23 @@ class DocScreenNode(ScreenNode):
         self.mBasePath = None
         self.mLeftContent = None
         self.mRightContent = None
+        self.mPreviewIcon = None    # 左栏大图（选中书的图标）
         self.mBookIds = []          # 与 mBookWrappers 对齐
         self.mBookWrappers = []
         self.mBookBtns = []
         self.mBookSubPanels = []
+        self.mBookBackdrops = []    # 与 mBookIds 对齐：icon_backdrop 的 image 控件（可能 None）
+        self.mBookAnimStates = {}   # index -> {frame, timer, playing}
         self.mPageCtrls = {}        # book_id -> [ctrl, ...]
         self.mPageIds = {}          # book_id -> [page_id, ...]（建控件时的快照）
+        self.mPageBackdrops = {}    # (book_id, page_id) -> image 控件
+        self.mPageAnimStates = {}   # (book_id, page_id) -> {frame, timer, playing}
         self.mRightCtrls = []       # 右栏当前正文控件，切换时逐个摘掉
         self.mSelectedBookId = None
         self.mSelectedPageId = None
         self.mPendingNav = None     # (book_id, page_id) 待跳转
+        self.mPressingBook = -1     # 正在按压的书 index（-1 = 无）
+        self.mPressingPage = None   # 正在按压的页 (book_id, page_id)
 
     # ---------- 生命周期 ----------
 
@@ -4967,6 +5020,7 @@ class DocScreenNode(ScreenNode):
         self.mLeftContent = _DocFindScrollContent(self, self.mBasePath, "left")
         self.mRightContent = _DocFindScrollContent(self, self.mBasePath, "right")
         _DocBindBackButton(self, self.mBasePath, self.OnBackClick)
+        self.mPreviewIcon = _DocBindPreviewIcon(self, self.mBasePath)
 
         try:
             from DocRegistry import SetDocChangedCallback
@@ -5003,9 +5057,15 @@ class DocScreenNode(ScreenNode):
         self.mBookWrappers = []
         self.mBookBtns = []
         self.mBookSubPanels = []
+        self.mBookBackdrops = []
+        self.mBookAnimStates = {}
         self.mPageCtrls = {}
         self.mPageIds = {}
+        self.mPageBackdrops = {}
+        self.mPageAnimStates = {}
         self.mRightCtrls = []
+        self.mPressingBook = -1
+        self.mPressingPage = None
         dlog.client_print("==== doc screen destroyed ====")
 
     def OnDocsChanged(self):
@@ -5032,8 +5092,14 @@ class DocScreenNode(ScreenNode):
         self.mBookWrappers = []
         self.mBookBtns = []
         self.mBookSubPanels = []
+        self.mBookBackdrops = []
+        self.mBookAnimStates = {}
         self.mPageCtrls = {}
         self.mPageIds = {}
+        self.mPageBackdrops = {}
+        self.mPageAnimStates = {}
+        self.mPressingBook = -1
+        self.mPressingPage = None
 
     def RebuildBooks(self):
         """按注册表重建左栏；保留当前 (书, 页) 选择，失效则回落到第一本 / 第一页。"""
@@ -5054,6 +5120,7 @@ class DocScreenNode(ScreenNode):
                               info.get("icon") or "")
         if not self.mBookIds:
             self._ShowRightHint(u"暂无文档")
+            self.UpdatePreviewIcon("")
             dlog.client_print("==== doc: no books registered, empty state ====")
             return False
 
@@ -5082,26 +5149,65 @@ class DocScreenNode(ScreenNode):
         self.mBookWrappers.append(wrapper)
         self.mBookBtns.append(btnCtrl)
         self.mBookSubPanels.append(wrapper.GetChildByName('sub_panel'))
+        # 先初始化 icon_backdrop 的 UV 再设图标：两条列表要始终与 mBookIds 对齐
+        backdropImg = self._PrepareBackdrop(btnCtrl)
+        self.mBookBackdrops.append(backdropImg)
+        self.mBookAnimStates[index] = {"frame": 0, "timer": 0, "playing": False}
         if not btnCtrl:
             dlog.client_print("==== doc: book card_btn missing (%s) ====" % book_id)
             return wrapper
         _SetLabelText(btnCtrl.GetChildByName('name'), name, "doc book name %s" % book_id)
-        try:
-            backdrop = btnCtrl.GetChildByName('icon_backdrop')
-            if backdrop and icon:
-                iconCtrl = backdrop.GetChildByName('icon')
-                img = iconCtrl.asImage() if iconCtrl else None
-                if img:
-                    img.SetSprite(icon)
-        except Exception as e:
-            dlog.client_print("==== doc: book icon error (%s): %s ====" % (book_id, str(e)))
-        self._BindTouch(btnCtrl, self.OnBookTouchUp)
+        self._SetCardIcon(btnCtrl, icon, "book %s" % book_id)
+        self._BindTouch(btnCtrl, self.OnBookTouchDown, self.OnBookTouchUp, self.OnBookTouchCancel)
         self._SetBookVisual(index, "normal")
         dlog.client_print("==== doc book added: %s -> %s ====" % (book_id, name))
         return wrapper
 
-    def _BindTouch(self, ctrl, onUp):
-        """给按钮挂触摸回调（控件名里带自己的 index，回调自行解析路径）。"""
+    def _PrepareBackdrop(self, btn_ctrl):
+        """
+        初始化卡片 icon_backdrop 并返回 image 控件。
+
+        贴图 `textures/ui/icon_backdrop` 是 12×96 的竖条（8 帧 12×12）：不设
+        `SetSpriteUVSize` 就会把整条压进卡片高度，看起来等于没有图。设置界面
+        的 AddCard / AddSubCard 是同一套写法，这里必须照做。
+        """
+        if not btn_ctrl:
+            return None
+        try:
+            backdrop = btn_ctrl.GetChildByName('icon_backdrop')
+            if not backdrop:
+                dlog.client_print("==== doc: icon_backdrop missing ====")
+                return None
+            img = backdrop.asImage()
+            if not img:
+                dlog.client_print("==== doc: icon_backdrop asImage failed ====")
+                return None
+            img.SetSpriteUV((0, 0))
+            img.SetSpriteUVSize((DOC_BACKDROP_FRAME_SIZE, DOC_BACKDROP_FRAME_SIZE))
+            return img
+        except Exception as e:
+            dlog.client_print("==== doc: icon_backdrop init error: %s ====" % str(e))
+            return None
+
+    def _SetCardIcon(self, btn_ctrl, icon, tag):
+        """写 icon_backdrop 里的 icon 贴图（icon 为空则保留模板默认）。"""
+        if not btn_ctrl or not icon:
+            return False
+        try:
+            backdrop = btn_ctrl.GetChildByName('icon_backdrop')
+            iconCtrl = backdrop.GetChildByName('icon') if backdrop else None
+            img = iconCtrl.asImage() if iconCtrl else None
+            if not img:
+                dlog.client_print("==== doc: card icon missing (%s) ====" % tag)
+                return False
+            img.SetSprite(icon)
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc: card icon error (%s): %s ====" % (tag, str(e)))
+            return False
+
+    def _BindTouch(self, ctrl, on_down, on_up, on_cancel):
+        """给按钮挂触摸三回调（按下 / 抬起 / 取消），与设置界面卡片完全一致。"""
         if not ctrl:
             return False
         try:
@@ -5109,7 +5215,12 @@ class DocScreenNode(ScreenNode):
             if not btn:
                 return False
             btn.AddTouchEventParams({})
-            btn.SetButtonTouchUpCallback(onUp)
+            if on_down is not None:
+                btn.SetButtonTouchDownCallback(on_down)
+            if on_up is not None:
+                btn.SetButtonTouchUpCallback(on_up)
+            if on_cancel is not None:
+                btn.SetButtonTouchCancelCallback(on_cancel)
             return True
         except Exception as e:
             dlog.client_print("==== doc: bind touch error: %s ====" % str(e))
@@ -5123,28 +5234,76 @@ class DocScreenNode(ScreenNode):
             return
         normalCtrl = ctrl.GetChildByName('normal')
         pressCtrl = ctrl.GetChildByName('press')
+        pressingCtrl = ctrl.GetChildByName('pressing')
         if normalCtrl:
-            normalCtrl.SetVisible(state != "selected")
+            normalCtrl.SetVisible(state == "normal")
         if pressCtrl:
             pressCtrl.SetVisible(state == "selected")
+        if pressingCtrl:
+            pressingCtrl.SetVisible(state == "pressing")
 
-    def OnBookTouchUp(self, args):
-        buttonPath = str(args.get('ButtonPath', '') or '')
-        index = _DocParseIndex(buttonPath, "docbook_")
+    def _RestoreBookVisual(self, index):
+        """按压结束 / 取消：按当前选中状态还原（selected / normal）。"""
+        if index is None or index < 0 or index >= len(self.mBookIds):
+            return
+        selected = (self.mBookIds[index] == self.mSelectedBookId)
+        self._SetBookVisual(index, "selected" if selected else "normal")
+
+    def OnBookTouchDown(self, args):
+        if self.mPressingBook >= 0:
+            return ViewRequest.Nothing
+        index = _DocParseIndex(str(args.get('ButtonPath', '') or ''), "docbook_")
         if index is None or index < 0 or index >= len(self.mBookIds):
             return ViewRequest.Nothing
+        # 已选中的书再按下：不显示按压态（设置界面的主卡片也是这样）
+        if self.mBookIds[index] == self.mSelectedBookId:
+            return ViewRequest.Nothing
+        self.mPressingBook = index
+        self._SetBookVisual(index, "pressing")
+        dlog.client_print("==== doc book touch down: %d ====" % index)
+        return ViewRequest.Nothing
+
+    def OnBookTouchUp(self, args):
+        # 兼容：个别引擎版本可能把取消事件路由进 Up 回调（Cancel=3）
+        if args.get('TouchEvent') == 3:
+            return self.OnBookTouchCancel(args)
+        buttonPath = str(args.get('ButtonPath', '') or '')
+        prev = self.mPressingBook
+        self.mPressingBook = -1
+        index = _DocParseIndex(buttonPath, "docbook_")
+        if index is None or index < 0 or index >= len(self.mBookIds):
+            self._RestoreBookVisual(prev)
+            return ViewRequest.Nothing
+        if prev >= 0 and prev != index:
+            # 按下 A 松手在 B：两张都还原，不触发选中
+            self._RestoreBookVisual(prev)
+            self._RestoreBookVisual(index)
+            return ViewRequest.Nothing
+        if self.mBookIds[index] == self.mSelectedBookId:
+            self._SetBookVisual(index, "selected")
+            return ViewRequest.Nothing
         dlog.client_print("==== doc book clicked: index=%d ====" % index)
+        self._StartBookBackdropAnimation(index)
         self.SelectBook(index)
+        return ViewRequest.Nothing
+
+    def OnBookTouchCancel(self, args):
+        prev = self.mPressingBook
+        self.mPressingBook = -1
+        if prev >= 0:
+            self._RestoreBookVisual(prev)
+            dlog.client_print("==== doc book touch cancel: %d ====" % prev)
         return ViewRequest.Nothing
 
     def SelectBook(self, index, page_id=None):
         """选中第 index 本书：展开它的页，并选中指定页（默认第一页）。"""
-        from DocRegistry import GetDocPageIds
+        from DocRegistry import GetDocPageIds, GetDocBook
         if index < 0 or index >= len(self.mBookIds):
             return False
         bookId = self.mBookIds[index]
         self.mSelectedBookId = bookId
         self.mSelectedPageId = None
+        self.UpdatePreviewIcon((GetDocBook(bookId) or {}).get("icon") or "")
         for i in range(len(self.mBookIds)):
             self._SetBookVisual(i, "selected" if i == index else "normal")
         for i in range(len(self.mBookSubPanels)):
@@ -5173,6 +5332,12 @@ class DocScreenNode(ScreenNode):
                 self.RemoveChildControl(ctrl)
             except Exception:
                 pass
+        # 页的 icon_backdrop / 动画状态随控件一起丢掉（页可能已被注册表删掉，
+        # 不能只按 mPageIds 里的 id 清，否则会留下悬挂的 image 控件引用）
+        for key in [k for k in self.mPageBackdrops if k[0] == book_id]:
+            self.mPageBackdrops.pop(key, None)
+        for key in [k for k in self.mPageAnimStates if k[0] == book_id]:
+            self.mPageAnimStates.pop(key, None)
         self.mPageCtrls.pop(book_id, None)
         self.mPageIds.pop(book_id, None)
 
@@ -5210,17 +5375,10 @@ class DocScreenNode(ScreenNode):
                 continue
             _SetLabelText(ctrl.GetChildByName('sub_label'), info.get("name") or pageId,
                           "doc page label %s" % pageId)
-            try:
-                backdrop = ctrl.GetChildByName('icon_backdrop')
-                icon = info.get("icon") or ""
-                if backdrop and icon:
-                    iconCtrl = backdrop.GetChildByName('icon')
-                    img = iconCtrl.asImage() if iconCtrl else None
-                    if img:
-                        img.SetSprite(icon)
-            except Exception as e:
-                dlog.client_print("==== doc: page icon error (%s): %s ====" % (pageId, str(e)))
-            self._BindTouch(ctrl, self.OnPageTouchUp)
+            self.mPageBackdrops[(book_id, pageId)] = self._PrepareBackdrop(ctrl)
+            self.mPageAnimStates[(book_id, pageId)] = {"frame": 0, "timer": 0, "playing": False}
+            self._SetCardIcon(ctrl, info.get("icon") or "", "page %s" % pageId)
+            self._BindTouch(ctrl, self.OnPageTouchDown, self.OnPageTouchUp, self.OnPageTouchCancel)
             self._SetPageVisual(ctrl, "normal")
             ctrls.append(ctrl)
         self.mPageCtrls[book_id] = ctrls
@@ -5241,9 +5399,25 @@ class DocScreenNode(ScreenNode):
         if pressCtrl:
             pressCtrl.SetVisible(state == "selected")
 
-    def OnPageTouchUp(self, args):
-        buttonPath = str(args.get('ButtonPath', '') or '')
-        parsed = _DocParsePagePath(buttonPath)
+    def _FindPageCtrl(self, book_id, page_id):
+        ids = self.mPageIds.get(book_id) or []
+        ctrls = self.mPageCtrls.get(book_id) or []
+        for i in range(min(len(ids), len(ctrls))):
+            if ids[i] == page_id:
+                return ctrls[i]
+        return None
+
+    def _RestorePageVisual(self, book_id, page_id):
+        ctrl = self._FindPageCtrl(book_id, page_id)
+        if ctrl is None:
+            return
+        selected = (book_id == self.mSelectedBookId and page_id == self.mSelectedPageId)
+        self._SetPageVisual(ctrl, "selected" if selected else "normal")
+
+    def OnPageTouchDown(self, args):
+        if self.mPressingPage is not None:
+            return ViewRequest.Nothing
+        parsed = _DocParsePagePath(str(args.get('ButtonPath', '') or ''))
         if not parsed:
             return ViewRequest.Nothing
         index, pageId = parsed
@@ -5252,9 +5426,52 @@ class DocScreenNode(ScreenNode):
         bookId = self.mBookIds[index]
         if pageId not in self.mPageIds.get(bookId, []):
             return ViewRequest.Nothing
+        if bookId == self.mSelectedBookId and pageId == self.mSelectedPageId:
+            return ViewRequest.Nothing   # 已选中的页不再显示按压态
+        self.mPressingPage = (bookId, pageId)
+        self._SetPageVisual(self._FindPageCtrl(bookId, pageId), "pressing")
+        dlog.client_print("==== doc page touch down: %s/%s ====" % (bookId, pageId))
+        return ViewRequest.Nothing
+
+    def OnPageTouchUp(self, args):
+        if args.get('TouchEvent') == 3:
+            return self.OnPageTouchCancel(args)
+        prev = self.mPressingPage
+        self.mPressingPage = None
+        parsed = _DocParsePagePath(str(args.get('ButtonPath', '') or ''))
+        if not parsed:
+            if prev:
+                self._RestorePageVisual(prev[0], prev[1])
+            return ViewRequest.Nothing
+        index, pageId = parsed
+        if index < 0 or index >= len(self.mBookIds):
+            if prev:
+                self._RestorePageVisual(prev[0], prev[1])
+            return ViewRequest.Nothing
+        bookId = self.mBookIds[index]
+        if pageId not in self.mPageIds.get(bookId, []):
+            if prev:
+                self._RestorePageVisual(prev[0], prev[1])
+            return ViewRequest.Nothing
+        if prev and prev != (bookId, pageId):
+            self._RestorePageVisual(prev[0], prev[1])
+            self._RestorePageVisual(bookId, pageId)
+            return ViewRequest.Nothing
+        if bookId == self.mSelectedBookId and pageId == self.mSelectedPageId:
+            self._RestorePageVisual(bookId, pageId)
+            return ViewRequest.Nothing
         dlog.client_print("==== doc page clicked: %s/%s ====" % (bookId, pageId))
         self.mSelectedBookId = bookId
+        self._StartPageBackdropAnimation(bookId, pageId)
         self.SelectPage(bookId, pageId)
+        return ViewRequest.Nothing
+
+    def OnPageTouchCancel(self, args):
+        prev = self.mPressingPage
+        self.mPressingPage = None
+        if prev:
+            self._RestorePageVisual(prev[0], prev[1])
+            dlog.client_print("==== doc page touch cancel: %s/%s ====" % (prev[0], prev[1]))
         return ViewRequest.Nothing
 
     def SelectPage(self, book_id, page_id):
@@ -5335,6 +5552,98 @@ class DocScreenNode(ScreenNode):
         dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
             book_id, page_id, len(blocks)))
         return True
+
+    # ---------- 左栏大图预览 ----------
+
+    def UpdatePreviewIcon(self, icon_path):
+        """左栏大图：显示当前选中书的图标；没有图标时回落到模板底图。"""
+        img = self.mPreviewIcon
+        if not img:
+            return False
+        sprite = icon_path or _DOC_PREVIEW_FALLBACK
+        try:
+            img.SetSprite(sprite)
+            dlog.client_print("==== doc preview icon updated: %s ====" % sprite)
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc preview icon error: %s ====" % str(e))
+            return False
+
+    # ---------- icon_backdrop 序列帧动画 ----------
+
+    def _StartBookBackdropAnimation(self, index):
+        """从第 1 帧重播书卡片的 icon_backdrop 序列帧（选中时调用）。"""
+        state = self.mBookAnimStates.get(index)
+        if not state:
+            return False
+        state["frame"] = 0
+        state["timer"] = 0
+        state["playing"] = True
+        self._ApplyBookBackdropFrame(index, 0)
+        return True
+
+    def _ApplyBookBackdropFrame(self, index, frame):
+        if index is None or index < 0 or index >= len(self.mBookBackdrops):
+            return
+        img = self.mBookBackdrops[index]
+        if img is None:
+            return
+        try:
+            img.SetSpriteUV((0, frame * DOC_BACKDROP_FRAME_SIZE))
+        except Exception as e:
+            dlog.client_print("==== doc: book backdrop frame error: %s ====" % str(e))
+
+    def _StartPageBackdropAnimation(self, book_id, page_id):
+        """从第 1 帧重播页子卡片的 icon_backdrop 序列帧（选中时调用）。"""
+        key = (book_id, page_id)
+        state = self.mPageAnimStates.get(key)
+        if not state:
+            return False
+        state["frame"] = 0
+        state["timer"] = 0
+        state["playing"] = True
+        self._ApplyPageBackdropFrame(key, 0)
+        return True
+
+    def _ApplyPageBackdropFrame(self, key, frame):
+        img = self.mPageBackdrops.get(key)
+        if img is None:
+            return
+        try:
+            img.SetSpriteUV((0, frame * DOC_BACKDROP_FRAME_SIZE))
+        except Exception as e:
+            dlog.client_print("==== doc: page backdrop frame error: %s ====" % str(e))
+
+    def _TickBackdropStates(self, states, apply_frame):
+        """推进一组序列帧状态；播到最后一帧就停在第 1 帧（与设置界面一致）。"""
+        for key in list(states.keys()):
+            state = states.get(key)
+            if not state or not state.get("playing"):
+                continue
+            state["timer"] = state.get("timer", 0) + 1
+            if state["timer"] < DOC_BACKDROP_FRAME_TICKS:
+                continue
+            state["timer"] = 0
+            nextFrame = state.get("frame", 0) + 1
+            if nextFrame >= DOC_BACKDROP_FRAMES:
+                state["frame"] = 0
+                state["playing"] = False
+                apply_frame(key, 0)
+            else:
+                state["frame"] = nextFrame
+                apply_frame(key, nextFrame)
+
+    def Tick(self):
+        """逐帧推进 icon_backdrop 序列帧。
+
+        ScreenNode 没有引擎回调的 OnTick，由 `MyClientSystem.OnScriptTickClient`
+        逐帧转调（内嵌组合开关也是同一套路）。
+        """
+        try:
+            self._TickBackdropStates(self.mBookAnimStates, self._ApplyBookBackdropFrame)
+            self._TickBackdropStates(self.mPageAnimStates, self._ApplyPageBackdropFrame)
+        except Exception as e:
+            dlog.client_print("==== doc tick error: %s ====" % str(e))
 
     # ---------- 跳转 ----------
 

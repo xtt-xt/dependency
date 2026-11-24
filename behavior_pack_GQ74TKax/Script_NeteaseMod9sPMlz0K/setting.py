@@ -461,12 +461,17 @@ def _RegisterDevDocDemo():
     左栏会出现「文档界面演示」（5 页）与「空书（无页）」（验「本书暂无页面」空态）。
     """
     RegisterDocBook(DEV_DOC_BOOK_ID, u"文档界面演示", "textures/ui/icon_setting")
-    RegisterDocPage(DEV_DOC_BOOK_ID, "intro", u"格式演示", body=_DEV_DOC_INTRO)
-    RegisterDocPage(DEV_DOC_BOOK_ID, "long", u"长页（滚动/归顶）", body=_DEV_DOC_LONG)
-    RegisterDocPage(DEV_DOC_BOOK_ID, "wrap", u"超长行折行", body=_DEV_DOC_WRAP)
-    RegisterDocPage(DEV_DOC_BOOK_ID, "empty", u"空正文（空态）", body=u"")
+    # 每页给不同图标：顺便验页卡片的 icon_backdrop/icon 是否真的各自生效
+    RegisterDocPage(DEV_DOC_BOOK_ID, "intro", u"格式演示", "textures/ui/icon/general-icon",
+                    body=_DEV_DOC_INTRO)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "long", u"长页（滚动/归顶）",
+                    "textures/ui/icon/behaviour-packs-icon", body=_DEV_DOC_LONG)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "wrap", u"超长行折行", "textures/ui/icon/advanced-icon",
+                    body=_DEV_DOC_WRAP)
+    RegisterDocPage(DEV_DOC_BOOK_ID, "empty", u"空正文（空态）", "textures/ui/icon/tick",
+                    body=u"")
     RegisterDocPage(DEV_DOC_BOOK_ID, "page_id_with_underscore",
-                    u"页 id 带下划线", body=_DEV_DOC_UNDERSCORE)
+                    u"页 id 带下划线", "textures/ui/icon/debug", body=_DEV_DOC_UNDERSCORE)
     # 第二本故意不注册任何页：用来验「本书暂无页面」空态
     RegisterDocBook(DEV_DOC_EMPTY_BOOK_ID, u"空书（无页）", "textures/ui/bookshelf_flat")
     dlog.client_print("==== dev docs registered: book=%s (5 pages) + %s (0 page) ====" % (
