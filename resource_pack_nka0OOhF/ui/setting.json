@@ -2965,6 +2965,12 @@
         ],
         "controls": [
             {
+                "item_picker_host@pop_up.item_picker_body": {
+                    "visible": false,
+                    "layer": 900
+                }
+            },
+            {
                 "under_toast@toast.toast_under": {
                     "$text": "",
                     "visible": false

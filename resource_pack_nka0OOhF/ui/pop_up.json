@@ -467,6 +467,16 @@
         "type": "screen",
         "force_render_below": true,
         "controls": [
+            { "body@pop_up.item_picker_body": {} }
+        ]
+    },
+    "item_picker_body": {
+        "type": "input_panel",
+        "size": ["100%+0px", "100%+0px"],
+        "modal": true,
+        "is_swallow": true,
+        "button_mappings": [],
+        "controls": [
             {
                 "overlay": {
                     "type": "image",

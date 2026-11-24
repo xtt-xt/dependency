@@ -205,6 +205,15 @@ class MyClientSystem(ClientSystem):
             self.mSettingsUIOpen = False
             # 设置界面已关闭：清掉"弹窗返回"标记，防止残留到下次打开（下次 OnActive 会重建）
             self.mReturningFromPopUp = False
+            # 内嵌物品选择没有压栈，界面一关就跟着销毁，这里把会话清干净
+            if self.mItemPickerOpen and getattr(self.mItemPickerScreenNode, "mHost", None) is not None:
+                self.mItemPickerScreenNode = None
+                self.mItemPickerOpen = False
+                self.mCurrentItemPicker = None
+                self.mCurrentItemPickerId = ""
+                self.mCurrentItemPickerRow = None
+                self.mItemPickerOnSelect = None
+                dlog.client_print("==== embedded item picker cleared (settings closed) ====")
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
             try:
                 from SettingState import SaveAllSettings
@@ -899,6 +908,64 @@ class MyClientSystem(ClientSystem):
         except Exception as e:
             dlog.client_print("==== RefreshCardToggle error: %s ====" % str(e))
 
+    def _EmbeddedPickerAllowed(self):
+        """能否走内嵌通道：设置界面开着、它就是栈顶、且没有本模组的其他弹窗压在上面。
+
+        内嵌 = 把弹窗做成设置界面内部的一层控件，不 PushScreen。这样设置界面全程是栈顶，
+        不会被 deactivate，右侧面板的 scroll_view 内部位置也不会被引擎清零
+        （触屏分支的写接口无效，只能靠这一条结构性办法）。
+        """
+        if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
+            return False
+        if self.mPopUpOpen or self.mCardToggleOpen or self.mCollapsibleMenuOpen:
+            return False
+        try:
+            top = clientApi.GetTopScreen()
+        except Exception:
+            top = None
+        if not top:
+            return False
+        try:
+            if top.GetScreenName() != "setting.main":
+                return False
+        except Exception:
+            return False
+        return True
+
+    def _OpenEmbeddedItemPicker(self):
+        """在设置界面内部打开物品选择（不压栈）。返回是否成功。"""
+        node = self.mSettingsScreenNode
+        if node is None:
+            return False
+        try:
+            picker = node.GetEmbeddedPicker()
+        except Exception as e:
+            dlog.client_print("==== embedded item picker create error: %s ====" % str(e))
+            return False
+        if not node.SetEmbeddedPickerVisible(True):
+            return False
+        self.mItemPickerScreenNode = picker
+        self.mItemPickerOpen = True
+        try:
+            picker._ApplyPicker()
+        except Exception as e:
+            dlog.client_print("==== embedded item picker apply error: %s ====" % str(e))
+            self._CloseEmbeddedItemPicker()
+            return False
+        dlog.client_print("==== item picker opened embedded (no PushScreen) ====")
+        return True
+
+    def _BroadcastItemPickerOpen(self, picker_id):
+        """广播物品选择打开事件（内嵌 / 压栈两条通道共用）。"""
+        try:
+            eventData = self.CreateEventData()
+            eventData["playerId"] = clientApi.GetLocalPlayerId()
+            eventData["pickerId"] = picker_id
+            from CardRegistry import ItemPickerOpenEvent
+            self.BroadcastEvent(ItemPickerOpenEvent, eventData)
+        except Exception as e:
+            dlog.client_print("==== ItemPickerOpen broadcast error: %s ====" % str(e))
+
     def OpenItemPicker(self, picker_id, item=None, on_select=None, title=None, group=None):
         """
         打开物品选择弹窗（从一组物品中选一个，点「确定」才生效）。
@@ -935,24 +1002,52 @@ class MyClientSystem(ClientSystem):
                 except Exception as e:
                     dlog.client_print("==== OpenItemPicker refresh error: %s ====" % str(e))
             return True
+        # 通道选择：设置界面自己开着且就是栈顶 → 内嵌（不压栈，设置界面不失活，右侧滚动位置不会丢）；
+        # 其余场景（背包/别处弹、组合开关之上、取不到栈顶）→ 原 PushScreen 通道，行为一行不改。
+        if self._EmbeddedPickerAllowed():
+            if self._OpenEmbeddedItemPicker():
+                self._BroadcastItemPickerOpen(picker_id)
+                return True
+            dlog.client_print("==== embedded item picker unavailable, falling back to PushScreen ====")
         # 即将压栈：设置界面将失去栈顶，标记"弹窗会话"，关闭时 OnActive 跳过重建保留详情
         self.mReturningFromPopUp = True
         self._CaptureRightScroll()
         self.mShiftHeld = False  # 新弹窗会话从「未按 Shift」开始
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'ItemPickerUI')
         self.mItemPickerOpen = True
-        eventData = self.CreateEventData()
-        eventData["playerId"] = clientApi.GetLocalPlayerId()
-        eventData["pickerId"] = picker_id
-        from CardRegistry import ItemPickerOpenEvent
-        self.BroadcastEvent(ItemPickerOpenEvent, eventData)
+        self._BroadcastItemPickerOpen(picker_id)
         return True
 
     def CloseItemPicker(self):
         """关闭物品选择弹窗（不写回选中值，等同取消）。"""
-        if self.mItemPickerOpen:
-            clientApi.PopScreen()
-            self.mItemPickerOpen = False
+        if not self.mItemPickerOpen:
+            return
+        picker = self.mItemPickerScreenNode
+        if picker is not None and getattr(picker, "mHost", None) is not None:
+            # 内嵌通道：只隐藏面板，不 PopScreen（本来就没压栈）
+            self._CloseEmbeddedItemPicker()
+            return
+        clientApi.PopScreen()
+        self.mItemPickerOpen = False
+
+    def _CloseEmbeddedItemPicker(self):
+        """收掉内嵌物品选择：隐藏宿主面板并清空会话字段。"""
+        picker = getattr(self, "mItemPickerScreenNode", None)
+        node = self.mSettingsScreenNode
+        try:
+            if picker is not None:
+                picker.mApplied = False
+            if node is not None:
+                node.SetEmbeddedPickerVisible(False)
+        except Exception as e:
+            dlog.client_print("==== close embedded item picker error: %s ====" % str(e))
+        self.mItemPickerScreenNode = None
+        self.mItemPickerOpen = False
+        self.mCurrentItemPicker = None
+        self.mCurrentItemPickerId = ""
+        self.mCurrentItemPickerRow = None
+        self.mItemPickerOnSelect = None
+        dlog.client_print("==== item picker closed (embedded) ====")
 
     def ConfirmItemPicker(self, item_name, item_aux):
         """物品选择弹窗确认：回写选中值到内容项 + 持久化 + 触发回调，然后关闭弹窗。"""
@@ -1765,12 +1860,74 @@ class SettingsScreenNode(ScreenNode):
             # 同一个附加层里还挂着「物品名提示」副本（toast_item_name）
             _SetupEmbeddedItemNameToast(
                 self, [path.rsplit("/", 1)[0] + "/item_name_toast"])
+            # 同一个附加层里还挂着「物品选择」内嵌宿主（setting.json 的 item_picker_host）。
+            # 从设置界面里开物品选择时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
+            self.mEmbeddedPickerPath = path.rsplit("/", 1)[0] + "/item_picker_host"
+            self.mEmbeddedPicker = None
         else:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
 
     def ShowEmbeddedItemNameToast(self, cfg):
         """在设置界面内部显示「物品名提示」（由 Toast.ShowItemNameToast 路由调用）。"""
         _ShowEmbeddedItemNameToast(self, cfg)
+
+    # ────────────── 内嵌物品选择弹窗 ──────────────
+    def _EmbeddedPickerHostPath(self):
+        """找内嵌物品选择宿主的实际路径。
+
+        item_picker_host 挂在 $additional_screen_content 那一层（与 under_toast 同级），
+        而这一层相对 screen 面板的位置在不同引擎/布局下不完全一致，所以按候选逐个试。
+        """
+        stored = getattr(self, "mEmbeddedPickerPath", None)
+        if stored:
+            try:
+                if self.GetBaseUIControl(stored):
+                    return stored
+            except Exception:
+                pass
+        base = getattr(self, "mBasePath", "") or ""
+        additional = base.replace("/root_screen_panel", "/additional_screen_content")
+        candidates = [
+            additional + "/item_picker_host",
+            base + "/additional_screen_content/item_picker_host",
+            "/screen_panel/additional_screen_content/item_picker_host",
+            "/additional_screen_content/item_picker_host",
+            "/under_toast_layer/item_picker_host",
+        ]
+        for p in candidates:
+            try:
+                if self.GetBaseUIControl(p):
+                    self.mEmbeddedPickerPath = p
+                    dlog.client_print("==== embedded item picker host resolved at: %s ====" % p)
+                    return p
+            except Exception:
+                continue
+        return stored
+
+    def GetEmbeddedPicker(self):
+        """取内嵌物品选择控制器（懒创建）：控件树就是 setting.json 引用的 pop_up.item_picker_body。"""
+        picker = getattr(self, "mEmbeddedPicker", None)
+        if picker is None:
+            prefix = self._EmbeddedPickerHostPath() or "/under_toast_layer/item_picker_host"
+            picker = ItemPickerEmbedded(self, prefix)
+            self.mEmbeddedPicker = picker
+            dlog.client_print("==== embedded item picker created at: %s ====" % prefix)
+        return picker
+
+    def SetEmbeddedPickerVisible(self, visible):
+        """显示 / 隐藏内嵌物品选择弹窗（只切 visible，不压栈，不触发 OnActive/OnDeactive）。"""
+        prefix = self._EmbeddedPickerHostPath() or "/under_toast_layer/item_picker_host"
+        ctrl = self.GetBaseUIControl(prefix)
+        if not ctrl:
+            dlog.client_print("==== embedded item picker host not found: %s ====" % prefix)
+            return False
+        try:
+            ctrl.SetVisible(bool(visible))
+        except Exception as e:
+            dlog.client_print("==== embedded item picker visible error: %s ====" % str(e))
+            return False
+        dlog.client_print("==== embedded item picker %s ====" % ("shown" if visible else "hidden"))
+        return True
 
     def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
         """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。
@@ -1866,6 +2023,14 @@ class SettingsScreenNode(ScreenNode):
         if self.mCurrentRightGroup == group:
             dlog.client_print("==== content changed for current group %s, rebuilding ====" % str(group))
             self.RebuildRightContent(*group)
+
+    def OnDeactive(self):
+        """界面被新界面压栈时调用。只打日志：用于判断弹窗压栈会不会让设置界面失活（触屏滚动跳顶的排查线索）。"""
+        try:
+            ScreenNode.OnDeactive(self)
+        except Exception:
+            pass
+        dlog.client_print("==== SettingsScreenNode.OnDeactive called ====")
 
     def OnActive(self):
         """
@@ -6084,6 +6249,17 @@ class ItemPickerScreenNode(ScreenNode):
 
     def __init__(self, namespace, name, param):
         ScreenNode.__init__(self, namespace, name, param)
+        # 控件根：独立弹窗的 body 挂在 /body 下（pop_up.item_picker 只是外壳）；
+        # 内嵌形态由宿主把 PATH_PREFIX 指到设置界面里引用的 item_picker_body。
+        self.mHost = None
+        self.PATH_PREFIX = (param or {}).get("prefix", "/body")
+        self._ResetPickerFields()
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mItemPickerScreenNode = self
+
+    def _ResetPickerFields(self):
+        """初始化与界面无关的运行时字段（独立弹窗与内嵌形态共用）。"""
         self.mPickerId = ""
         self.mColumns = self.DEFAULT_COLUMNS
         self.mAllItems = []        # [(item_name, item_aux, desc), ...] 全量数据
@@ -6103,9 +6279,13 @@ class ItemPickerScreenNode(ScreenNode):
         self.mBackBound = False
         self.mButtonsBound = False
         self.mTickCount = 0
-        global _g_ClientSystem
-        if _g_ClientSystem:
-            _g_ClientSystem.mItemPickerScreenNode = self
+
+    def GetBaseUIControl(self, path):
+        """取控件：先拼 PATH_PREFIX；内嵌形态转给宿主 ScreenNode 去取。"""
+        full = "%s%s" % (self.PATH_PREFIX or "", path)
+        if self.mHost is not None:
+            return self.mHost.GetBaseUIControl(full)
+        return ScreenNode.GetBaseUIControl(self, full)
 
     # ────────────── 生命周期 ──────────────
     def Create(self):
@@ -6484,3 +6664,26 @@ class ItemPickerScreenNode(ScreenNode):
             self._FillGrid(path)
         else:
             self._FillGrid()
+
+
+class ItemPickerEmbedded(ItemPickerScreenNode):
+    """物品选择的「内嵌」形态：控件长在设置界面里，不 PushScreen。
+
+    为什么这么做：触屏分支的 scroll_view 写接口整体无效（Get 恒 0、Set 无动作），
+    而引擎在设置界面失活→重新激活时会把内部滚动值清零，视觉却停在原处，
+    手指一按就跳回顶部。唯一可靠的办法是让设置界面全程不 deactivate，
+    也就是弹窗不进 UI 栈——把它变成设置界面内部的一层控件。
+
+    只复用 ItemPickerScreenNode 的控件操作逻辑：所有 GetBaseUIControl 都转给宿主
+    ScreenNode（设置界面），生命周期由 MyClientSystem / SettingsScreenNode 手动驱动。
+    不调 ScreenNode.__init__：这个对象不注册给引擎，只是逻辑外壳。
+    """
+
+    def __init__(self, host, prefix):
+        self.mHost = host
+        self.PATH_PREFIX = prefix
+        self._ResetPickerFields()
+
+    def GetBaseUIControl(self, path):
+        """全部控件访问都走宿主（设置界面），并带上内嵌宿主的前缀路径。"""
+        return self.mHost.GetBaseUIControl("%s%s" % (self.PATH_PREFIX or "", path))
