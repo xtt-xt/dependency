@@ -2965,6 +2965,12 @@
         ],
         "controls": [
             {
+                "card_toggle_host@pop_up.card_toggle_body": {
+                    "visible": false,
+                    "layer": 800
+                }
+            },
+            {
                 "collapsible_menu_host@pop_up.collapsible_menu_body": {
                     "visible": false,
                     "layer": 800

@@ -4,6 +4,21 @@
         "force_render_below": true,
         "controls": [
             {
+                "body@pop_up.card_toggle_body": {}
+            }
+        ]
+    },
+    "card_toggle_body": {
+        "type": "input_panel",
+        "size": [
+            "100%+0px",
+            "100%+0px"
+        ],
+        "modal": true,
+        "is_swallow": true,
+        "button_mappings": [],
+        "controls": [
+            {
                 "below": {
                     "type": "image",
                     "size": [

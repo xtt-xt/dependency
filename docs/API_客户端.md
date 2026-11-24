@@ -533,6 +533,8 @@ UnregisterContentListener(OnContentChanged)
 
 通用确认弹窗系统：`RegisterPopUp` 注册弹窗，`ShowPopUp` 打开，弹窗显示标题 + 正文（超长自动滚动，总高最多 80% 屏高）+ 底部按钮区（按钮间带间距）。
 
+> **渲染通道说明（2026-11-24 起，四条弹窗通道一致）**：当**设置界面自己就是栈顶**时，弹窗、折叠菜单、组合开关、物品选择都渲染成设置界面内部的一层控件（内嵌），**不再 `PushScreen`**。这样设置界面全程不失活，触屏设备上关闭弹窗后右侧面板的滚动位置不会被引擎清零。其余场景（设置界面没开、在背包或其它界面之上、取不到栈顶）仍走原 `PushScreen` 通道，行为与旧版完全一致。调用方无需感知差异，API 签名、返回值与回调时序均不变。
+
 ### RegisterPopUp(popup_id, title, content, buttons=None)
 
 注册一个自定义弹窗。
@@ -678,7 +680,7 @@ CreateContentInst("basic_settings", "client", "opt_main")\
     )
 ```
 
-> 打开/关闭菜单由框架自动处理（`ShowCollapsibleMenu` / `CloseCollapsibleMenu` 为内部便捷封装，通常无需外部直接调用）。菜单弹窗打开时，设置界面的 ESC 行为自动调整为"先关菜单、再关弹窗、最后关设置界面"。
+> 打开/关闭菜单由框架自动处理（`ShowCollapsibleMenu` / `CloseCollapsibleMenu` 为内部便捷封装，通常无需外部直接调用）。菜单弹窗打开时，设置界面的 ESC 行为自动调整为"先关菜单、再关弹窗、最后关设置界面"。**在设置界面内打开时走内嵌通道**（见「弹窗 API」开头的通道说明），不压栈、不打断右侧面板滚动。
 
 ---
 
@@ -775,8 +777,8 @@ CreateContentInst("basic_settings", "client", "opt_main")\
 
 ### OpenCardToggle(toggle_id) / CloseCardToggle()
 
-- `OpenCardToggle(toggle_id)`：打开组合开关弹窗（数据集须先注册）。可在任意 `AddButton` 的 `on_click` 中调用，也可由外部模组（通过 `CardRegistryApi.OpenCardToggle`）调用。
-- `CloseCardToggle()`：关闭当前组合开关弹窗（返回/ESC 亦可关闭）。
+- `OpenCardToggle(toggle_id)`：打开组合开关弹窗（数据集须先注册）。可在任意 `AddButton` 的 `on_click` 中调用，也可由外部模组（通过 `CardRegistryApi.OpenCardToggle`）调用。**在设置界面内打开时走内嵌通道**（见「弹窗 API」开头的通道说明）：不压栈、不打断右侧面板滚动，其中的「物品选择」行（`toggle_item_picker`）也会跟着内嵌。
+- `CloseCardToggle()`：关闭当前组合开关弹窗（返回/ESC 亦可关闭）。关闭前会自动落盘该会话里的开关与编辑框状态。
 
 ### 完整示例
 
@@ -895,7 +897,7 @@ AddCardToggleButton("my_toggles", "删末尾一行", OnRemoveRow)
 
 ### OpenItemPicker(picker_id, item=None, on_select=None, title=None) / CloseItemPicker()
 
-- `OpenItemPicker`：打开弹窗（数据集须先注册）。`item` 传关联的 `ItemPickerContentItem` 时，确认后自动回写选中值、写持久化、刷新该行图标并调用 item 的 `on_select`；`on_select` 额外传一个 `on_select(item_name, item_aux, display_text)` 回调；`title` 可覆盖标题。
+- `OpenItemPicker`：打开弹窗（数据集须先注册）。`item` 传关联的 `ItemPickerContentItem` 时，确认后自动回写选中值、写持久化、刷新该行图标并调用 item 的 `on_select`；`on_select` 额外传一个 `on_select(item_name, item_aux, display_text)` 回调；`title` 可覆盖标题。**在设置界面内打开时走内嵌通道**（见「弹窗 API」开头的通道说明）；在组合开关之上打开时，若组合开关本身是内嵌的也会内嵌，否则仍压栈。
 - `CloseItemPicker()`：关闭弹窗（等同取消，不写回）。
 
 ### 事件常量

@@ -73,7 +73,8 @@ class MyClientSystem(ClientSystem):
         self.mCollapsibleMenuScreenNode = None  # 折叠菜单 ScreenNode 引用
         self.mCurrentCollapsibleMenu = None  # 当前折叠菜单数据 {"title": str, "cards": [(card_id, name), ...]}
         self.mCurrentCollapsibleItem = None  # 关联的 CollapsibleMenuContentItem（用于读写选中状态）
-        self.mCardToggleOpen = False       # 组合开关弹窗是否在场景栈中
+        self.mCardToggleOpen = False       # 组合开关是否处于会话中（内嵌/压栈都算）
+        self.mCardToggleEmbedded = False   # 本次会话是否走内嵌通道（不压栈）
         self.mCardToggleScreenNode = None  # 组合开关 ScreenNode 引用
         self.mCurrentCardToggle = None     # 当前组合开关数据集 {"title","mode","buttons","options"}
         self.mCurrentToggleId = ""         # 当前组合开关 toggle_id
@@ -234,6 +235,16 @@ class MyClientSystem(ClientSystem):
                 self.mPendingCloseSettingsEmbedded = False
                 dlog.client_print("==== embedded popup cleared (settings closed) ====")
                 self._BroadcastPopUpClose()
+            # 内嵌组合开关同理：界面一关控件树就没了，会话字段清干净
+            if self.mCardToggleOpen and self.mCardToggleEmbedded:
+                self.mCardToggleScreenNode = None
+                self.mCardToggleOpen = False
+                self.mCardToggleEmbedded = False
+                self.mCurrentCardToggle = None
+                self.mCurrentToggleId = ""
+                self.mPendingToggleRefresh = None
+                self.mPendingCloseCardToggle = False
+                dlog.client_print("==== embedded card toggle cleared (settings closed) ====")
             # 退出设置界面时统一提交所有设置项改动（OnTick 不再实时写存储）
             try:
                 from SettingState import SaveAllSettings
@@ -276,6 +287,7 @@ class MyClientSystem(ClientSystem):
             self._RestoreScrollAfterPopUp()
         elif screenDef == 'pop_up.card_toggle_panel':
             self.mCardToggleOpen = False
+            self.mCardToggleEmbedded = False
             self.mCurrentCardToggle = None
             self.mCurrentToggleId = ""
             self._RestoreScrollAfterPopUp()
@@ -536,6 +548,14 @@ class MyClientSystem(ClientSystem):
             self.mSettingsScreenNode.OnTick()
         if self.mItemPickerScreenNode and hasattr(self.mItemPickerScreenNode, 'OnTick'):
             self.mItemPickerScreenNode.OnTick()
+        # 内嵌组合开关没有引擎 OnTick（它不是注册给引擎的 ScreenNode），由系统逐帧转调：
+        # 开关值轮询与单选互斥全靠它
+        ctNode = self.mCardToggleScreenNode
+        if ctNode is not None and getattr(ctNode, "mHost", None) is not None:
+            try:
+                ctNode.OnTick()
+            except Exception as e:
+                dlog.client_print("==== embedded card toggle tick error: %s ====" % str(e))
         if self.mPendingToggleRefresh:
             self._FlushCardToggleRefresh()
         if self.mPendingCloseCardToggle and not self.mItemPickerOpen:
@@ -1038,24 +1058,40 @@ class MyClientSystem(ClientSystem):
                 except Exception as e:
                     dlog.client_print("==== OpenCardToggle refresh error: %s ====" % str(e))
             return True
+        # 通道选择：设置界面自己开着且就是栈顶 → 内嵌（不压栈 → 不失活 → 右侧滚动位置不会丢）；
+        # 其余场景（背包/别处弹、别的本模组界面之上、取不到栈顶、宿主找不到）→ 原 PushScreen 通道。
+        if self._EmbeddedCardToggleAllowed():
+            if self._OpenEmbeddedCardToggle():
+                return True
+            dlog.client_print("==== embedded card toggle unavailable, falling back to PushScreen ====")
+            # 内嵌失败可能已清过会话字段，回填后再走原通道
+            self.mCurrentCardToggle = data
+            self.mCurrentToggleId = toggle_id
         # 组合开关即将压栈：设置界面将失去栈顶，标记"弹窗会话"
         self.mReturningFromPopUp = True
         self._CaptureRightScroll()
         clientApi.PushScreen('Script_NeteaseMod9sPMlz0K', 'CardToggleUI')
         self.mCardToggleOpen = True
+        self.mCardToggleEmbedded = False
         return True
 
     def CloseCardToggle(self):
-        """关闭当前组合开关弹窗（PopScreen 返回上一层）。关闭前先持久化当前开关状态。"""
-        if self.mCardToggleOpen:
-            # 弹窗子 screen 不保证 OnTick 被调用，故在关闭时一次性读当前状态写入存储
-            if self.mCardToggleScreenNode:
-                try:
-                    self.mCardToggleScreenNode._PersistStates()
-                except Exception as e:
-                    dlog.client_print("==== CloseCardToggle persist error: %s ====" % str(e))
-            clientApi.PopScreen()
-            self.mCardToggleOpen = False
+        """关闭当前组合开关。关闭前先持久化当前开关状态；内嵌只隐藏，压栈的才 PopScreen。"""
+        if not self.mCardToggleOpen:
+            return
+        if self.mCardToggleEmbedded:
+            # 内嵌通道：只 SetVisible(False)，绝不能 PopScreen（会把设置界面一起关掉）
+            self._CloseEmbeddedCardToggle()
+            return
+        # 弹窗子 screen 不保证 OnTick 被调用，故在关闭时一次性读当前状态写入存储
+        if self.mCardToggleScreenNode:
+            try:
+                self.mCardToggleScreenNode._PersistStates()
+            except Exception as e:
+                dlog.client_print("==== CloseCardToggle persist error: %s ====" % str(e))
+        clientApi.PopScreen()
+        self.mCardToggleOpen = False
+        self.mCardToggleEmbedded = False
 
     def RefreshCardToggle(self, toggle_id=None):
         """请求重建已打开的组合开关弹窗（供 Add/RemoveCardToggleOption 后调用）。
@@ -1103,11 +1139,13 @@ class MyClientSystem(ClientSystem):
         """
         if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
             return False
-        if self.mPopUpOpen or self.mCardToggleOpen:
+        if self.mPopUpOpen:
             return False
-        # 折叠菜单只有"压栈"形态才挡路：内嵌形态是设置界面内部的一层控件，栈顶仍是
-        # setting.main，物品选择照样能内嵌、而且必须内嵌（否则又压栈，滚动位置照样丢）。
+        # 折叠菜单 / 组合开关只有"压栈"形态才挡路：内嵌形态是设置界面内部的一层控件，
+        # 栈顶仍是 setting.main，物品选择照样能内嵌 —— 组合开关的 toggle_item_picker 行就靠这条。
         if self.mCollapsibleMenuOpen and not self.mCollapsibleMenuEmbedded:
+            return False
+        if self.mCardToggleOpen and not self.mCardToggleEmbedded:
             return False
         try:
             top = clientApi.GetTopScreen()
@@ -1121,6 +1159,82 @@ class MyClientSystem(ClientSystem):
         except Exception:
             return False
         return True
+
+    def _EmbeddedCardToggleAllowed(self):
+        """组合开关能否走内嵌通道：设置界面开着、它就是栈顶、没有别的本模组层压着。"""
+        if not self.mSettingsUIOpen or not self.mSettingsScreenNode:
+            return False
+        # 普通弹窗 / 折叠菜单（压栈形态）压着时内嵌会和它们抢栈顶 → 回落 PushScreen
+        if self.mPopUpOpen or self.mCollapsibleMenuOpen:
+            return False
+        # 会话已存在 → 交给 OpenCardToggle 的 refresh 分支，不开第二层
+        if self.mCardToggleOpen:
+            return False
+        try:
+            top = clientApi.GetTopScreen()
+        except Exception:
+            top = None
+        if not top:
+            return False
+        try:
+            if top.GetScreenName() != "setting.main":
+                return False
+        except Exception:
+            return False
+        return hasattr(self.mSettingsScreenNode, "_EmbeddedCardToggleHostPath")
+
+    def _OpenEmbeddedCardToggle(self):
+        """在设置界面内部打开组合开关（不压栈）。返回是否成功。"""
+        node = self.mSettingsScreenNode
+        if node is None:
+            return False
+        try:
+            shell = node.GetEmbeddedCardToggle()
+        except Exception as e:
+            dlog.client_print("==== embedded card toggle create error: %s ====" % str(e))
+            return False
+        # 同一附加层只留一层可见：还开着的内嵌物品选择先收掉
+        if self.mItemPickerOpen and getattr(self.mItemPickerScreenNode, "mHost", None) is not None:
+            self._CloseEmbeddedItemPicker()
+        if not node.SetEmbeddedCardToggleVisible(True):
+            return False
+        self.mCardToggleScreenNode = shell
+        self.mCardToggleOpen = True
+        self.mCardToggleEmbedded = True
+        try:
+            shell._ApplyPanel()
+        except Exception as e:
+            dlog.client_print("==== embedded card toggle apply error: %s ====" % str(e))
+            self._CloseEmbeddedCardToggle()
+            return False
+        dlog.client_print("==== card toggle opened embedded (no PushScreen) ====")
+        return True
+
+    def _CloseEmbeddedCardToggle(self):
+        """收掉内嵌组合开关：先落盘并摘行（隐藏后读控件不可靠），再隐藏宿主，最后清会话字段。"""
+        node = self.mSettingsScreenNode
+        shell = self.mCardToggleScreenNode
+        # 层内顺序：先收上层（物品选择），再收本层
+        if self.mItemPickerOpen and getattr(self.mItemPickerScreenNode, "mHost", None) is not None:
+            self._CloseEmbeddedItemPicker()
+        if shell is not None and hasattr(shell, "OnClose"):
+            try:
+                shell.OnClose()
+            except Exception as e:
+                dlog.client_print("==== close embedded card toggle error: %s ====" % str(e))
+        if node is not None:
+            try:
+                node.SetEmbeddedCardToggleVisible(False)
+            except Exception:
+                pass
+        self.mCardToggleScreenNode = None
+        self.mCardToggleOpen = False
+        self.mCardToggleEmbedded = False
+        self.mCurrentCardToggle = None
+        self.mCurrentToggleId = ""
+        self.mPendingToggleRefresh = None
+        self.mPendingCloseCardToggle = False
+        dlog.client_print("==== card toggle closed (embedded) ====")
 
     def _EmbeddedCollapsibleMenuAllowed(self):
         """折叠菜单能否走内嵌通道：设置界面开着、它就是栈顶、且没有本模组的其他层压着。"""
@@ -2139,6 +2253,9 @@ class SettingsScreenNode(ScreenNode):
             self.mEmbeddedPopUpScrollPath = path.rsplit("/", 1)[0] + "/popup_scroll_host"
             self.mEmbeddedPopUp = None
             self.mEmbeddedPopUpScroll = None
+            # 同一层还挂着「组合开关」内嵌宿主（setting.json 的 card_toggle_host）。
+            self.mEmbeddedCardTogglePath = path.rsplit("/", 1)[0] + "/card_toggle_host"
+            self.mEmbeddedCardToggle = None
         else:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
 
@@ -2335,6 +2452,60 @@ class SettingsScreenNode(ScreenNode):
             return False
         dlog.client_print("==== embedded popup host %s (scroll=%s) ====" % (
             "shown" if visible else "hidden", useScroll))
+        return True
+
+    # ────────────── 内嵌组合开关 ──────────────
+    def _EmbeddedCardToggleHostPath(self):
+        """找内嵌组合开关宿主的实际路径（与 _EmbeddedPickerHostPath 同款多候选）。"""
+        stored = getattr(self, "mEmbeddedCardTogglePath", None)
+        if stored:
+            try:
+                if self.GetBaseUIControl(stored):
+                    return stored
+            except Exception:
+                pass
+        base = getattr(self, "mBasePath", "") or ""
+        additional = base.replace("/root_screen_panel", "/additional_screen_content")
+        candidates = [
+            additional + "/card_toggle_host",
+            base + "/additional_screen_content/card_toggle_host",
+            "/screen_panel/additional_screen_content/card_toggle_host",
+            "/additional_screen_content/card_toggle_host",
+            "/under_toast_layer/card_toggle_host",
+        ]
+        for p in candidates:
+            try:
+                if self.GetBaseUIControl(p):
+                    self.mEmbeddedCardTogglePath = p
+                    dlog.client_print("==== embedded card toggle host resolved at: %s ====" % p)
+                    return p
+            except Exception:
+                continue
+        return stored
+
+    def GetEmbeddedCardToggle(self):
+        """取内嵌组合开关控制器（懒创建）：控件树就是 setting.json 引用的 pop_up.card_toggle_body。"""
+        node = getattr(self, "mEmbeddedCardToggle", None)
+        if node is None:
+            prefix = self._EmbeddedCardToggleHostPath() or "/under_toast_layer/card_toggle_host"
+            node = CardToggleEmbedded(self, prefix)
+            self.mEmbeddedCardToggle = node
+            dlog.client_print("==== embedded card toggle created at: %s ====" % prefix)
+        return node
+
+    def SetEmbeddedCardToggleVisible(self, visible):
+        """显示 / 隐藏内嵌组合开关（只切 visible，不压栈，不触发 OnActive/OnDeactive）。"""
+        prefix = self._EmbeddedCardToggleHostPath() or "/under_toast_layer/card_toggle_host"
+        ctrl = self.GetBaseUIControl(prefix)
+        if not ctrl:
+            dlog.client_print("==== embedded card toggle host not found: %s ====" % prefix)
+            return False
+        try:
+            ctrl.SetVisible(bool(visible))
+        except Exception as e:
+            dlog.client_print("==== embedded card toggle visible error: %s ====" % str(e))
+            return False
+        dlog.client_print("==== embedded card toggle %s ====" % ("shown" if visible else "hidden"))
         return True
 
     def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
@@ -6208,24 +6379,53 @@ class CardToggleScreenNode(ScreenNode):
 
     def __init__(self, namespace, name, param):
         ScreenNode.__init__(self, namespace, name, param)
+        # 控件根：独立弹窗的正文挂在 /body 下（pop_up.card_toggle_panel 只是外壳）；
+        # 内嵌形态由宿主把 PATH_PREFIX 指到设置界面里引用的 card_toggle_body。
+        self.mHost = None
+        self.PATH_PREFIX = (param or {}).get("prefix", "/body")
+        self._ResetCardToggleFields()
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mCardToggleScreenNode = self
+
+    def _ResetCardToggleFields(self):
+        """初始化与界面无关的运行时字段（独立弹窗与内嵌形态共用）。"""
         self.mPanelApplied = False
         self.mBackBound = False
         self.mRowCtrls = []          # [(option_id, switchCtrl, rowCtrl, locked, editInputCtrl), ...]
         self.mBtnCtrls = []          # 底部自定义按钮控件（重建前先清掉，避免重复叠加）
         self.mRowBtnCtrls = {}       # option_id -> (textCtrl, finishCtrl)，按钮行点完后切换成图标
-        self.mRowBtnFinished = set() # 已点过的按钮行 option_id（弹窗会话内保留，重建后仍显示图标）
+        self.mRowBtnFinished = set() # 已点过的按钮行 option_id（会话内保留，重建后仍显示图标）
         self.mRowItemCtrls = {}      # option_id -> 预览格 item_renderer 控件（物品选择行）
         self.mStates = {}            # option_id -> bool（缓存当前开关状态）
         self.mToggleId = ""
         self.mMode = "multi"
-        global _g_ClientSystem
-        if _g_ClientSystem:
-            _g_ClientSystem.mCardToggleScreenNode = self
+
+    # ── 控件访问：独立弹窗拼 /body 前缀，内嵌形态转给宿主 ──
+    def GetBaseUIControl(self, path):
+        full = "%s%s" % (self.PATH_PREFIX or "", path)
+        if self.mHost is not None:
+            return self.mHost.GetBaseUIControl(full)
+        return ScreenNode.GetBaseUIControl(self, full)
+
+    def CreateChildControl(self, *args):
+        """CreateChildControl 是 ScreenNode 方法：内嵌壳必须转给宿主，否则一行都建不出来。"""
+        if self.mHost is not None:
+            return self.mHost.CreateChildControl(*args)
+        return ScreenNode.CreateChildControl(self, *args)
+
+    def RemoveChildControl(self, *args):
+        """RemoveChildControl 同理，内嵌壳转给宿主，否则旧行/旧按钮摘不掉。"""
+        if self.mHost is not None:
+            return self.mHost.RemoveChildControl(*args)
+        return ScreenNode.RemoveChildControl(self, *args)
 
     def Create(self):
         dlog.client_print("==== CardToggleScreenNode.Create called ====")
-        # 弹窗自己的「物品名提示」副本（pop_up.json 的 card_toggle_panel/item_name_toast）
-        _SetupEmbeddedItemNameToast(self, ["/item_name_toast"])
+        # 弹窗自己的「物品名提示」副本（pop_up.json 的 card_toggle_body/item_name_toast）。
+        # 内嵌形态不登记：设置界面那份（layer 1000）天然盖在内嵌层之上，Toast 按栈顶也正好命中它。
+        if self.mHost is None:
+            _SetupEmbeddedItemNameToast(self, ["/item_name_toast"])
         self._ApplyPanel()
 
     def ShowEmbeddedItemNameToast(self, cfg):
@@ -6747,8 +6947,9 @@ class CardToggleScreenNode(ScreenNode):
 
     def Destroy(self):
         self.mPanelApplied = False
-        # 停止内嵌物品名提示的淡出计时，并注销副本宿主
-        _TeardownEmbeddedItemNameToast(self)
+        if self.mHost is None:
+            # 停止内嵌物品名提示的淡出计时，并注销副本宿主（内嵌形态从未登记过副本）
+            _TeardownEmbeddedItemNameToast(self)
         self.mBackBound = False
         self.mRowCtrls = []
         self.mBtnCtrls = []
@@ -6759,10 +6960,63 @@ class CardToggleScreenNode(ScreenNode):
         global _g_ClientSystem
         if _g_ClientSystem and _g_ClientSystem.mCardToggleScreenNode is self:
             _g_ClientSystem.mCardToggleScreenNode = None
+        if self.mHost is None:
+            try:
+                ScreenNode.Destroy(self)
+            except Exception:
+                pass
+
+
+class CardToggleEmbedded(CardToggleScreenNode):
+    """组合开关的「内嵌」形态：控件长在设置界面里，不 PushScreen。
+
+    与 ItemPickerEmbedded 同构：不调 ScreenNode.__init__（不注册给引擎，只是逻辑壳），
+    控件访问与子控件创建全部转给宿主 SettingsScreenNode。生命周期由 MyClientSystem 显式驱动：
+    开 = SetVisible(True) + _ApplyPanel；关 = OnClose()（落盘 + 摘行/按钮）+ SetVisible(False)；
+    OnTick（开关轮询 / 单选互斥）由 OnScriptTickClient 逐帧转调。
+
+    不压栈 ⇒ 设置界面不会 deactivate ⇒ 右侧面板 scroll_view 位置不会被引擎清零。
+    不登记「物品名提示」副本：设置界面那份（layer 1000）盖在内嵌层之上，Toast 按栈顶也正好命中它。
+    """
+
+    def __init__(self, host, prefix):
+        self.mHost = host
+        self.PATH_PREFIX = prefix
+        self._ResetCardToggleFields()
+        global _g_ClientSystem
+        if _g_ClientSystem:
+            _g_ClientSystem.mCardToggleScreenNode = self
+
+    def OnClose(self):
+        """内嵌形态的收尾：先落盘，再摘行与按钮（必须在隐藏之前做，隐藏后读控件不可靠）。"""
         try:
-            ScreenNode.Destroy(self)
-        except Exception:
-            pass
+            self._PersistStates()
+        except Exception as e:
+            dlog.client_print("==== CardToggle OnClose persist error: %s ====" % str(e))
+        try:
+            self._ClearRows()
+        except Exception as e:
+            dlog.client_print("==== CardToggle OnClose clear rows error: %s ====" % str(e))
+        try:
+            self._ClearButtons()
+        except Exception as e:
+            dlog.client_print("==== CardToggle OnClose clear buttons error: %s ====" % str(e))
+        self.mPanelApplied = False
+
+    # 引擎回调内嵌形态永远不会被调用；显式留空，防止手误调基类实现带进独立弹窗的副作用
+    def Create(self):
+        pass
+
+    def OnActive(self):
+        pass
+
+    def Destroy(self):
+        pass
+
+    def ShowEmbeddedItemNameToast(self, cfg):
+        """内嵌形态没有自己的副本，转给设置界面的那份（按栈顶路由本来也会到那里）。"""
+        if self.mHost is not None and hasattr(self.mHost, "ShowEmbeddedItemNameToast"):
+            return self.mHost.ShowEmbeddedItemNameToast(cfg)
 
 
 def _TrailingInt(text):
