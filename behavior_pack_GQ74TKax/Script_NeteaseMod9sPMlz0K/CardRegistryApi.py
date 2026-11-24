@@ -90,6 +90,34 @@ from CardRegistry import (
 
 from DebugLog import dlog
 
+# ────────────────── DocRegistry（文档/教程书籍与页面） ──────────────────
+
+from DocRegistry import (
+    # 书
+    RegisterDocBook,
+    UnregisterDocBook,
+    GetDocBook,
+    GetAllDocBookIds,
+    GetDocBookCount,
+    # 页
+    RegisterDocPage,
+    UnregisterDocPage,
+    SetDocPageBody,
+    GetDocPage,
+    GetDocPageIds,
+    GetDocPageCount,
+    FindDocPageByPageId,
+    GetAllDocPages,
+    # 整体重置
+    ClearAllDocs,
+    # 回调机制
+    SetDocChangedCallback,
+    # 事件常量
+    DocsUIOpenEvent,
+    DocsUICloseEvent,
+    DocsNavigateEvent,
+)
+
 # ────────────────── Client（UI 构建器注册、导航 API） ──────────────────
 
 from Client import (
@@ -266,3 +294,35 @@ def CloseCollapsibleMenu():
         _g_ClientSystem.CloseCollapsibleMenu()
     else:
         dlog.client_print("==== CardRegistryApi.CloseCollapsibleMenu: ClientSystem not ready ====")
+
+
+# ────────────────── 文档/教程界面（DocRegistry 的打开入口） ──────────────────
+
+def OpenDocs(book_id=None, page_id=None):
+    """
+    打开文档界面，可选直接跳到指定书 / 页。
+
+    :param book_id: 书 ID（传 None 打开默认第一本书）
+    :param page_id: 页 ID（传 None 打开该书第一页；只给页 ID 时按页 ID 全局查找所属书）
+    :returns:       True 打开成功；False ClientSystem 未就绪或尚未实现该入口
+    """
+    if not _g_ClientSystem:
+        dlog.client_print("==== CardRegistryApi.OpenDocs: ClientSystem not ready ====")
+        return False
+    fn = getattr(_g_ClientSystem, "OpenDocs", None)
+    if fn is None:
+        dlog.client_print("==== CardRegistryApi.OpenDocs: this build has no docs UI yet ====")
+        return False
+    return bool(fn(book_id, page_id))
+
+
+def CloseDocs():
+    """关闭当前文档界面（若打开）。"""
+    if not _g_ClientSystem:
+        dlog.client_print("==== CardRegistryApi.CloseDocs: ClientSystem not ready ====")
+        return
+    fn = getattr(_g_ClientSystem, "CloseDocs", None)
+    if fn is None:
+        dlog.client_print("==== CardRegistryApi.CloseDocs: this build has no docs UI yet ====")
+        return
+    fn()
