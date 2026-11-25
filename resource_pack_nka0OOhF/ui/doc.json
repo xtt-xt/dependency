@@ -279,7 +279,7 @@
     },
     "doc_card_no_icon@setting.card": {
         "$offset": [
-            "0%+0px",
+            "2%+0px",
             0.0
         ],
         "$name_size": [
@@ -289,7 +289,7 @@
     },
     "doc_sub_card_no_icon@setting.sub_card": {
         "$label_offset": [
-            "0%+0px",
+            "2%+0px",
             0.0
         ],
         "$label_size": [

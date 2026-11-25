@@ -100,6 +100,11 @@ _DEV_DOC_UNDERSCORE = u"""# 页 id 带下划线
 点它应该能正常选中，说明控件名里的下划线是按第一个下划线切分的（页 id 允许再含下划线）。
 """
 
+_DEV_DOC_NOICON_PAGE = u"""# 无图标页
+这一页没有给 icon：页卡上只显示文字，文字从卡片左侧留白处开始，也不会留下动画底图。
+同一本书里其它页都有图标，可以对比两种页卡的文字起点。
+"""
+
 
 def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
     """物品选择演示回调：把选中物品打到客户端日志。"""
@@ -458,10 +463,12 @@ def _RegisterDevToggleDemo():
 
 
 def _RegisterDevDocDemo():
-    """注册文档界面演示书：格式 / 长页 / 折行 / 空正文 / id 带下划线 + 一本无页的书。
+    """注册文档界面演示书：格式 / 长页 / 折行 / 空正文 / id 带下划线 / 无图标页
+    + 一本无页的书 + 一本无图标的书。
 
     只用于自测 `doc.main`：K 键、官方「打开文档」按钮或 `/doc_open` 打开后，
-    左栏会出现「文档界面演示」（5 页）与「空书（无页）」（验「本书暂无页面」空态）。
+    左栏会出现「文档界面演示」（6 页，其中最后一页没有图标）、「空书（无页）」
+    （验「本书暂无页面」空态）与「无图标书（纯文字）」（验整本书不带图标的排版）。
     """
     RegisterDocBook(DEV_DOC_BOOK_ID, u"文档界面演示", "textures/ui/icon_setting")
     # 每页给不同图标：顺便验页卡片的 icon_backdrop/icon 是否真的各自生效
@@ -475,6 +482,9 @@ def _RegisterDevDocDemo():
                     body=u"")
     RegisterDocPage(DEV_DOC_BOOK_ID, "page_id_with_underscore",
                     u"页 id 带下划线", "textures/ui/icon/debug", body=_DEV_DOC_UNDERSCORE)
+    # 第六页故意不给图标：验同一本书里「有图标页 + 无图标页」混排时页卡的排版
+    RegisterDocPage(DEV_DOC_BOOK_ID, "no_icon_page", u"无图标页",
+                    body=_DEV_DOC_NOICON_PAGE)
     # 第二本故意不注册任何页：用来验「本书暂无页面」空态
     RegisterDocBook(DEV_DOC_EMPTY_BOOK_ID, u"空书（无页）", "textures/ui/bookshelf_flat")
     # 第三本故意不给图标：验「不加图片」时卡片文字左移占满整行、序列帧底图隐藏
@@ -482,7 +492,7 @@ def _RegisterDevDocDemo():
     RegisterDocPage(DEV_DOC_PLAIN_BOOK_ID, "plain", u"无图标页",
                     body=u"# 无图标演示\n这本书和它的页都没有给 icon，卡片上只显示文字，"
                          u"而且不会留下动画底图。")
-    dlog.client_print("==== dev docs registered: book=%s (5 pages) + %s (0 page) + %s (1 page) ====" % (
+    dlog.client_print("==== dev docs registered: book=%s (6 pages) + %s (0 page) + %s (1 page) ====" % (
         DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID, DEV_DOC_PLAIN_BOOK_ID))
 
 
