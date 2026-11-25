@@ -96,6 +96,7 @@ class MyClientSystem(ClientSystem):
         self.mDocsUIOpen = False           # 文档界面是否在场景栈中
         self.mDocScreenNode = None         # 文档 ScreenNode 引用（已打开时用于直达跳转 / 重试泵）
         self.mPendingDocNavigation = None  # 打开前暂存的跳转目标 (book_id, page_id)
+        self.mPendingOpenSettings = False  # 文档动作 action:open_settings：下一帧开设置
         self.mDocNavRetryTicks = 0         # 待跳转兜底重试的节流计数（每 20 tick 试一次）
         self.mDocNavRetryTries = 0         # 已重试次数（上限 10 次，防注册表空时刷日志）
         # 注册主卡片变更回调：当主卡片注册/注销时自动刷新 UI
@@ -640,6 +641,11 @@ class MyClientSystem(ClientSystem):
                 dlog.client_print("==== embedded popup: close settings now ====")
                 clientApi.PopScreen()
                 self.mSettingsUIOpen = False
+        if self.mPendingOpenSettings:
+            # 动作链接 action:open_settings：文档界面已出栈，下一帧再开设置界面
+            self.mPendingOpenSettings = False
+            dlog.client_print("==== doc action: open settings (deferred) ====")
+            self.OpenSettings()
         # 文档界面：跳转目标当时还消费不了（注册表还空 / 控件树未建）时的兜底重试。
         # 注册表变化会走 OnDocsChanged → RebuildBooks → TryPendingNavigation，所以这里只
         # 做兜底：约每秒一次、最多 10 次；注册表一直为空也不至于每帧刷日志。
@@ -909,6 +915,16 @@ class MyClientSystem(ClientSystem):
         clientApi.PopScreen()
         # 立即置 False 防重复 Pop（PopScreenEvent 异步到达）
         self.mDocsUIOpen = False
+
+    def OpenSettingsAfterDocs(self):
+        """动作链接 `action:open_settings`：先关文档界面，下一帧再开设置界面。
+
+        PopScreen 是异步的，同一帧里 Pop + Push 会互相顶掉，所以这里只关文档，
+        把「开设置」排到 OnScriptTickClient 的下一帧。
+        """
+        self.mPendingOpenSettings = True
+        self.CloseDocs()
+        return True
 
     def RegisterDocScreenNode(self, screenNode):
         self.mDocScreenNode = screenNode
@@ -4896,13 +4912,15 @@ def _DocMergeStyle(base, extra):
     return u"".join(merged)
 
 
-def _DocParseInline(text, style=u"", depth=0):
+def _DocParseInline(text, style=u"", depth=0, links=None):
     """把一行切成 [{text, style}]，支持嵌套标记与 `\\` 转义。
 
     嵌套按「收尾标记连写长度」配平，所以 `**粗 *斜* 粗**`、`*斜 **粗** 斜*`
     都能逐段取到正确样式。`2*3*4` 仍会吃掉中间的 3（与标准 Markdown 同款语义，
     要字面星号请写 `2\\*3\\*4`）。
     """
+    # `links` 传列表时解析链接：第一个目标记进列表、文字上链接色；后面的链接
+    # 只保留文字（一个块只有一处可点）。传 None 表示只去掉链接语法、保留文字。
     runs = []
     if not text:
         return runs
@@ -4926,6 +4944,20 @@ def _DocParseInline(text, style=u"", depth=0):
             i += 2
             continue
         hit = None
+        if ch == u"[":
+            link = _DocLinkSpec(text, i)
+            if link is not None:
+                label, target, end = link
+                push(u"".join(buf), style)
+                del buf[:]
+                if links is None:
+                    push(label, style)
+                else:
+                    first = not links
+                    links.append(target)
+                    push(label, _DocMergeStyle(style, _DOC_LINK_CODE) if first else style)
+                i = end
+                continue
         if depth < _DOC_INLINE_MAX_DEPTH:
             for mark, code in _DOC_INLINE_MARKS:
                 if not text.startswith(mark, i):
@@ -4943,7 +4975,7 @@ def _DocParseInline(text, style=u"", depth=0):
         push(u"".join(buf), style)
         del buf[:]
         for run in _DocParseInline(text[i + len(mark):end],
-                                   _DocMergeStyle(style, code), depth + 1):
+                                   _DocMergeStyle(style, code), depth + 1, links):
             push(run["text"], run["style"])
         i = end + len(mark)
     push(u"".join(buf), style)
@@ -5087,6 +5119,11 @@ _DOC_QUOTE_MAX = 3                 # `>` 引用最多认 3 层，再深折叠到
 _DOC_QUOTE_PREFIX = u"| "          # 引用行左边条（ASCII，任何字体都有这个字形）
 _DOC_IMAGE_PREFIX = u"textures/"   # 图片只接资源包贴图路径
 
+_DOC_LINK_SCHEME = u"action:"      # 动作链接：[文字](action:动作id)
+_DOC_LINK_TOAST = u"toast:"        # 内置动作：action:toast:<文字>
+_DOC_LINK_PAGE = u"#"              # 页引用：[文字](#page_id)
+_DOC_LINK_CODE = u"d"              # 链接文字颜色码（§d 浅紫，与青色行内代码区分）
+
 
 def _DocIsFenceClose(probe, fence):
     """probe 是否关闭围栏：同字符、长度不少于开启标记、后面没有 info 串。"""
@@ -5177,14 +5214,61 @@ def _DocImageSpec(stripped):
     return alt.strip(), path
 
 
-def _DocMakeBlock(kind, content, style, indent, hang):
-    """组装一个渲染块：text 去标记、styled 带 § 码、runs 保留旧字段。"""
-    runs = _DocParseInline(content, style)
+def _DocLinkSpec(text, start):
+    """从 text[start] == '[' 处解析 `[文字](目标)`，返回 (文字, 目标, 结束下标) 或 None。
+
+    目标是三选一：`book_id`、`book_id/page_id`、`#page_id`；动作链接写
+    `action:动作id`。目标里不允许出现空格与括号（正文里没法给它们转义），
+    解析失败一律返回 None，由调用方按原样文本输出。
+    """
+    close = text.find(u"](", start + 1)
+    if close <= start + 1:
+        return None
+    end = text.find(u")", close + 2)
+    if end < 0:
+        return None
+    label = text[start + 1:close]
+    target = text[close + 2:end]
+    if not label or not target:
+        return None
+    if u"[" in label or u"]" in label:
+        return None
+    for ch in (u" ", u"\t", u"(", u")"):
+        if ch in target:
+            return None
+    return label, target, end + 1
+
+
+def _DocLinkTarget(target):
+    """把链接目标拆成 (book_id, page_id)：`#页` 只给页，`书/页` 给两者，单写当书。"""
+    text = (target or u"").strip()
+    if not text:
+        return None, None
+    if text.startswith(_DOC_LINK_PAGE):
+        return None, (text[1:] or None)
+    if u"/" in text:
+        book, page = text.split(u"/", 1)
+        return (book or None), (page or None)
+    return text, None
+
+
+def _DocMakeBlock(kind, content, style, indent, hang, collect=False):
+    """组装一个渲染块：text 去标记、styled 带 § 码、runs 保留旧字段。
+
+    `collect=True` 解析链接（正文段落 / 列表项：整块可点），第一个目标存进
+    `blk["link"]`；`False` 只去掉链接语法、不产出可点块（标题 / 引用）。
+    """
+    links = [] if collect else None
+    runs = _DocParseInline(content, style, 0, links)
     text = u"".join(run["text"] for run in runs)
-    return {"kind": kind, "text": text,
-            "styled": _DocStyledFromRuns(runs),
-            "runs": [{"text": text, "color": None}],
-            "indent": indent, "hang": hang}
+    blk = {"kind": kind, "text": text,
+           "styled": _DocStyledFromRuns(runs),
+           "runs": [{"text": text, "color": None}],
+           "indent": indent, "hang": hang}
+    if links:
+        blk["link"] = links[0]
+        blk["link_count"] = len(links)
+    return blk
 
 
 def _DocImageBlock(alt, sprite):
@@ -5220,6 +5304,7 @@ def build_doc_blocks(body):
       `---` / `***` / `___`      → hr（同一符号 3 个以上，符号间可有空格）
       `> ` 引用                  → quote（灰字 + `| ` 左边条，最多叠 3 层）
       `![说明](textures/路径)`   → image（按原比例缩放，说明文字不显示）
+      `[文字](目标)`             → 含链接的段落 / 列表项整块可点（跳书 / 页或执行动作）
       空行                        → gap（连续空行只留一个、行尾裁掉）
       其余                        → text（保留行首缩进）
 
@@ -5300,16 +5385,18 @@ def build_doc_blocks(body):
             nest = _DocIndentLevel(indent)
             prefix = u"  " * nest + u"· "
             blocks.append(_DocMakeBlock(
-                "bullet", prefix + item, u"", nest, u" " * _DocTextWidth(prefix)))
+                "bullet", prefix + item, u"", nest, u" " * _DocTextWidth(prefix),
+                collect=True))
             continue
         ordered = _DocOrderedMarker(stripped)
         if ordered is not None:
             nest = _DocIndentLevel(indent)
             prefix = u"  " * nest + ordered[0]
             blocks.append(_DocMakeBlock(
-                "ordered", prefix + ordered[1], u"", nest, u" " * _DocTextWidth(prefix)))
+                "ordered", prefix + ordered[1], u"", nest, u" " * _DocTextWidth(prefix),
+                collect=True))
             continue
-        blocks.append(_DocMakeBlock("text", line, u"", 0, u""))
+        blocks.append(_DocMakeBlock("text", line, u"", 0, u"", collect=True))
     if fence is not None:
         blocks.extend(_DocCodeBlocks(codeLines))
     while blocks and blocks[-1]["kind"] == "gap":
@@ -5948,6 +6035,124 @@ class DocScreenNode(ScreenNode):
             dlog.client_print("==== doc: image texture bag error: %s ====" % str(e))
         return False
 
+    def _ApplyDocLink(self, ctrl, text, target, linkCount):
+        """填充可点段落：文字写进 `text` 子控件，透明 `tap` 按钮挂跳转回调。
+
+        一个块只有一处可点（`tap` 盖住整块），所以段里写了多个链接时只有第一个
+        生效 —— 这里只打一条日志，不额外做视觉区分。
+        """
+        label = None
+        tap = None
+        try:
+            label = ctrl.GetChildByName('text')
+            tap = ctrl.GetChildByName('tap')
+        except Exception as e:
+            dlog.client_print("==== doc link: child lookup error: %s ====" % str(e))
+        _SetLabelText(label, text, "doc link")
+        if linkCount > 1:
+            dlog.client_print(
+                "==== doc link: %d link(s) in one block, only the first is clickable ====" % linkCount)
+        if not tap:
+            dlog.client_print("==== doc link: tap control missing: %s ====" % target)
+            return False
+        try:
+            btn = tap.asButton()
+            if btn is None:
+                dlog.client_print("==== doc link: tap is not a button: %s ====" % target)
+                return False
+            btn.AddTouchEventParams({})
+            btn.SetButtonTouchUpCallback(lambda args, t=target: self._DispatchDocLink(t))
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc link: bind error: %s ====" % str(e))
+        return False
+
+    # ---------- 链接分发 ----------
+
+    def _DispatchDocLink(self, target):
+        """点击正文链接：`action:xx` 执行动作，其余按「书 / 页」跳转。
+
+        目标不存在时只提示 + 打日志、不跳转 —— 不静默落到第一页，否则作者会以为
+        链接写对了。跳转本身复用 SetPendingNavigation（含注册表未就绪时的重试）。
+        """
+        target = (target or u"").strip()
+        dlog.client_print("==== doc link click: %s ====" % target)
+        if not target:
+            return False
+        if target.startswith(_DOC_LINK_SCHEME):
+            return self._RunDocAction(target[len(_DOC_LINK_SCHEME):])
+        from DocRegistry import GetAllDocBookIds, GetDocPageIds, FindDocPageByPageId
+        bookId, pageId = _DocLinkTarget(target)
+        ids = GetAllDocBookIds()
+        if not ids:
+            self._DocToast(u"文档还没注册完成，稍后再试")
+            dlog.client_print("==== doc link: registry empty, ignore: %s ====" % target)
+            return False
+        if bookId and bookId not in ids:
+            self._DocToast(u"链接指向的文档不存在：%s" % bookId)
+            dlog.client_print("==== doc link: book missing: %s ====" % bookId)
+            return False
+        if pageId and bookId and pageId not in GetDocPageIds(bookId):
+            self._DocToast(u"链接指向的页面不存在：%s / %s" % (bookId, pageId))
+            dlog.client_print("==== doc link: page missing: %s/%s ====" % (bookId, pageId))
+            return False
+        if pageId and not bookId:
+            hit = FindDocPageByPageId(pageId)
+            if not hit:
+                self._DocToast(u"链接指向的页面不存在：%s" % pageId)
+                dlog.client_print("==== doc link: page not found anywhere: %s ====" % pageId)
+                return False
+            bookId, pageId = hit
+        if bookId == self.mSelectedBookId and pageId == self.mSelectedPageId:
+            dlog.client_print("==== doc link: already on %s/%s ====" % (bookId, pageId))
+            return True
+        self.SetPendingNavigation(bookId, pageId)
+        return True
+
+    def _RunDocAction(self, action):
+        """执行动作链接：内置 open_settings / close / toast:<文字>，其余查动作注册表。"""
+        action = (action or u"").strip()
+        if not action:
+            return False
+        if action == u"open_settings":
+            dlog.client_print("==== doc action: open settings ====")
+            if _g_ClientSystem:
+                try:
+                    _g_ClientSystem.OpenSettingsAfterDocs()
+                    return True
+                except Exception as e:
+                    dlog.client_print("==== doc action: open settings error: %s ====" % str(e))
+            return False
+        if action == u"close":
+            dlog.client_print("==== doc action: close docs ====")
+            if _g_ClientSystem:
+                _g_ClientSystem.CloseDocs()
+                return True
+            return False
+        if action.startswith(_DOC_LINK_TOAST):
+            self._DocToast(action[len(_DOC_LINK_TOAST):])
+            return True
+        from DocRegistry import GetDocAction
+        callback = GetDocAction(action)
+        if not callback:
+            dlog.client_print("==== doc action not registered: %s ====" % action)
+            self._DocToast(u"动作未注册：%s" % action)
+            return False
+        try:
+            callback()
+        except Exception as e:
+            dlog.client_print("==== doc action '%s' error: %s ====" % (action, str(e)))
+            return False
+        return True
+
+    def _DocToast(self, text):
+        """文档界面里的轻提示（动作链接 / 失效链接的反馈）；Toast 不可用时只打日志。"""
+        try:
+            from Toast import ShowToast, ToastUnder
+            ShowToast(ToastUnder, text or u"")
+        except Exception as e:
+            dlog.client_print("==== doc toast error: %s ====" % str(e))
+
     def _ShowRightHint(self, text):
         """右栏空态：清正文后写一行灰字。"""
         self._ClearRight()
@@ -6015,7 +6220,11 @@ class DocScreenNode(ScreenNode):
             if kind == "hr":
                 self._AddRightControl('doc.block_hr', 'docblk_%d' % i)
                 continue
-            template = _DOC_BLOCK_TEMPLATES.get(kind, 'doc.block_text')
+            link = blk.get("link")
+            if link:
+                template = 'doc.block_link'
+            else:
+                template = _DOC_BLOCK_TEMPLATES.get(kind, 'doc.block_text')
             ctrl = self._AddRightControl(template, 'docblk_%d' % i)
             if not ctrl:
                 continue
@@ -6024,6 +6233,10 @@ class DocScreenNode(ScreenNode):
                 continue
             lines = wrap_styled(blk.get("styled") or blk.get("text") or "",
                                 units, blk.get("hang") or u"")
+            if link:
+                self._ApplyDocLink(ctrl, u"\n".join(lines), link,
+                                   blk.get("link_count") or 1)
+                continue
             _SetLabelText(ctrl, u"\n".join(lines), "doc block %d" % i)
         dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
             book_id, page_id, len(blocks)))
@@ -6172,6 +6385,7 @@ _DOC_BLOCK_TEMPLATES = {
     "hr": 'doc.block_hr',
     "quote": 'doc.block_quote',
     "image": 'doc.block_image',
+    "link": 'doc.block_link',
     "text": 'doc.block_text',
 }
 

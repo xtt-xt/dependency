@@ -28,6 +28,7 @@ from CardRegistryApi import (
     # 文档界面演示（开发者选项用）
     RegisterDocBook,
     RegisterDocPage,
+    RegisterDocAction,
 )
 from DebugLog import dlog
 
@@ -105,6 +106,40 @@ _DEV_DOC_NOICON_PAGE = u"""# 无图标页
 同一本书里其它页都有图标，可以对比两种页卡的文字起点。
 """
 
+_DEV_DOC_LINKS = u"""# 链接与动作
+## 页内跳转
+下面这一段的链接会跳到本文档的「Markdown 语法」页。含链接的整段都是可点区域，不要求点中文字本身：
+[跳到 Markdown 语法](#markdown)
+## 跨文档跳转
+只给书 id 就跳该书第一页：
+[去「无图标书（纯文字）」](dev_docs_plain)
+书 id 加页 id 跳指定页：
+[去无图标书的指定页](dev_docs_plain/plain)
+## 失效链接
+目标不存在时只弹一条提示、不跳转，避免把「写错的链接」误当成写对了：
+[这个页面不存在](dev_docs_nope)
+## 动作链接
+点一下执行内置动作，或者执行别的模组注册进来的代码：
+[弹一条提示](action:toast:动作链接已执行)
+[执行演示动作](action:dev_docs_demo)
+[打开设置界面](action:open_settings)
+[关闭文档](action:close)
+## 列表里的链接
+- [列表项里的链接同样可点](#wrap)
+一段里写多个链接时只有第一个生效：[第一个](#long) 和 [第二个](#wrap)
+"""
+
+
+def _OnDevDocLinkAction():
+    """文档演示动作：验证「正文链接能执行代码」这条链路是否通。"""
+    dlog.client_print("==== demo doc action fired ====")
+    try:
+        from Toast import ShowToast, ToastUnder
+        ShowToast(ToastUnder, "演示动作已执行")
+    except Exception as e:
+        dlog.client_print("==== demo doc action toast error: %s ====" % str(e))
+
+
 _DEV_DOC_MARKDOWN = u"""# Markdown 语法演示
 这一页把解析器支持的写法逐条列出来，可以对着界面核对。
 ## 二级标题（1.1 倍）
@@ -146,8 +181,10 @@ def Demo():
 ## 图片
 图片写资源包里的贴图路径（相对 textures 目录，`.png` 可省），按原比例缩放到正文宽度以内：
 ![通用模组前置图标](textures/ui/xtt_dependency.png)
+## 链接
+正文里的 [链接](#links) 点一下能跳到别的页或别的文档，写法见「链接与动作」页。
 ## 仍然没做的
-表格与链接仍按普通文本原样显示（链接没有可点区域）。
+表格仍按普通文本原样显示。
 """
 
 
@@ -512,7 +549,7 @@ def _RegisterDevDocDemo():
     + 一本无页的书 + 一本无图标的书。
 
     只用于自测 `doc.main`：K 键、官方「打开文档」按钮或 `/doc_open` 打开后，
-    左栏会出现「文档界面演示」（7 页，其中最后一页没有图标）、「空书（无页）」
+    左栏会出现「文档界面演示」（8 页，其中最后一页没有图标）、「空书（无页）」
     （验「本书暂无页面」空态）与「无图标书（纯文字）」（验整本书不带图标的排版）。
     """
     RegisterDocBook(DEV_DOC_BOOK_ID, u"文档界面演示", "textures/ui/icon_setting")
@@ -531,7 +568,12 @@ def _RegisterDevDocDemo():
                     body=u"")
     RegisterDocPage(DEV_DOC_BOOK_ID, "page_id_with_underscore",
                     u"页 id 带下划线", "textures/ui/icon/debug", body=_DEV_DOC_UNDERSCORE)
-    # 第六页故意不给图标：验同一本书里「有图标页 + 无图标页」混排时页卡的排版
+    # 链接页：页内 / 跨文档跳转、失效链接、内置动作与注册动作
+    RegisterDocPage(DEV_DOC_BOOK_ID, "links", u"链接与动作",
+                    "textures/ui/icon/resource-packs-icon", body=_DEV_DOC_LINKS)
+    # 演示动作：正文里 [执行演示动作](action:dev_docs_demo) 点击后执行它
+    RegisterDocAction("dev_docs_demo", _OnDevDocLinkAction)
+    # 第七页故意不给图标：验同一本书里「有图标页 + 无图标页」混排时页卡的排版
     RegisterDocPage(DEV_DOC_BOOK_ID, "no_icon_page", u"无图标页",
                     body=_DEV_DOC_NOICON_PAGE)
     # 第二本故意不注册任何页：用来验「本书暂无页面」空态
@@ -541,7 +583,7 @@ def _RegisterDevDocDemo():
     RegisterDocPage(DEV_DOC_PLAIN_BOOK_ID, "plain", u"无图标页",
                     body=u"# 无图标演示\n这本书和它的页都没有给 icon，卡片上只显示文字，"
                          u"而且不会留下动画底图。")
-    dlog.client_print("==== dev docs registered: book=%s (7 pages) + %s (0 page) + %s (1 page) ====" % (
+    dlog.client_print("==== dev docs registered: book=%s (8 pages) + %s (0 page) + %s (1 page) ====" % (
         DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID, DEV_DOC_PLAIN_BOOK_ID))
 
 

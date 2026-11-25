@@ -108,6 +108,11 @@ from DocRegistry import (
     GetDocPageCount,
     FindDocPageByPageId,
     GetAllDocPages,
+    # 动作链接（正文里 [文字](action:动作id) 的可点入口）
+    RegisterDocAction,
+    UnregisterDocAction,
+    GetDocAction,
+    ClearAllDocActions,
     # 整体重置
     ClearAllDocs,
     # 回调机制

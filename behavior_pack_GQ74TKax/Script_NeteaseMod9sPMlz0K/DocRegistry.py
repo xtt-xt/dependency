@@ -176,6 +176,50 @@ def GetAllDocPages():
     return result
 
 
+# ────────────────── 动作（正文里的可点代码入口） ──────────────────
+
+# 正文可以写 `[文字](action:动作id)`，点击时执行这里注册的回调。
+# 刻意不支持「在正文里写代码字符串再 eval」：正文属于数据（可能来自别的模组、
+# 服务端下发或存档），eval 等于把任意代码执行权交给数据；注册动作 id 与正文解耦、
+# 可审计、可卸载，正文里写错 id 只会得到一条提示。
+
+_actions = {}      # action_id -> callback
+
+
+def RegisterDocAction(action_id, callback):
+    """
+    注册一个动作链接的回调。重复注册覆盖旧回调（幂等，热重载友好）。
+
+    :param action_id: 动作 id，正文里写 `[文字](action:动作id)`
+    :param callback:  无参可调用对象；点击时调用，抛异常只打日志、不影响界面
+    :returns:         True 成功；False 参数无效（id 为空或 callback 不可调用）
+    """
+    if not action_id or not callable(callback):
+        return False
+    if action_id in _actions:
+        dlog.client_print("==== doc action re-registered: %s ====" % action_id)
+    _actions[action_id] = callback
+    return True
+
+
+def UnregisterDocAction(action_id):
+    """注销一个动作。返回 True 移除成功，False 动作不存在。"""
+    if action_id not in _actions:
+        return False
+    del _actions[action_id]
+    return True
+
+
+def GetDocAction(action_id):
+    """取动作回调（不存在返回 None）。界面侧派发点击时调用。"""
+    return _actions.get(action_id)
+
+
+def ClearAllDocActions():
+    """清空所有动作（测试 / 热重载兜底用，不影响书与页）。"""
+    _actions.clear()
+
+
 # ────────────────── 整体重置 ──────────────────
 
 def ClearAllDocs():
