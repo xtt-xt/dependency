@@ -5122,7 +5122,7 @@ _DOC_IMAGE_PREFIX = u"textures/"   # 图片只接资源包贴图路径
 _DOC_LINK_SCHEME = u"action:"      # 动作链接：[文字](action:动作id)
 _DOC_LINK_TOAST = u"toast:"        # 内置动作：action:toast:<文字>
 _DOC_LINK_PAGE = u"#"              # 页引用：[文字](#page_id)
-_DOC_LINK_CODE = u"d"              # 链接文字颜色码（§d 浅紫，与青色行内代码区分）
+_DOC_LINK_CODE = u"9"              # 链接文字颜色码（§9 蓝，与青色行内代码区分）
 
 
 def _DocIsFenceClose(probe, fence):
@@ -6388,18 +6388,24 @@ _DOC_BLOCK_TEMPLATES = {
 
 
 def _DocParseIndex(buttonPath, prefix):
-    """从按钮路径里取 index：控件名形如 `<prefix><index>[_<suffix>]`。"""
+    """从按钮路径里取 index：控件名形如 `<prefix><index>[_<suffix>]`。
+
+    绑触摸的按钮不一定就是带前缀的那个控件：书卡片的按钮是 wrapper
+    `docbook_<index>` 下的子控件 `card_btn`，引擎给的 `ButtonPath` 形如
+    `/main_content/left/.../docbook_3/card_btn`。所以必须逐段找命中前缀的
+    那一段 —— 只看最后一段会拿到 `card_btn`，所有书卡片都点不动。
+    """
     if not buttonPath:
         return None
-    name = buttonPath.rstrip('/').split('/')[-1]
-    if not name.startswith(prefix):
-        return None
-    rest = name[len(prefix):]
-    head = rest.split('_')[0]
-    try:
-        return int(head)
-    except (TypeError, ValueError):
-        return None
+    for seg in buttonPath.split('/'):
+        if not seg.startswith(prefix):
+            continue
+        head = seg[len(prefix):].split('_')[0]
+        try:
+            return int(head)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _DocParsePagePath(buttonPath):
@@ -6407,25 +6413,26 @@ def _DocParsePagePath(buttonPath):
     解析页子卡片路径，返回 (bookIndex, page_id)。
 
     页控件名形如 `docpage_<bookIndex>_<page_id>`；page_id 允许再含下划线，
-    所以只按第一个下划线切分。
+    所以只按第一个下划线切分。与书卡片同理逐段找（按钮将来若挂到页卡片的
+    子控件上也能解析；祖先段 `docbook_<index>` 前缀不同，不会误认）。
     """
     if not buttonPath:
         return None
-    name = buttonPath.rstrip('/').split('/')[-1]
     prefix = "docpage_"
-    if not name.startswith(prefix):
-        return None
-    rest = name[len(prefix):]
-    if '_' not in rest:
-        return None
-    head, pageId = rest.split('_', 1)
-    try:
-        index = int(head)
-    except (TypeError, ValueError):
-        return None
-    if not pageId:
-        return None
-    return (index, pageId)
+    for seg in buttonPath.split('/'):
+        if not seg.startswith(prefix):
+            continue
+        rest = seg[len(prefix):]
+        if '_' not in rest:
+            continue
+        head, pageId = rest.split('_', 1)
+        try:
+            index = int(head)
+        except (TypeError, ValueError):
+            continue
+        if pageId:
+            return (index, pageId)
+    return None
 
 
 def RegisterContentBuilder(type_name, builder):
