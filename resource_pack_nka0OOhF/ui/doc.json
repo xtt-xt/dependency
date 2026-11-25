@@ -646,11 +646,15 @@
         ]
     },
     "block_link": {
-        "type": "panel",
+        "type": "button",
         "size": [
             "100%+0px",
             "100%c+0px"
         ],
+        "button_mappings": [],
+        "sound_name": "random.click",
+        "sound_pitch": 1.0,
+        "sound_volume": 1.0,
         "controls": [
             {
                 "text": {
@@ -674,26 +678,6 @@
                     "font_scale_factor": 1.0,
                     "text_alignment": "left",
                     "text": "$doc_text"
-                }
-            },
-            {
-                "tap": {
-                    "type": "button",
-                    "anchor_from": "top_left",
-                    "anchor_to": "top_left",
-                    "offset": [
-                        0,
-                        0
-                    ],
-                    "size": [
-                        "100%+0px",
-                        "100%+0px"
-                    ],
-                    "layer": 2,
-                    "button_mappings": [],
-                    "sound_name": "random.click",
-                    "sound_pitch": 1.0,
-                    "sound_volume": 1.0
                 }
             }
         ]

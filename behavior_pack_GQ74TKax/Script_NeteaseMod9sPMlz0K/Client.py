@@ -6036,29 +6036,26 @@ class DocScreenNode(ScreenNode):
         return False
 
     def _ApplyDocLink(self, ctrl, text, target, linkCount):
-        """填充可点段落：文字写进 `text` 子控件，透明 `tap` 按钮挂跳转回调。
+        """填充可点段落：文字写进 `text` 子控件，块本身（button）挂跳转回调。
 
-        一个块只有一处可点（`tap` 盖住整块），所以段里写了多个链接时只有第一个
-        生效 —— 这里只打一条日志，不额外做视觉区分。
+        `doc.block_link` 自己就是 button（`%c` 抱 label 高度），点击区＝整块；
+        一个块只有一处可点，段里写了多个链接时只有第一个生效（只打日志）。
         """
         label = None
-        tap = None
         try:
             label = ctrl.GetChildByName('text')
-            tap = ctrl.GetChildByName('tap')
         except Exception as e:
             dlog.client_print("==== doc link: child lookup error: %s ====" % str(e))
         _SetLabelText(label, text, "doc link")
         if linkCount > 1:
             dlog.client_print(
                 "==== doc link: %d link(s) in one block, only the first is clickable ====" % linkCount)
-        if not tap:
-            dlog.client_print("==== doc link: tap control missing: %s ====" % target)
+        if not ctrl:
             return False
         try:
-            btn = tap.asButton()
+            btn = ctrl.asButton()
             if btn is None:
-                dlog.client_print("==== doc link: tap is not a button: %s ====" % target)
+                dlog.client_print("==== doc link: block is not a button: %s ====" % target)
                 return False
             btn.AddTouchEventParams({})
             btn.SetButtonTouchUpCallback(lambda args, t=target: self._DispatchDocLink(t))
