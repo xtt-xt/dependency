@@ -38,26 +38,6 @@
                     "texture": "textures/ui/top_bar",
                     "controls": [
                         {
-                            "text": {
-                                "type": "label",
-                                "anchor_from": "top_middle",
-                                "anchor_to": "top_middle",
-                                "offset": [
-                                    0.0,
-                                    "30%+0px"
-                                ],
-                                "layer": 101,
-                                "color": [
-                                    0.0,
-                                    0.0,
-                                    0.0
-                                ],
-                                "font_type": "default",
-                                "text": "文档",
-                                "text_alignment": "center"
-                            }
-                        },
-                        {
                             "back@common.button": {
                                 "type": "button",
                                 "$control_alpha": 1.0,
@@ -193,35 +173,6 @@
                                     "60%+0px"
                                 ]
                             }
-                        },
-                        {
-                            "icon_under": {
-                                "type": "panel",
-                                "offset": [
-                                    "0%+0px",
-                                    "-30%+0px"
-                                ],
-                                "size": [
-                                    "default",
-                                    "40%+0px"
-                                ],
-                                "layer": 3,
-                                "controls": [
-                                    {
-                                        "image": {
-                                            "type": "image",
-                                            "size": [
-                                                "80%+0px",
-                                                "70%+0px"
-                                            ],
-                                            "layer": 4,
-                                            "clip_direction": "left",
-                                            "clip_ratio": 0.0,
-                                            "texture": "textures/netease/common/image/default"
-                                        }
-                                    }
-                                ]
-                            }
                         }
                     ]
                 }
@@ -302,6 +253,44 @@
                             }
                         }
                     ]
+                }
+            }
+        ]
+    },
+    "doc_card_no_icon@setting.card": {
+        "$offset": [
+            "-8%+0px",
+            0.0
+        ],
+        "$name_size": [
+            "96%+0px",
+            "50%+0px"
+        ]
+    },
+    "doc_sub_card_no_icon@setting.sub_card": {
+        "$label_offset": [
+            "-8%+0px",
+            0.0
+        ],
+        "$label_size": [
+            "96%+0px",
+            "50%+0px"
+        ]
+    },
+    "doc_card_group_no_icon@setting.card_group": {
+        "controls": [
+            {
+                "card_btn@doc.doc_card_no_icon": {}
+            },
+            {
+                "sub_panel": {
+                    "type": "stack_panel",
+                    "size": [
+                        "100%",
+                        "100%c"
+                    ],
+                    "use_child_anchors": true,
+                    "orientation": "vertical"
                 }
             }
         ]

@@ -64,6 +64,7 @@ _DEV_TOGGLE_SEQ = 0                    # 动态加行的序号（只增不减，
 # 只用于自测 doc.main（K 键 / 官方「打开文档」按钮 / `/doc_open`），发布时随本块一起注释。
 DEV_DOC_BOOK_ID = "dev_docs"
 DEV_DOC_EMPTY_BOOK_ID = "dev_docs_empty"
+DEV_DOC_PLAIN_BOOK_ID = "dev_docs_plain"
 
 _DEV_DOC_INTRO = u"""# 文档界面演示
 这是正文段落。文档界面复用设置界面的顶栏、返回键与左栏卡片，右栏是合并后的宽栏。
@@ -476,8 +477,13 @@ def _RegisterDevDocDemo():
                     u"页 id 带下划线", "textures/ui/icon/debug", body=_DEV_DOC_UNDERSCORE)
     # 第二本故意不注册任何页：用来验「本书暂无页面」空态
     RegisterDocBook(DEV_DOC_EMPTY_BOOK_ID, u"空书（无页）", "textures/ui/bookshelf_flat")
-    dlog.client_print("==== dev docs registered: book=%s (5 pages) + %s (0 page) ====" % (
-        DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID))
+    # 第三本故意不给图标：验「不加图片」时卡片文字左移占满整行、序列帧底图隐藏
+    RegisterDocBook(DEV_DOC_PLAIN_BOOK_ID, u"无图标书（纯文字）")
+    RegisterDocPage(DEV_DOC_PLAIN_BOOK_ID, "plain", u"无图标页",
+                    body=u"# 无图标演示\n这本书和它的页都没有给 icon，卡片上只显示文字，"
+                         u"而且不会留下动画底图。")
+    dlog.client_print("==== dev docs registered: book=%s (5 pages) + %s (0 page) + %s (1 page) ====" % (
+        DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID, DEV_DOC_PLAIN_BOOK_ID))
 
 
 def RegisterSettingsConfig(main_card_id=_MAIN_CARD_ID, name="设置配置",

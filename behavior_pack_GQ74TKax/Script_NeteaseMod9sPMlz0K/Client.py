@@ -4797,9 +4797,6 @@ _DOC_FORMAT_CODES = u"klmno"     # 样式码中属于「格式」的（其余按
 DOC_BACKDROP_FRAMES = 8
 DOC_BACKDROP_FRAME_SIZE = 12
 DOC_BACKDROP_FRAME_TICKS = 2
-# 空注册表时左栏大图显示的底图（= doc.json 里 icon_under/image 的原贴图）
-_DOC_PREVIEW_FALLBACK = "textures/netease/common/image/default"
-
 _DOC_CJK_MIN = 0x2E80    # 此码点起按双宽字符计算
 
 _DOC_BASE_CANDIDATES = [
@@ -5095,31 +5092,6 @@ def _DocBindBackButton(node, base, callback):
     return False
 
 
-def _DocBindPreviewIcon(node, base):
-    """绑定左栏大图预览（`left/icon_under/image`，设置界面同款控件），返回 image 控件。
-
-    doc.json 是从 setting.main_content 复制的，`icon_under` 也一起抄了过来；设置界面
-    用它显示当前卡片的图标，文档界面不接就是一直显示底图（进游戏看就是一块占位图）。
-    """
-    paths = ["/left/icon_under/image"]
-    if base is not None:
-        paths.insert(0, base + "/left/icon_under/image")
-    for path in paths:
-        try:
-            ctrl = node.GetBaseUIControl(path)
-            if not ctrl:
-                continue
-            img = ctrl.asImage()
-            if not img:
-                continue
-            dlog.client_print("==== doc preview icon bound at: %s ====" % path)
-            return img
-        except Exception as e:
-            dlog.client_print("==== doc preview icon bind error %s: %s ====" % (path, str(e)))
-    dlog.client_print("==== doc: preview icon not found ====")
-    return None
-
-
 class DocScreenNode(ScreenNode):
     """文档/教程界面（screenDef `doc.main`）。
 
@@ -5129,7 +5101,7 @@ class DocScreenNode(ScreenNode):
 
     视觉与交互照设置界面：卡片三态（normal / pressing / press）+ 触摸三回调
     （down 显示按压、cancel 还原、up 选中），选中时播 icon_backdrop 序列帧；
-    左栏大图显示当前书的图标。
+    没给图标时换成无图变体（文字左移占满整行、序列帧底图隐藏）。
     """
 
     def __init__(self, namespace, name, param):
@@ -5137,7 +5109,6 @@ class DocScreenNode(ScreenNode):
         self.mBasePath = None
         self.mLeftContent = None
         self.mRightContent = None
-        self.mPreviewIcon = None    # 左栏大图（选中书的图标）
         self.mBookIds = []          # 与 mBookWrappers 对齐
         self.mBookWrappers = []
         self.mBookBtns = []
@@ -5170,7 +5141,6 @@ class DocScreenNode(ScreenNode):
         self.mLeftContent = _DocFindScrollContent(self, self.mBasePath, "left")
         self.mRightContent = _DocFindScrollContent(self, self.mBasePath, "right")
         _DocBindBackButton(self, self.mBasePath, self.OnBackClick)
-        self.mPreviewIcon = _DocBindPreviewIcon(self, self.mBasePath)
 
         try:
             from DocRegistry import SetDocChangedCallback
@@ -5270,7 +5240,6 @@ class DocScreenNode(ScreenNode):
                               info.get("icon") or "")
         if not self.mBookIds:
             self._ShowRightHint(u"暂无文档")
-            self.UpdatePreviewIcon("")
             dlog.client_print("==== doc: no books registered, empty state ====")
             return False
 
@@ -5285,8 +5254,10 @@ class DocScreenNode(ScreenNode):
 
     def _AddBookCard(self, index, book_id, name, icon):
         wrapper = None
+        # 没给图标就用无图变体：文字左移占满整行，避免左边空一块
+        template = 'setting.card_group' if icon else 'doc.doc_card_group_no_icon'
         try:
-            wrapper = self.CreateChildControl('setting.card_group',
+            wrapper = self.CreateChildControl(template,
                                               'docbook_%d' % index,
                                               self.mLeftContent, True)
         except Exception as e:
@@ -5300,7 +5271,7 @@ class DocScreenNode(ScreenNode):
         self.mBookBtns.append(btnCtrl)
         self.mBookSubPanels.append(wrapper.GetChildByName('sub_panel'))
         # 先初始化 icon_backdrop 的 UV 再设图标：两条列表要始终与 mBookIds 对齐
-        backdropImg = self._PrepareBackdrop(btnCtrl)
+        backdropImg = self._PrepareBackdrop(btnCtrl, icon)
         self.mBookBackdrops.append(backdropImg)
         self.mBookAnimStates[index] = {"frame": 0, "timer": 0, "playing": False}
         if not btnCtrl:
@@ -5313,13 +5284,15 @@ class DocScreenNode(ScreenNode):
         dlog.client_print("==== doc book added: %s -> %s ====" % (book_id, name))
         return wrapper
 
-    def _PrepareBackdrop(self, btn_ctrl):
+    def _PrepareBackdrop(self, btn_ctrl, icon=""):
         """
-        初始化卡片 icon_backdrop 并返回 image 控件。
+        初始化卡片 icon_backdrop 并返回 image 控件；卡片没给图标时隐藏底图并返回 None。
 
         贴图 `textures/ui/icon_backdrop` 是 12×96 的竖条（8 帧 12×12）：不设
         `SetSpriteUVSize` 就会把整条压进卡片高度，看起来等于没有图。设置界面
         的 AddCard / AddSubCard 是同一套写法，这里必须照做。
+        无图标时这个序列帧底图没有意义（会留一块空底图、选中时还会闪 8 帧），
+        所以直接隐藏；返回 None 让动画状态自然跳过。
         """
         if not btn_ctrl:
             return None
@@ -5327,6 +5300,9 @@ class DocScreenNode(ScreenNode):
             backdrop = btn_ctrl.GetChildByName('icon_backdrop')
             if not backdrop:
                 dlog.client_print("==== doc: icon_backdrop missing ====")
+                return None
+            if not icon:
+                backdrop.SetVisible(False)
                 return None
             img = backdrop.asImage()
             if not img:
@@ -5447,13 +5423,12 @@ class DocScreenNode(ScreenNode):
 
     def SelectBook(self, index, page_id=None):
         """选中第 index 本书：展开它的页，并选中指定页（默认第一页）。"""
-        from DocRegistry import GetDocPageIds, GetDocBook
+        from DocRegistry import GetDocPageIds
         if index < 0 or index >= len(self.mBookIds):
             return False
         bookId = self.mBookIds[index]
         self.mSelectedBookId = bookId
         self.mSelectedPageId = None
-        self.UpdatePreviewIcon((GetDocBook(bookId) or {}).get("icon") or "")
         for i in range(len(self.mBookIds)):
             self._SetBookVisual(i, "selected" if i == index else "normal")
         for i in range(len(self.mBookSubPanels)):
@@ -5513,8 +5488,11 @@ class DocScreenNode(ScreenNode):
         ctrls = []
         for pageId in ids:
             info = GetDocPage(book_id, pageId) or {}
+            pageIcon = info.get("icon") or ""
+            # 没给图标走无图变体，页卡文字左移占满整行
+            subTemplate = 'setting.sub_card' if pageIcon else 'doc.doc_sub_card_no_icon'
             try:
-                ctrl = self.CreateChildControl('setting.sub_card',
+                ctrl = self.CreateChildControl(subTemplate,
                                                'docpage_%d_%s' % (index, pageId),
                                                panel, True)
             except Exception as e:
@@ -5525,9 +5503,9 @@ class DocScreenNode(ScreenNode):
                 continue
             _SetLabelText(ctrl.GetChildByName('sub_label'), info.get("name") or pageId,
                           "doc page label %s" % pageId)
-            self.mPageBackdrops[(book_id, pageId)] = self._PrepareBackdrop(ctrl)
+            self.mPageBackdrops[(book_id, pageId)] = self._PrepareBackdrop(ctrl, pageIcon)
             self.mPageAnimStates[(book_id, pageId)] = {"frame": 0, "timer": 0, "playing": False}
-            self._SetCardIcon(ctrl, info.get("icon") or "", "page %s" % pageId)
+            self._SetCardIcon(ctrl, pageIcon, "page %s" % pageId)
             self._BindTouch(ctrl, self.OnPageTouchDown, self.OnPageTouchUp, self.OnPageTouchCancel)
             self._SetPageVisual(ctrl, "normal")
             ctrls.append(ctrl)
@@ -5702,22 +5680,6 @@ class DocScreenNode(ScreenNode):
         dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
             book_id, page_id, len(blocks)))
         return True
-
-    # ---------- 左栏大图预览 ----------
-
-    def UpdatePreviewIcon(self, icon_path):
-        """左栏大图：显示当前选中书的图标；没有图标时回落到模板底图。"""
-        img = self.mPreviewIcon
-        if not img:
-            return False
-        sprite = icon_path or _DOC_PREVIEW_FALLBACK
-        try:
-            img.SetSprite(sprite)
-            dlog.client_print("==== doc preview icon updated: %s ====" % sprite)
-            return True
-        except Exception as e:
-            dlog.client_print("==== doc preview icon error: %s ====" % str(e))
-            return False
 
     # ---------- icon_backdrop 序列帧动画 ----------
 

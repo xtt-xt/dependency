@@ -266,6 +266,10 @@
         "$pressing": "textures/ui/card_pressing",
         "$size": "normal",
         "$text": "card",
+        "$name_size": [
+            "80%+0px",
+            "50%+0px"
+        ],
         "offset": [
             "1%+0px",
             0.0
@@ -331,10 +335,7 @@
                 "name": {
                     "type": "label",
                     "offset": "$offset",
-                    "size": [
-                        "80%+0px",
-                        "50%+0px"
-                    ],
+                    "size": "$name_size",
                     "layer": 5,
                     "color": "$coler",
                     "font_size": "$size",
@@ -2620,6 +2621,14 @@
         "$icon": "",
         "$pressing": "textures/ui/card_pressing",
         "$text": "sub",
+        "$label_offset": [
+            "10%+0px",
+            0.0
+        ],
+        "$label_size": [
+            "80%+0px",
+            "50%+0px"
+        ],
         "anchor_from": "right_middle",
         "anchor_to": "right_middle",
         "offset": [
@@ -2705,14 +2714,8 @@
             {
                 "sub_label": {
                     "type": "label",
-                    "offset": [
-                        "10%+0px",
-                        0.0
-                    ],
-                    "size": [
-                        "80%+0px",
-                        "50%+0px"
-                    ],
+                    "offset": "$label_offset",
+                    "size": "$label_size",
                     "layer": 3,
                     "color": [
                         1.0,

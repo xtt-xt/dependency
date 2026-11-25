@@ -20,8 +20,6 @@
 
 from DebugLog import dlog
 
-_defaultDocIcon = "textures/ui/icon_setting"
-
 # ────────────────── 数据表 ──────────────────
 
 _bookOrder = []   # [book_id, ...] 注册顺序（决定左栏卡片顺序）
@@ -40,14 +38,12 @@ def RegisterDocBook(book_id, name, icon=None):
 
     :param book_id: 书唯一标识符（与卡片 id 同一命名空间之外，建议带模组前缀）
     :param name:    书在左栏显示的名字
-    :param icon:    图标路径，传 None 使用默认图标
+    :param icon:    图标路径；传 None 或空串表示不要图标（左栏卡片只显示文字）
     :returns:       True 成功；False 参数无效
     """
     if not book_id or not name:
         return False
-    if icon is None:
-        icon = _defaultDocIcon
-    _books[book_id] = {"name": name, "icon": icon}
+    _books[book_id] = {"name": name, "icon": icon or ""}
     if book_id not in _bookOrder:
         _bookOrder.append(book_id)
     if book_id not in _pages:
@@ -97,7 +93,7 @@ def RegisterDocPage(book_id, page_id, name, icon=None, body=""):
     :param book_id: 所属书 id（须先 RegisterDocBook；书不存在返回 False）
     :param page_id: 页唯一标识符（书内唯一，不同书可同名）
     :param name:    页在子卡片上显示的名字
-    :param icon:    图标路径，传 None 使用默认图标
+    :param icon:    图标路径；传 None 或空串表示不要图标（页卡片只显示文字）
     :param body:    正文 Markdown 源码
     :returns:       True 成功；False 参数无效或书不存在
     """
@@ -105,12 +101,10 @@ def RegisterDocPage(book_id, page_id, name, icon=None, body=""):
         return False
     if book_id not in _books:
         return False
-    if icon is None:
-        icon = _defaultDocIcon
     pages = _pages.setdefault(book_id, [])
     if page_id not in pages:
         pages.append(page_id)
-    _pageMeta[(book_id, page_id)] = {"name": name, "icon": icon, "body": body or ""}
+    _pageMeta[(book_id, page_id)] = {"name": name, "icon": icon or "", "body": body or ""}
     _NotifyDocsChanged()
     return True
 
