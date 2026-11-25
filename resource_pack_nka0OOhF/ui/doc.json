@@ -166,11 +166,11 @@
                                 "layer": 5,
                                 "offset": [
                                     "0%+0px",
-                                    "20%+0px"
+                                    "0%+0px"
                                 ],
                                 "size": [
                                     "99%+0px",
-                                    "60%+0px"
+                                    "100%+0px"
                                 ]
                             }
                         }
@@ -259,7 +259,7 @@
     },
     "doc_card_no_icon@setting.card": {
         "$offset": [
-            "-8%+0px",
+            "0%+0px",
             0.0
         ],
         "$name_size": [
@@ -269,7 +269,7 @@
     },
     "doc_sub_card_no_icon@setting.sub_card": {
         "$label_offset": [
-            "-8%+0px",
+            "0%+0px",
             0.0
         ],
         "$label_size": [
