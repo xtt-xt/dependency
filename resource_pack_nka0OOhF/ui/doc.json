@@ -1,6 +1,7 @@
 {
     "namespace": "doc",
     "main@common.base_screen": {
+        "$additional_screen_content": "doc.under_toast_layer",
         "$screen_bg_content": "setting.below_bg",
         "$screen_content": "doc.main_content",
         "render_only_when_topmost": true
@@ -273,6 +274,21 @@
                             }
                         }
                     ]
+                }
+            }
+        ]
+    },
+    "under_toast_layer": {
+        "type": "panel",
+        "size": [
+            "100%",
+            "100%"
+        ],
+        "controls": [
+            {
+                "under_toast@toast.toast_under": {
+                    "$text": "",
+                    "visible": false
                 }
             }
         ]

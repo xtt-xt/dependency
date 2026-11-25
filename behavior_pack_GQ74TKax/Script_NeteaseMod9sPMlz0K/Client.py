@@ -1815,6 +1815,195 @@ def _TeardownEmbeddedItemNameToast(node):
         pass
 
 
+# ────────────────── 内嵌底部提示（ToastUnder）副本 ──────────────────
+# 设置界面与文档界面都在 JSON 的 $additional_screen_content 层放了一份
+# toast.toast_under 副本；两边共用下面这组模块级函数，ScreenNode 只留
+# ShowEmbeddedUnderToast 这个薄壳给 Toast 的路由调用。
+
+
+def _EmbeddedAdditionalCandidates(base, name):
+    """给出 $additional_screen_content 层里名为 name 的子控件的候选绝对路径。
+
+    设置界面与文档界面都用 common.base_screen：screen_panel 下并列
+    root_screen_panel（$screen_content）与 additional_screen_content
+    （$additional_screen_content）。base 是内容根（可能带 safezone 前缀），
+    所以先由 base 反推外层，再退到几条固定候选。
+    """
+    base = base or ""
+    outers = []
+    for tail in ("/root_screen_panel", "/main_content"):
+        if base.endswith(tail):
+            outer = base[:-len(tail)]
+            if outer not in outers:
+                outers.append(outer)
+    for p in ("/screen_panel",
+              "/safezone_screen_matrix/inner_matrix/safezone_screen_panel/screen_panel",
+              "/variables_button_mappings_and_controls/safezone_screen_matrix/inner_matrix/safezone_screen_panel/screen_panel"):
+        if p not in outers:
+            outers.append(p)
+    paths = []
+    for outer in outers:
+        paths.append(outer + "/additional_screen_content/" + name)
+    fallback = "/additional_screen_content/" + name
+    if fallback not in paths:
+        paths.append(fallback)
+    paths.append("/under_toast_layer/" + name)
+    return paths
+
+
+def _SetupEmbeddedUnderToastHost(node, paths):
+    """在界面 node 上找底部提示副本并缓存控件；返回命中的绝对路径（失败 None）。"""
+    node.mEmbeddedUnderRoot = None
+    node.mEmbeddedUnderImage = None
+    node.mEmbeddedUnderShadow = None
+    node.mEmbeddedUnderLabel = None
+    node.mEmbeddedUnderTimer = None
+    node._embedded_anim_set = False
+    try:
+        from Toast import register_under_toast_host
+    except ImportError:
+        return None
+    for path in paths:
+        try:
+            root = node.GetBaseUIControl(path)
+            if not root:
+                continue
+            node.mEmbeddedUnderRoot = root
+            node.mEmbeddedUnderImage = node.GetBaseUIControl(path + "/image")
+            node.mEmbeddedUnderShadow = node.GetBaseUIControl(path + "/under")
+            label = node.GetBaseUIControl(path + "/image/label")
+            node.mEmbeddedUnderLabel = label.asLabel() if label else None
+            # 默认隐藏：防止界面首次打开时内嵌面板闪出
+            root.SetVisible(False)
+            register_under_toast_host(node)
+            dlog.client_print("==== embedded under toast found at: %s ====" % path)
+            return path
+        except Exception as e:
+            dlog.client_print("==== embedded under toast path error %s: %s ====" % (path, str(e)))
+    dlog.client_print("==== embedded under toast panel not found ====")
+    return None
+
+
+def _PlayEmbeddedUnderAnim(node, enter_anim, shadow_anim, end_callback=None):
+    """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。
+
+    动画定义在 toast.json 的 toast 命名空间（toast_under_enter / exit 等）。
+    用 _embedded_anim_set 守护：只有控件上已有动画时才 Stop/Remove，
+    避免首次播放时对无动画控件调用导致报错。置位放在全部控件处理之后，
+    确保同一次调用里 image/under 两个分支看到的标志一致。
+    """
+    image = getattr(node, "mEmbeddedUnderImage", None)
+    shadow = getattr(node, "mEmbeddedUnderShadow", None)
+    anim_set = getattr(node, "_embedded_anim_set", False)
+    if image:
+        try:
+            if anim_set:
+                image.StopAnimation("offset")
+                image.RemoveAnimation("offset")
+            image.SetAnimation("offset", "toast", enter_anim)
+            image.PlayAnimation("offset")
+            if end_callback:
+                image.SetAnimEndCallback(enter_anim, end_callback)
+        except Exception as e:
+            dlog.client_print("==== _PlayEmbeddedUnderAnim image error: %s ====" % str(e))
+    if shadow and shadow_anim:
+        try:
+            if anim_set:
+                shadow.StopAnimation("offset")
+                shadow.RemoveAnimation("offset")
+            shadow.SetAnimation("offset", "toast", shadow_anim)
+            shadow.PlayAnimation("offset")
+        except Exception as e:
+            dlog.client_print("==== _PlayEmbeddedUnderAnim shadow error: %s ====" % str(e))
+    node._embedded_anim_set = True
+
+
+def _ShowEmbeddedUnderToast(node, cfg):
+    """在界面内部显示底部提示（由 Toast.ShowToast 按栈顶界面路由调用）。
+
+    与原版 toast_under 一致：入场动画 -> 停留 -> 出场动画 -> 隐藏。
+    """
+    root = getattr(node, "mEmbeddedUnderRoot", None)
+    if not root:
+        return False
+    text = cfg.get("text", "")
+    color = cfg.get("color")
+    duration = cfg.get("duration", 3.0)
+    label = getattr(node, "mEmbeddedUnderLabel", None)
+    if label:
+        label.SetText(text, True)
+        label.SetTextColor(color if color else (1.0, 1.0, 1.0))
+    # 清掉上次未完成的停留定时器，避免提前隐藏本次提示
+    # 官方接口是 CancelTimer；KillTimer 不存在（旧写法被 try/except 静默吞掉）
+    timer = getattr(node, "mEmbeddedUnderTimer", None)
+    if timer is not None:
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+            comp.CancelTimer(timer)
+        except Exception:
+            pass
+        node.mEmbeddedUnderTimer = None
+    # 面板设为可见并播放入场动画
+    root.SetVisible(True)
+    _PlayEmbeddedUnderAnim(node, "toast_under_enter", "toast_under_shadow_enter")
+    # 入场音效：与 Toast 语义一致（ToastUnder 默认 random.toast，空串不播）
+    enter_sound = cfg.get("enter_sound")
+    if enter_sound is None:
+        enter_sound = "random.toast"
+    if enter_sound:
+        try:
+            audio_comp = clientApi.GetEngineCompFactory().CreateCustomAudio(clientApi.GetLevelId())
+            audio_comp.PlayCustomUIMusic(enter_sound, 1.0, 1.0, False)
+        except Exception as e:
+            dlog.client_print("==== ShowEmbeddedUnderToast sound error: %s ====" % str(e))
+    # 停留结束后播放出场动画
+    try:
+        comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+        node.mEmbeddedUnderTimer = comp.AddTimer(duration, lambda: _StartEmbeddedUnderExit(node))
+    except Exception as e:
+        dlog.client_print("==== ShowEmbeddedUnderToast timer error: %s ====" % str(e))
+    return True
+
+
+def _StartEmbeddedUnderExit(node):
+    """停留结束，播放出场动画。"""
+    node.mEmbeddedUnderTimer = None
+    if not getattr(node, "mEmbeddedUnderRoot", None):
+        return
+    _PlayEmbeddedUnderAnim(node, "toast_under_exit", "toast_under_shadow_exit",
+                           end_callback=lambda: _HideEmbeddedUnderToast(node))
+
+
+def _HideEmbeddedUnderToast(node):
+    """出场动画结束，隐藏内嵌底部提示面板。"""
+    root = getattr(node, "mEmbeddedUnderRoot", None)
+    if root:
+        try:
+            root.SetVisible(False)
+        except Exception:
+            pass
+
+
+def _TeardownEmbeddedUnderToast(node):
+    """界面 Destroy 时调用：取消停留定时器并注销副本宿主。
+
+    定时器必须先取消：关界面后残留的回调会去写已销毁的控件。
+    """
+    timer = getattr(node, "mEmbeddedUnderTimer", None)
+    if timer is not None:
+        try:
+            comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
+            comp.CancelTimer(timer)
+        except Exception:
+            pass
+        node.mEmbeddedUnderTimer = None
+    try:
+        from Toast import unregister_under_toast_host
+        unregister_under_toast_host(node)
+    except ImportError:
+        pass
+
+
 class SettingsScreenNode(ScreenNode):
 
     def __init__(self, namespace, name, param):
@@ -1972,21 +2161,8 @@ class SettingsScreenNode(ScreenNode):
         if _g_ClientSystem:
             _g_ClientSystem.UnregisterSettingsScreenNode(self)
             dlog.client_print("==== SettingsScreenNode unregistered from client system ====")
-        # 注销为底部 toast 的内嵌宿主
-        try:
-            from Toast import unregister_settings_under_host
-            unregister_settings_under_host(self)
-        except Exception:
-            pass
-        # 清理内嵌底部提示的停留定时器，避免关闭界面后残留回调
-        # 官方接口是 CancelTimer；KillTimer 不存在（旧写法被 try/except 静默吞掉）
-        if getattr(self, "mEmbeddedUnderTimer", None) is not None:
-            try:
-                comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-                comp.CancelTimer(self.mEmbeddedUnderTimer)
-            except Exception:
-                pass
-            self.mEmbeddedUnderTimer = None
+        # 注销底部提示的内嵌副本宿主，并取消停留定时器
+        _TeardownEmbeddedUnderToast(self)
         # 停止内嵌物品名提示的淡出计时，并注销副本宿主
         _TeardownEmbeddedItemNameToast(self)
         try:
@@ -2088,76 +2264,39 @@ class SettingsScreenNode(ScreenNode):
     def _SetupEmbeddedUnderToast(self):
         """缓存设置界面内嵌底部提示面板的控件引用，并向 Toast 注册宿主。
 
-        内嵌面板通过 $additional_screen_content 挂在 screen 根级
-        （与 root_screen_panel 同级，layer 1000 盖在主内容之上），
-        结构与 toast.json 的 toast_under 完全一致。
+        内嵌面板通过 $additional_screen_content 挂在 screen 根级（与
+        root_screen_panel 同级，layer 1000 盖在主内容之上），结构与 toast.json
+        的 toast_under 完全一致。找控件与播放都在模块级
+        _SetupEmbeddedUnderToastHost / _ShowEmbeddedUnderToast 里，文档界面复用
+        同一套（底部提示按栈顶界面挑副本，见 Toast._FindUnderToastHost）。
         """
-        try:
-            from Toast import register_settings_under_host
-        except ImportError:
-            self.mEmbeddedUnderToast = None
-            return
-        self.mEmbeddedUnderToast = None
         self.mEmbeddedUnderTimer = None
         base = self.mBasePath or ""
-        # additional_screen_content 与 root_screen_panel 在 screen_panel 下同级
-        additional = base.replace("/root_screen_panel", "/additional_screen_content")
-        candidates = [
-            additional + "/under_toast",
-            base + "/additional_screen_content/under_toast",
-            "/screen_panel/additional_screen_content/under_toast",
-            "/additional_screen_content/under_toast",
-            base + "/under_toast",
-        ]
-        self.mEmbeddedUnderRoot = None
-        self.mEmbeddedUnderImage = None
-        self.mEmbeddedUnderShadow = None
-        self.mEmbeddedUnderLabel = None
-        self._embedded_anim_set = False
-        for path in candidates:
-            try:
-                root = self.GetBaseUIControl(path)
-                if root:
-                    self.mEmbeddedUnderRoot = root
-                    self.mEmbeddedUnderImage = self.GetBaseUIControl(path + "/image")
-                    self.mEmbeddedUnderShadow = self.GetBaseUIControl(path + "/under")
-                    label = self.GetBaseUIControl(path + "/image/label")
-                    if label:
-                        label = label.asLabel()
-                    self.mEmbeddedUnderLabel = label
-                    dlog.client_print("==== embedded under toast found at: %s ====" % path)
-                    break
-            except Exception as e:
-                dlog.client_print("==== embedded under toast path error %s: %s ====" % (path, str(e)))
-        if self.mEmbeddedUnderRoot:
-            # 默认隐藏：防止设置界面首次打开时内嵌面板闪出
-            try:
-                self.mEmbeddedUnderRoot.SetVisible(False)
-            except Exception:
-                pass
-            register_settings_under_host(self)
-            dlog.client_print("==== SettingsScreenNode: embedded under toast host registered ====")
-            # 同一个附加层里还挂着「物品名提示」副本（toast_item_name）
-            _SetupEmbeddedItemNameToast(
-                self, [path.rsplit("/", 1)[0] + "/item_name_toast"])
-            # 同一个附加层里还挂着「物品选择」内嵌宿主（setting.json 的 item_picker_host）。
-            # 从设置界面里开物品选择时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
-            self.mEmbeddedPickerPath = path.rsplit("/", 1)[0] + "/item_picker_host"
-            self.mEmbeddedPicker = None
-            # 同一个附加层里还挂着「折叠菜单」内嵌宿主（setting.json 的 collapsible_menu_host）。
-            # 从设置界面里开折叠菜单时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
-            self.mEmbeddedCollapsibleMenuPath = path.rsplit("/", 1)[0] + "/collapsible_menu_host"
-            self.mEmbeddedCollapsibleMenu = None
-            # 同一层还挂着「普通弹窗」的两个内嵌宿主（普通版 / 滚动版各一份独立控件树）。
-            self.mEmbeddedPopUpPath = path.rsplit("/", 1)[0] + "/popup_host"
-            self.mEmbeddedPopUpScrollPath = path.rsplit("/", 1)[0] + "/popup_scroll_host"
-            self.mEmbeddedPopUp = None
-            self.mEmbeddedPopUpScroll = None
-            # 同一层还挂着「组合开关」内嵌宿主（setting.json 的 card_toggle_host）。
-            self.mEmbeddedCardTogglePath = path.rsplit("/", 1)[0] + "/card_toggle_host"
-            self.mEmbeddedCardToggle = None
-        else:
+        path = _SetupEmbeddedUnderToastHost(
+            self, _EmbeddedAdditionalCandidates(base, "under_toast"))
+        if not path:
             dlog.client_print("==== SettingsScreenNode: embedded under toast panel not found ====")
+            return
+        dlog.client_print("==== SettingsScreenNode: embedded under toast host registered ====")
+        # 同一个附加层里还挂着「物品名提示」副本（toast_item_name）
+        _SetupEmbeddedItemNameToast(
+            self, [path.rsplit("/", 1)[0] + "/item_name_toast"])
+        # 同一个附加层里还挂着「物品选择」内嵌宿主（setting.json 的 item_picker_host）。
+        # 从设置界面里开物品选择时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
+        self.mEmbeddedPickerPath = path.rsplit("/", 1)[0] + "/item_picker_host"
+        self.mEmbeddedPicker = None
+        # 同一个附加层里还挂着「折叠菜单」内嵌宿主（setting.json 的 collapsible_menu_host）。
+        # 从设置界面里开折叠菜单时走它：不压栈 → 设置界面不失活 → 右侧滚动位置不会丢。
+        self.mEmbeddedCollapsibleMenuPath = path.rsplit("/", 1)[0] + "/collapsible_menu_host"
+        self.mEmbeddedCollapsibleMenu = None
+        # 同一层还挂着「普通弹窗」的两个内嵌宿主（普通版 / 滚动版各一份独立控件树）。
+        self.mEmbeddedPopUpPath = path.rsplit("/", 1)[0] + "/popup_host"
+        self.mEmbeddedPopUpScrollPath = path.rsplit("/", 1)[0] + "/popup_scroll_host"
+        self.mEmbeddedPopUp = None
+        self.mEmbeddedPopUpScroll = None
+        # 同一层还挂着「组合开关」内嵌宿主（setting.json 的 card_toggle_host）。
+        self.mEmbeddedCardTogglePath = path.rsplit("/", 1)[0] + "/card_toggle_host"
+        self.mEmbeddedCardToggle = None
 
     def ShowEmbeddedItemNameToast(self, cfg):
         """在设置界面内部显示「物品名提示」（由 Toast.ShowItemNameToast 路由调用）。"""
@@ -2408,94 +2547,9 @@ class SettingsScreenNode(ScreenNode):
         dlog.client_print("==== embedded card toggle %s ====" % ("shown" if visible else "hidden"))
         return True
 
-    def _PlayEmbeddedUnderAnim(self, enter_anim, shadow_anim, end_callback=None):
-        """播放内嵌底部提示的 offset 动画（image 主图 + under 阴影同步，与原版一致）。
-
-        动画定义在 toast.json 的 toast 命名空间（toast_under_enter/exit 等）。
-        用 _embedded_anim_set 守护：只有控件上已有动画时才 Stop/Remove，
-        避免首次播放时对无动画控件调用导致报错。置位放在全部控件处理之后，
-        确保同一次调用里 image/under 两个分支看到的标志一致。
-        """
-        if self.mEmbeddedUnderImage:
-            try:
-                if self._embedded_anim_set:
-                    self.mEmbeddedUnderImage.StopAnimation("offset")
-                    self.mEmbeddedUnderImage.RemoveAnimation("offset")
-                self.mEmbeddedUnderImage.SetAnimation("offset", "toast", enter_anim)
-                self.mEmbeddedUnderImage.PlayAnimation("offset")
-                if end_callback:
-                    self.mEmbeddedUnderImage.SetAnimEndCallback(enter_anim, end_callback)
-            except Exception as e:
-                dlog.client_print("==== _PlayEmbeddedUnderAnim image error: %s ====" % str(e))
-        if self.mEmbeddedUnderShadow and shadow_anim:
-            try:
-                if self._embedded_anim_set:
-                    self.mEmbeddedUnderShadow.StopAnimation("offset")
-                    self.mEmbeddedUnderShadow.RemoveAnimation("offset")
-                self.mEmbeddedUnderShadow.SetAnimation("offset", "toast", shadow_anim)
-                self.mEmbeddedUnderShadow.PlayAnimation("offset")
-            except Exception as e:
-                dlog.client_print("==== _PlayEmbeddedUnderAnim shadow error: %s ====" % str(e))
-        # 全部控件设置完动画后再置位
-        self._embedded_anim_set = True
-
     def ShowEmbeddedUnderToast(self, cfg):
-        """在设置界面内部显示底部提示（由 Toast.ShowToast 在设置打开时路由调用）。
-
-        与原版 toast_under 一致：入场动画 -> 停留 -> 出场动画 -> 隐藏。
-        """
-        if not self.mEmbeddedUnderRoot:
-            return
-        text = cfg.get("text", "")
-        color = cfg.get("color")
-        duration = cfg.get("duration", 3.0)
-        if self.mEmbeddedUnderLabel:
-            self.mEmbeddedUnderLabel.SetText(text, True)
-            self.mEmbeddedUnderLabel.SetTextColor(color if color else (1.0, 1.0, 1.0))
-        # 清掉上次未完成的停留定时器，避免提前隐藏本次提示
-        # 官方接口是 CancelTimer；KillTimer 不存在（旧写法被 try/except 静默吞掉）
-        if self.mEmbeddedUnderTimer is not None:
-            try:
-                comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-                comp.CancelTimer(self.mEmbeddedUnderTimer)
-            except Exception:
-                pass
-            self.mEmbeddedUnderTimer = None
-        # 面板设为可见并播放入场动画
-        self.mEmbeddedUnderRoot.SetVisible(True)
-        self._PlayEmbeddedUnderAnim("toast_under_enter", "toast_under_shadow_enter")
-        # 入场音效：与 Toast 语义一致（ToastUnder 默认 random.toast，空串不播）
-        enter_sound = cfg.get("enter_sound")
-        if enter_sound is None:
-            enter_sound = "random.toast"
-        if enter_sound:
-            try:
-                audio_comp = clientApi.GetEngineCompFactory().CreateCustomAudio(clientApi.GetLevelId())
-                audio_comp.PlayCustomUIMusic(enter_sound, 1.0, 1.0, False)
-            except Exception as e:
-                dlog.client_print("==== ShowEmbeddedUnderToast sound error: %s ====" % str(e))
-        # 停留结束后播放出场动画
-        try:
-            comp = clientApi.GetEngineCompFactory().CreateGame(clientApi.GetLevelId())
-            self.mEmbeddedUnderTimer = comp.AddTimer(duration, self._StartEmbeddedUnderExit)
-        except Exception as e:
-            dlog.client_print("==== ShowEmbeddedUnderToast timer error: %s ====" % str(e))
-
-    def _StartEmbeddedUnderExit(self):
-        """停留结束，播放出场动画。"""
-        self.mEmbeddedUnderTimer = None
-        if not self.mEmbeddedUnderRoot:
-            return
-        self._PlayEmbeddedUnderAnim("toast_under_exit", "toast_under_shadow_exit",
-                                    end_callback=self._OnEmbeddedUnderExitEnd)
-
-    def _OnEmbeddedUnderExitEnd(self):
-        """出场动画结束，隐藏内嵌底部提示面板。"""
-        if self.mEmbeddedUnderRoot:
-            try:
-                self.mEmbeddedUnderRoot.SetVisible(False)
-            except Exception:
-                pass
+        """在设置界面内部显示底部提示（由 Toast.ShowToast 按栈顶界面路由调用）。"""
+        return _ShowEmbeddedUnderToast(self, cfg)
 
     def _OnContentChanged(self, group):
         """内容项注册表变更回调。如果当前右侧面板正好显示该分组，则刷新。"""
@@ -5518,6 +5572,13 @@ class DocScreenNode(ScreenNode):
         self.mRightContent = _DocFindScrollContent(self, self.mBasePath, "right")
         _DocBindBackButton(self, self.mBasePath, self.OnBackClick)
 
+        # 底部提示副本：文档界面在 $additional_screen_content 层挂了一份
+        # toast.toast_under，注册后 Toast 按栈顶界面自动挑（不注册就只能落
+        # CreateUI 叠加层，或显示在被遮住的设置界面副本上）。
+        underPath = _SetupEmbeddedUnderToastHost(
+            self, _EmbeddedAdditionalCandidates(self.mBasePath or "", "under_toast"))
+        dlog.client_print("==== doc under toast host: %s ====" % (underPath or "none"))
+
         try:
             from DocRegistry import SetDocChangedCallback
             SetDocChangedCallback(self.OnDocsChanged)
@@ -5550,6 +5611,8 @@ class DocScreenNode(ScreenNode):
             SetDocChangedCallback(None)
         except Exception:
             pass
+        # 注销底部提示副本宿主，并取消停留定时器
+        _TeardownEmbeddedUnderToast(self)
         self.mBookWrappers = []
         self.mBookBtns = []
         self.mBookSubPanels = []
@@ -5570,6 +5633,10 @@ class DocScreenNode(ScreenNode):
             self.RebuildBooks()
         except Exception as e:
             dlog.client_print("==== doc: rebuild after registry change error: %s ====" % str(e))
+
+    def ShowEmbeddedUnderToast(self, cfg):
+        """在文档界面内部显示底部提示（由 Toast.ShowToast 按栈顶界面路由调用）。"""
+        return _ShowEmbeddedUnderToast(self, cfg)
 
     def OnBackClick(self, args):
         dlog.client_print("==== doc: back button clicked ====")

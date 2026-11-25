@@ -9,6 +9,10 @@ Toast 提示系统
 - 三个位置均支持自定义文字与自定义文字颜色。
 - 进入(1s) -> 停留(默认3s/可自定义) -> 退出(1s) 三段动画。
 - 同一位置的多个 toast 按调用顺序排队播放（一个播完播下一个）。
+- 底部提示（ToastUnder）同样显示在**栈顶界面自己的副本**上：设置界面 / 文档界面
+  各在 $additional_screen_content 层挂一份 toast_under，界面 Create / Destroy 时
+  登记与注销，ShowToast 按 clientApi.GetTopScreen() 自动挑；栈顶没有副本时回落
+  CreateUI 叠加层。
 - 另有「物品名提示」（ShowItemNameToast，对应 toast_item_name 控件）：不滑入，
   立即不透明显示，停留 1.5 秒后在 1 秒内把整块（底板 + 物品名 + 命名空间两行文字）
   淡到全透明；中途重复触发即"回到不透明并重新计时"，不排队。
@@ -84,25 +88,75 @@ _playing = {               # 位置 -> 是否正在播放
 _item_name_screen = None   # 当前物品名提示的叠加层实例（不排队，重复触发即重建）
 
 
-# 设置界面内嵌底部提示宿主（ScreenNode 或 None）。
-# 当设置界面打开时由 SettingsScreenNode 注册自身，底部 toast 改为路由到
-# 设置界面内部的高层级面板显示（天然盖在设置 UI 之上），
-# 否则（宿主为 None）走原来的 CreateUI 叠加层逻辑。
-_settings_under_host = None
+# 底部提示（ToastUnder）的「内嵌副本」宿主注册表。
+# 每个想用到底部提示的界面在 JSON 的 $additional_screen_content 层放一份
+# toast.toast_under 副本，界面 Create 时把自己的 ScreenNode 登记进来
+# （需实现 ShowEmbeddedUnderToast），Destroy 时注销。
+# 触发时按**栈顶界面**挑宿主：设置界面 / 文档界面都是 render_only_when_topmost
+# 的，后开的界面压栈后下面那份副本根本画不出来。栈顶不是任何已登记界面
+# （弹窗压着、或纯游戏画面）时不内嵌，回落 CreateUI 叠加层。
+_under_toast_hosts = []
+
+
+def register_under_toast_host(host):
+    """登记底部提示的内嵌副本宿主（界面 Create 时调用）。"""
+    if host is None:
+        return
+    if host not in _under_toast_hosts:
+        _under_toast_hosts.append(host)
+
+
+def unregister_under_toast_host(host):
+    """注销底部提示的内嵌副本宿主（界面 Destroy 时调用）。"""
+    try:
+        _under_toast_hosts.remove(host)
+    except ValueError:
+        pass
 
 
 def register_settings_under_host(host):
-    """设置在设置界面内显示底部提示的宿主 ScreenNode（设置界面 Create 时调用）。"""
-    global _settings_under_host
-    _settings_under_host = host
+    """（兼容旧名）登记底部提示的内嵌副本宿主。"""
+    register_under_toast_host(host)
 
 
 def unregister_settings_under_host(host):
-    """注销内嵌底部提示宿主（设置界面 Destroy 时调用）。"""
-    global _settings_under_host
-    if _settings_under_host is host:
-        _settings_under_host = None
+    """（兼容旧名）注销底部提示的内嵌副本宿主。"""
+    unregister_under_toast_host(host)
 
+
+def _FindUnderToastHost():
+    """返回当前栈顶界面登记的内嵌副本宿主；没有对应界面则返回 None。
+
+    为什么按栈顶挑：副本跟着它所在的界面一起渲染，压栈后下面那份不显示，
+    底部提示会凭空消失（这正是「设置界面开着时提示看不见」的原因）。
+    """
+    if not _under_toast_hosts:
+        return None
+    getter = getattr(clientApi, "GetTopScreen", None)
+    if getter is None:
+        # 老引擎拿不到栈顶：仅当只有一个宿主时沿用（插件只有一个可见界面）
+        return _under_toast_hosts[0] if len(_under_toast_hosts) == 1 else None
+    try:
+        top = getter()
+    except Exception:
+        top = None
+    if top is None:
+        return None
+    if top in _under_toast_hosts:
+        return top
+    try:
+        name = str(top.GetScreenName() or "")
+    except Exception:
+        return None
+    if not name:
+        return None
+    for host in _under_toast_hosts:
+        try:
+            if str(host.GetScreenName() or "") == name:
+                return host
+        except Exception:
+            continue
+    return None
 
 
 # 物品名提示的「内嵌副本」宿主注册表。
@@ -589,11 +643,11 @@ def ShowToast(position, text="", color=None, icon=None, item_name=None,
         "background": background,
         "nine_slice": nine_slice,
     }
-    # 设置界面打开时，底部提示路由到设置界面内部的高层级面板（盖在其上）；
-    # 否则走原 CreateUI 叠加层逻辑。
-    if position == ToastUnder and _settings_under_host is not None:
-        host = _settings_under_host
-        if hasattr(host, "ShowEmbeddedUnderToast"):
+    # 底部提示：栈顶界面有内嵌副本就显示在它内部（盖在其上）；
+    # 否则（界面没登记副本 / 弹窗压着 / 纯游戏画面）走原 CreateUI 叠加层逻辑。
+    if position == ToastUnder:
+        host = _FindUnderToastHost()
+        if host is not None and hasattr(host, "ShowEmbeddedUnderToast"):
             try:
                 host.ShowEmbeddedUnderToast(cfg)
                 return
