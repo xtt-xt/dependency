@@ -105,6 +105,41 @@ _DEV_DOC_NOICON_PAGE = u"""# 无图标页
 同一本书里其它页都有图标，可以对比两种页卡的文字起点。
 """
 
+_DEV_DOC_MARKDOWN = u"""# Markdown 语法演示
+这一页把解析器支持的写法逐条列出来，可以对着界面核对。
+## 二级标题（1.1 倍）
+### 三级标题
+#### 四级标题（与正文同字号，自动加粗）
+##### 五级标题
+###### 六级标题
+## 列表
+- 一级列表项
+  - 二级（两个空格缩进一级）
+    - 三级
+      - 四级（再深也只缩到这里）
++ 加号前缀同样是无序列表
+1. 有序列表第一项
+2. 第二项故意写得很长，用来确认折行后的续行按序号宽度悬挂缩进，而不是顶到最左边，这样多行条目读起来不会散架
+3) 右括号也认，统一显示成 3. 的样子
+## 行内样式
+普通文字、**粗体**、*斜体*、***粗斜***、`青色代码`、~~灰色（基岩版画不出删除线）~~。
+嵌套：**粗体里有 *斜体* 和 `代码`，过了折行点外层粗体也不会丢**。
+转义：要显示星号就写反斜杠，比如 2\\*3\\*4 不会被当成斜体。
+## 代码块
+三个反引号围起来的内容原样保留（含缩进），不做行内解析、不折行：
+```
+def Demo():
+    if True:
+        return "**这行不是粗体**"
+```
+波浪号围栏效果一样，末尾未闭合会一直当代码到页尾：
+~~~
+  >>> 两个空格缩进也保留
+~~~
+## 本版没做的
+引用、分隔线、表格、图片与链接仍按普通文本原样显示，需要时用文字表达。
+"""
+
 
 def _OnDemoItemPicked(screenNode, item_id, item_name, item_aux):
     """物品选择演示回调：把选中物品打到客户端日志。"""
@@ -463,17 +498,21 @@ def _RegisterDevToggleDemo():
 
 
 def _RegisterDevDocDemo():
-    """注册文档界面演示书：格式 / 长页 / 折行 / 空正文 / id 带下划线 / 无图标页
+    """注册文档界面演示书：格式 / Markdown 语法 / 长页 / 折行 / 空正文 / id 带下划线 / 无图标页
     + 一本无页的书 + 一本无图标的书。
 
     只用于自测 `doc.main`：K 键、官方「打开文档」按钮或 `/doc_open` 打开后，
-    左栏会出现「文档界面演示」（6 页，其中最后一页没有图标）、「空书（无页）」
+    左栏会出现「文档界面演示」（7 页，其中最后一页没有图标）、「空书（无页）」
     （验「本书暂无页面」空态）与「无图标书（纯文字）」（验整本书不带图标的排版）。
     """
     RegisterDocBook(DEV_DOC_BOOK_ID, u"文档界面演示", "textures/ui/icon_setting")
     # 每页给不同图标：顺便验页卡片的 icon_backdrop/icon 是否真的各自生效
     RegisterDocPage(DEV_DOC_BOOK_ID, "intro", u"格式演示", "textures/ui/icon/general-icon",
                     body=_DEV_DOC_INTRO)
+    # 第二页：一页覆盖全部受支持的 Markdown 写法（标题分级 / 嵌套与有序列表 /
+    # 行内嵌套与转义 / 代码围栏），改解析器时进游戏对照这一页即可
+    RegisterDocPage(DEV_DOC_BOOK_ID, "markdown", u"Markdown 语法",
+                    "textures/ui/icon/multiplayer-icon", body=_DEV_DOC_MARKDOWN)
     RegisterDocPage(DEV_DOC_BOOK_ID, "long", u"长页（滚动/归顶）",
                     "textures/ui/icon/behaviour-packs-icon", body=_DEV_DOC_LONG)
     RegisterDocPage(DEV_DOC_BOOK_ID, "wrap", u"超长行折行", "textures/ui/icon/advanced-icon",
@@ -492,7 +531,7 @@ def _RegisterDevDocDemo():
     RegisterDocPage(DEV_DOC_PLAIN_BOOK_ID, "plain", u"无图标页",
                     body=u"# 无图标演示\n这本书和它的页都没有给 icon，卡片上只显示文字，"
                          u"而且不会留下动画底图。")
-    dlog.client_print("==== dev docs registered: book=%s (6 pages) + %s (0 page) + %s (1 page) ====" % (
+    dlog.client_print("==== dev docs registered: book=%s (7 pages) + %s (0 page) + %s (1 page) ====" % (
         DEV_DOC_BOOK_ID, DEV_DOC_EMPTY_BOOK_ID, DEV_DOC_PLAIN_BOOK_ID))
 
 

@@ -4779,6 +4779,13 @@ class SettingsScreenNode(ScreenNode):
 # 取 66 留约 4% 余量；写 57 时正文只占栏宽 83%，右侧空出一大块（用户指出的"宽度不对"）。
 # 换栏宽时按同一比例重算：88% -> 69、92% -> 72、99% -> 77。
 DOC_WRAP_UNITS = 66      # 折行预算：ASCII 记 1、CJK 记 2（84% 宽栏实测容量 69）
+DOC_WRAP_UNITS_MIN = 40  # 自适应折行的下限（栏再窄也不至于每行两个字）
+DOC_WRAP_UNITS_MAX = 100 # 自适应折行的上限
+DOC_PX_PER_UNIT = 3.9    # 1 个折行单位 ≈ 多少 UI 像素（2026-11-24 截图反推：15.59/4）
+# 正文栏宽度只有落在这个区间才认为 GetSize() 给的是 UI 像素；读数离谱（比如把屏幕
+# 像素当 UI 像素，会大 4 倍）时宁可退回常数，避免折行宽度翻倍、文字被裁掉。
+DOC_WRAP_UNITS_MIN_PX = 180
+DOC_WRAP_UNITS_MAX_PX = 420
 DOC_BLOCK_LIMIT = 400    # 单页最多渲染块数，防超长正文一次建上千控件
 
 # 行内样式：label 的 text 支持 MC 样式代码（§，LabelUIControl.SetText 官方说明
@@ -4787,9 +4794,13 @@ DOC_BLOCK_LIMIT = 400    # 单页最多渲染块数，防超长正文一次建�
 # 下划线和删除线」，删除线因此降级成灰色（§7），不画线。
 _DOC_H = u"\u00a7"
 # 行内标记 -> 样式码（长标记必须排在短标记前，否则 ** 会被单个 * 抢先匹配）
-# "7" 是颜色码（灰），其余是格式码；基岩版文本控件不支持 §n/§m，删除线只降级成灰字
+# "7" 是颜色码（灰），"b" 是颜色码（青），其余是格式码（l 粗 / o 斜）
 _DOC_INLINE_MARKS = [(u"***", u"lo"), (u"**", u"l"), (u"~~", u"7"), (u"*", u"o"), (u"`", u"b")]
 _DOC_FORMAT_CODES = u"klmno"     # 样式码中属于「格式」的（其余按颜色处理）
+# 反斜杠可转义这些字符：`\*` 输出字面星号、不参与配对（标准 Markdown 的 ASCII 标点集）
+_DOC_ESCAPABLE = u"\\`*_{}[]()#+-.!|~>\"'$%&,/:;<=?@^"
+# 行内标记的嵌套层数上限（防病态深嵌套把递归打穿）
+_DOC_INLINE_MAX_DEPTH = 6
 
 # 卡片 icon_backdrop 的序列帧：textures/ui/icon_backdrop.png 是 12×96 的竖条，即 8 帧
 # 12×12。与设置界面同一套（AddCard / _StartBackdropAnimation）：不设 UV 尺寸时整条贴图
@@ -4829,48 +4840,119 @@ def _DocCharWidth(ch):
 def _DocHeadingLevel(stripped):
     """返回行首 `#` 的级数（1~6）；不是标题行返回 0。
 
-    要求 `#` 后紧跟一个空格（`#标题` 仍按正文处理），超过 6 个 `#` 也按正文处理。
+    `#标题`（`#` 后不空格）也算标题 —— 写文档时漏一个空格不该让整行退化成正文；
+    只有 `#` 本身、7 个及以上 `#` 仍按正文处理。
     """
     level = 0
     total = len(stripped)
     while level < total and stripped[level] == u"#":
         level += 1
-    if 1 <= level <= 6 and level < total and stripped[level] == u" ":
+    if 1 <= level <= 6 and level < total:
         return level
     return 0
 
 
-def _DocInlineRuns(text):
-    """把一行里的行内标记切成 [{text, style}]，style 为 None 或样式码组合（"l"/"o"/"b"/"7"/"lo"）。
+def _DocHeadingContent(stripped, level):
+    """取标题正文：跳过 `#` 串，若紧跟一个空格也一并吃掉。"""
+    start = level
+    if start < len(stripped) and stripped[start] == u" ":
+        start += 1
+    return stripped[start:].lstrip()
 
-    只认成对标记且要求内容非空（`2*3`、`**` 后面直接 `**` 都按普通字符处理）；
-    不处理嵌套与跨行，够用即可。
+
+def _DocFindClose(text, start, mark):
+    """从 start 起找能与 mark 配对的收尾位置，找不到返回 -1。
+
+    `*a **b** c*` 里的 `**` 不该被单个 `*` 当收尾，`**a *b* c**` 里单个 `*`
+    也不该被 `**` 当收尾 —— 所以按「同字符连写长度恰好等于标记长度」判定；
+    反斜杠转义过的字符整体跳过，不参与配对。
     """
-    if not text:
-        return []
+    ch = mark[0]
+    size = len(mark)
+    total = len(text)
+    i = start
+    while i < total:
+        if text[i] == u"\\" and i + 1 < total and text[i + 1] in _DOC_ESCAPABLE:
+            i += 2
+            continue
+        if text[i] != ch:
+            i += 1
+            continue
+        run = 1
+        while i + run < total and text[i + run] == ch:
+            run += 1
+        if run == size:
+            return i
+        i += run
+    return -1
+
+
+def _DocMergeStyle(base, extra):
+    """合并两个样式码串（去重、保序：先外层后内层）。"""
+    merged = []
+    for code in (base or u"") + (extra or u""):
+        if code not in merged:
+            merged.append(code)
+    return u"".join(merged)
+
+
+def _DocParseInline(text, style=u"", depth=0):
+    """把一行切成 [{text, style}]，支持嵌套标记与 `\\` 转义。
+
+    嵌套按「收尾标记连写长度」配平，所以 `**粗 *斜* 粗**`、`*斜 **粗** 斜*`
+    都能逐段取到正确样式。`2*3*4` 仍会吃掉中间的 3（与标准 Markdown 同款语义，
+    要字面星号请写 `2\\*3\\*4`）。
+    """
     runs = []
+    if not text:
+        return runs
+
+    def push(chunk, runStyle):
+        if not chunk:
+            return
+        runStyle = runStyle or None       # 无样式统一成 None（runs 的旧约定）
+        if runs and runs[-1]["style"] == runStyle:
+            runs[-1]["text"] += chunk
+        else:
+            runs.append({"text": chunk, "style": runStyle})
+
+    buf = []
     i = 0
     total = len(text)
     while i < total:
-        matched = False
-        for mark, style in _DOC_INLINE_MARKS:
-            if not text.startswith(mark, i):
-                continue
-            end = text.find(mark, i + len(mark))
-            if end <= i + len(mark):     # 找不到，或标记内为空 -> 不是有效标记
-                continue
-            runs.append({"text": text[i + len(mark):end], "style": style})
-            i = end + len(mark)
-            matched = True
-            break
-        if matched:
+        ch = text[i]
+        if ch == u"\\" and i + 1 < total and text[i + 1] in _DOC_ESCAPABLE:
+            buf.append(text[i + 1])
+            i += 2
             continue
-        if runs and runs[-1]["style"] is None:
-            runs[-1]["text"] += text[i]
-        else:
-            runs.append({"text": text[i], "style": None})
-        i += 1
+        hit = None
+        if depth < _DOC_INLINE_MAX_DEPTH:
+            for mark, code in _DOC_INLINE_MARKS:
+                if not text.startswith(mark, i):
+                    continue
+                end = _DocFindClose(text, i + len(mark), mark)
+                if end <= i + len(mark):
+                    continue
+                hit = (mark, code, end)
+                break
+        if hit is None:
+            buf.append(ch)
+            i += 1
+            continue
+        mark, code, end = hit
+        push(u"".join(buf), style)
+        del buf[:]
+        for run in _DocParseInline(text[i + len(mark):end],
+                                   _DocMergeStyle(style, code), depth + 1):
+            push(run["text"], run["style"])
+        i = end + len(mark)
+    push(u"".join(buf), style)
     return runs
+
+
+def _DocInlineRuns(text):
+    """兼容旧调用：等价于不带基础样式的 `_DocParseInline`。"""
+    return _DocParseInline(text)
 
 
 def _DocStyledFromRuns(runs):
@@ -4889,26 +4971,37 @@ def _DocStyledFromRuns(runs):
     return u"".join(out)
 
 
-def wrap_line(text, units=DOC_WRAP_UNITS):
+def _DocTextWidth(text):
+    """累计一串文本的显示宽度（ASCII=1、CJK=2）。"""
+    width = 0
+    for ch in text:
+        width += _DocCharWidth(ch)
+    return width
+
+
+def wrap_line(text, units=DOC_WRAP_UNITS, hang=u""):
     """
     按显示宽度把一行折成多行，返回行列表（空串返回 [""]）。
 
     :param text:  原始单行文本（不要带换行）
     :param units: 每行宽度预算，ASCII=1、CJK=2
+    :param hang:  续行前缀（悬挂缩进），列表项传与标记等宽的空格串
     """
     if not text:
         return [""]
     if units is None or units <= 0:
         return [text]
+    hang = hang or u""
+    hangWidth = _DocTextWidth(hang)
     lines = []
     buf = []
     width = 0
     for ch in text:
         w = _DocCharWidth(ch)
-        if buf and width + w > units:
+        if buf and width + w > units and width > hangWidth:
             lines.append("".join(buf))
-            buf = []
-            width = 0
+            buf = [hang] if hang else []
+            width = hangWidth
         buf.append(ch)
         width += w
     if buf:
@@ -4916,21 +5009,24 @@ def wrap_line(text, units=DOC_WRAP_UNITS):
     return lines or [""]
 
 
-def wrap_styled(styled, units=DOC_WRAP_UNITS):
+def wrap_styled(styled, units=DOC_WRAP_UNITS, hang=u""):
     """
     按显示宽度折行，并把行内样式带到每一行（换行处重开样式、行尾 `§r` 复位）。
 
     与 wrap_line 的区别：`§x` 样式码占 0 宽度、不会被拆到两行；折开的行在行首重新
-    注入当时生效的样式，否则粗体/颜色过了折行点就丢了。无样式码时结果与 wrap_line
-    完全一致。
+    注入当时生效的样式，否则粗体/颜色过了折行点就丢了。无样式码、无 hang 时结果与
+    wrap_line 完全一致；有 hang 时续行先重开样式码、再补悬挂缩进。
 
     :param styled: 含 § 样式码的单行文本
-    :param units:  每行宽度预算，ASCII=1、CJK=2（样式码不计宽）
+    :param units:  每行宽度预算（样式码不计宽）
+    :param hang:   续行前缀（悬挂缩进）
     """
     if not styled:
         return [""]
     if units is None or units <= 0:
         return [styled]
+    hang = hang or u""
+    hangWidth = _DocTextWidth(hang)
     lines = []
     buf = []
     width = 0
@@ -4970,10 +5066,10 @@ def wrap_styled(styled, units=DOC_WRAP_UNITS):
             i += 2
             continue
         weight = _DocCharWidth(ch)
-        if buf and width + weight > units:
+        if buf and width + weight > units and width > hangWidth:
             flush()
-            buf = [reopen()]
-            width = 0
+            buf = [reopen() + hang]
+            width = hangWidth
         buf.append(ch)
         width += weight
         i += 1
@@ -4981,48 +5077,153 @@ def wrap_styled(styled, units=DOC_WRAP_UNITS):
     return lines or [u""]
 
 
+_DOC_LIST_MARKS = (u"- ", u"* ", u"+ ")
+_DOC_ORDERED_MARKS = (u".", u")")
+_DOC_INDENT_SPACES = 2      # 每级缩进 2 个空格（tab 先按 4 空格展开）
+_DOC_MAX_INDENT = 4         # 最多 4 级，再深折叠到第 4 级
+_DOC_FENCES = (u"```", u"~~~")
+
+
+def _DocIsFenceClose(probe, fence):
+    """probe 是否关闭围栏：同字符、长度不少于开启标记、后面没有 info 串。"""
+    if not probe or probe[0] != fence[0]:
+        return False
+    if len(probe) < len(fence):
+        return False
+    return probe == fence[0] * len(probe)
+
+
+def _DocOrderedMarker(stripped):
+    """识别 `1. ` / `1) ` 前缀，返回 (标记, 正文) 或 None。"""
+    i = 0
+    total = len(stripped)
+    while i < total and i < 3 and stripped[i].isdigit():
+        i += 1
+    if not i or i >= total or stripped[i] not in _DOC_ORDERED_MARKS:
+        return None
+    if i + 1 >= total or stripped[i + 1] != u" ":
+        return None
+    return stripped[:i] + u". ", stripped[i + 2:]
+
+
+def _DocIndentLevel(indent):
+    """缩进列数 -> 嵌套层级（2 空格一级，最多 4 级）。"""
+    level = indent // _DOC_INDENT_SPACES
+    if level > _DOC_MAX_INDENT:
+        level = _DOC_MAX_INDENT
+    return level
+
+
+def _DocMakeBlock(kind, content, style, indent, hang):
+    """组装一个渲染块：text 去标记、styled 带 § 码、runs 保留旧字段。"""
+    runs = _DocParseInline(content, style)
+    text = u"".join(run["text"] for run in runs)
+    return {"kind": kind, "text": text,
+            "styled": _DocStyledFromRuns(runs),
+            "runs": [{"text": text, "color": None}],
+            "indent": indent, "hang": hang}
+
+
+def _DocCodeBlocks(codeLines):
+    """围栏内的代码行 -> code 块列表（保留行首空白；空行补一个空格占高度）。"""
+    out = []
+    for code in codeLines:
+        text = code.rstrip()
+        if not text.strip():
+            text = u" "
+        out.append({"kind": "code", "text": text, "styled": text,
+                    "runs": [{"text": text, "color": None}],
+                    "indent": 0, "hang": u""})
+    return out
+
+
 def build_doc_blocks(body):
     """
     把正文 Markdown 源码切成渲染块（界面侧唯一的解析入口）。
 
-    块类型（行首标记）：`# ` → heading、`## ` → subheading、`### ` ~ `###### ` →
-    heading3、`- ` / `* ` → bullet、空行 → gap（连续空行只留一个）、其余 → text。
+    块类型：
+      `# ` ~ `###### `（空格可省）→ heading / subheading / heading3 ~ heading6
+      `- ` / `* ` / `+ `          → bullet（按缩进嵌套，2 空格一级、最多 4 级）
+      `1. ` / `1) `              → ordered（同样按缩进嵌套）
+      ``` 或 ~~~ 围栏            → code（原样保留行内容与缩进）
+      空行                        → gap（连续空行只留一个、行尾裁掉）
+      其余                        → text（保留行首缩进）
 
-    行内样式（每块内）：`**粗体**` → 粗、`*斜体*` → 斜、`***粗斜***` → 粗+斜、
-    `` `代码` `` → 青色、`~~删除线~~` → 灰色（基岩版文本控件不支持删除线格式码，
-    只降级成灰字）。基岩版同样不支持下划线，所以没有 `__下划线__`。
+    行内样式（每块内）：`**粗体**`、`*斜体*`、`***粗斜***`、`` `代码` ``（青色）、
+    `~~删除线~~`（基岩版不支持下划线/删除线，降级成灰字）；支持嵌套，`\\` 可转义
+    标点。4~6 级标题与正文同字号、自动加粗（靠粗细区分层级）。
 
-    :returns: [{"kind": str, "text": str, "styled": str, "runs": [...]}]
-              text   去掉行内标记后的纯文本；
-              styled 可直接交给 label 的串（含 § 样式码，无样式时与 text 相同）；
-              runs   保留的旧字段（恒单段），行内样式走 styled。
+    :returns: [{"kind", "text", "styled", "runs", "indent", "hang"}]
     """
     if not body:
         return []
+    source = body.replace("\r\n", "\n").replace("\r", "\n").replace(u"\t", u"    ")
+    lines = source.split(u"\n")
     blocks = []
-    for raw in body.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    fence = None
+    codeLines = []
+    idx = 0
+    total = len(lines)
+    while idx < total:
+        raw = lines[idx]
+        idx += 1
+        if fence is not None:
+            if _DocIsFenceClose(raw.strip(), fence):
+                blocks.extend(_DocCodeBlocks(codeLines))
+                del codeLines[:]
+                fence = None
+            else:
+                codeLines.append(raw)
+            continue
         line = raw.rstrip()
         stripped = line.lstrip()
         if not stripped:
             if blocks and blocks[-1]["kind"] != "gap":
-                blocks.append({"kind": "gap", "text": "", "styled": "", "runs": []})
+                blocks.append({"kind": "gap", "text": u"", "styled": u"",
+                               "runs": [], "indent": 0, "hang": u""})
             continue
+        opened = None
+        for mark in _DOC_FENCES:
+            if stripped.startswith(mark):
+                opened = mark
+                break
+        if opened is not None:
+            fence = opened
+            del codeLines[:]
+            continue
+        indent = len(line) - len(stripped)
         level = _DocHeadingLevel(stripped)
-        if level == 1:
-            kind, content = "heading", stripped[level + 1:]
-        elif level == 2:
-            kind, content = "subheading", stripped[level + 1:]
-        elif level >= 3:
-            kind, content = "heading3", stripped[level + 1:]
-        elif stripped.startswith("- ") or stripped.startswith("* "):
-            kind, content = "bullet", u"· " + stripped[2:]
-        else:
-            kind, content = "text", stripped
-        runs = _DocInlineRuns(content)
-        text = u"".join(run["text"] for run in runs)
-        blocks.append({"kind": kind, "text": text,
-                       "styled": _DocStyledFromRuns(runs),
-                       "runs": [{"text": text, "color": None}]})
+        if level:
+            kind = "heading"
+            if level == 2:
+                kind = "subheading"
+            elif level >= 3:
+                kind = "heading%d" % level
+            style = u"l" if level >= 4 else u""
+            blocks.append(_DocMakeBlock(
+                kind, _DocHeadingContent(stripped, level), style, 0, u""))
+            continue
+        item = None
+        for mark in _DOC_LIST_MARKS:
+            if stripped.startswith(mark):
+                item = stripped[len(mark):]
+                break
+        if item is not None:
+            nest = _DocIndentLevel(indent)
+            prefix = u"  " * nest + u"· "
+            blocks.append(_DocMakeBlock(
+                "bullet", prefix + item, u"", nest, u" " * _DocTextWidth(prefix)))
+            continue
+        ordered = _DocOrderedMarker(stripped)
+        if ordered is not None:
+            nest = _DocIndentLevel(indent)
+            prefix = u"  " * nest + ordered[0]
+            blocks.append(_DocMakeBlock(
+                "ordered", prefix + ordered[1], u"", nest, u" " * _DocTextWidth(prefix)))
+            continue
+        blocks.append(_DocMakeBlock("text", line, u"", 0, u""))
+    if fence is not None:
+        blocks.extend(_DocCodeBlocks(codeLines))
     while blocks and blocks[-1]["kind"] == "gap":
         blocks.pop()
     if len(blocks) > DOC_BLOCK_LIMIT:
@@ -5643,10 +5844,38 @@ class DocScreenNode(ScreenNode):
         _SetLabelText(ctrl, text, "doc empty hint")
         return ctrl
 
+    def _DocWrapUnits(self):
+        """按正文栏实测宽度算折行预算；读不到或读数离谱就退回 DOC_WRAP_UNITS。
+
+        `DOC_PX_PER_UNIT` 是截图反推的「1 个折行单位 ≈ 多少 UI 像素」（GUI 4 倍、
+        1920 宽时 1 单位 ≈ 15.59 屏幕像素 ≈ 3.9 UI 像素；UI 坐标不随分辨率变，
+        所以这个常数可跨设备用）。`mRightContent` 就是 doc.doc_scroll_content 那个
+        84% 宽的 stack_panel，约 269 UI 像素 -> 约 66 单位，与手测容量一致。
+        读数不像 UI 像素（比如把屏幕像素当 UI 像素、大 4 倍）时宁可用常数，
+        避免折行宽度翻倍把文字顶出栏外。
+        """
+        try:
+            if self.mRightContent:
+                size = self.mRightContent.GetSize()
+                if size:
+                    width = size[0]
+                    if DOC_WRAP_UNITS_MIN_PX <= width <= DOC_WRAP_UNITS_MAX_PX:
+                        units = int(width / DOC_PX_PER_UNIT * 0.96)
+                        if units < DOC_WRAP_UNITS_MIN:
+                            return DOC_WRAP_UNITS_MIN
+                        if units > DOC_WRAP_UNITS_MAX:
+                            return DOC_WRAP_UNITS_MAX
+                        return units
+        except Exception as e:
+            dlog.client_print("==== doc: wrap units probe error: %s ====" % str(e))
+        return DOC_WRAP_UNITS
+
     def RenderPage(self, book_id, page_id):
         """渲染某页正文：先清空右栏再逐块重建（重建即天然回到顶部）。
 
         正文直接从第一段内容开始，不再渲染「书 · 页」标题行（用户要求）。
+        折行预算按正文栏实测宽度算（见 `_DocWrapUnits`），列表项带悬挂缩进，
+        代码块按行渲染、保留行首空白。
         """
         from DocRegistry import GetDocPage
         self._ClearRight()
@@ -5665,6 +5894,7 @@ class DocScreenNode(ScreenNode):
             _SetLabelText(hint, u"（本页暂无内容）", "doc empty body")
             dlog.client_print("==== doc: page body empty: %s/%s ====" % (book_id, page_id))
             return True
+        units = self._DocWrapUnits()
         for i, blk in enumerate(blocks):
             kind = blk.get("kind")
             if kind == "gap":
@@ -5673,7 +5903,8 @@ class DocScreenNode(ScreenNode):
             template = _DOC_BLOCK_TEMPLATES.get(kind, 'doc.block_text')
             ctrl = self._AddRightControl(template, 'docblk_%d' % i)
             if ctrl:
-                lines = wrap_styled(blk.get("styled") or blk.get("text") or "")
+                lines = wrap_styled(blk.get("styled") or blk.get("text") or "",
+                                    units, blk.get("hang") or u"")
                 _SetLabelText(ctrl, u"\n".join(lines), "doc block %d" % i)
         dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
             book_id, page_id, len(blocks)))
@@ -5813,7 +6044,12 @@ _DOC_BLOCK_TEMPLATES = {
     "heading": 'doc.block_heading',
     "subheading": 'doc.block_subheading',
     "heading3": 'doc.block_heading3',
+    "heading4": 'doc.block_heading4',
+    "heading5": 'doc.block_heading5',
+    "heading6": 'doc.block_heading6',
     "bullet": 'doc.block_bullet',
+    "ordered": 'doc.block_bullet',
+    "code": 'doc.block_code',
     "text": 'doc.block_text',
 }
 
