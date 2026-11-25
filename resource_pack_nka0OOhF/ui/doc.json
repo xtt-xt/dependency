@@ -562,6 +562,89 @@
         "text_alignment": "left",
         "text": "$doc_text"
     },
+    "block_hr": {
+        "type": "panel",
+        "size": [
+            "100%+0px",
+            14
+        ],
+        "controls": [
+            {
+                "line": {
+                    "type": "image",
+                    "anchor_from": "left_middle",
+                    "anchor_to": "left_middle",
+                    "offset": [
+                        0,
+                        0
+                    ],
+                    "size": [
+                        "100%+0px",
+                        2
+                    ],
+                    "texture": "textures/ui/doc_divider",
+                    "color": [
+                        0.62,
+                        0.65,
+                        0.7
+                    ],
+                    "keep_ratio": false,
+                    "fill": true,
+                    "nineslice_size": [
+                        0,
+                        0,
+                        0,
+                        0
+                    ]
+                }
+            }
+        ]
+    },
+    "block_quote": {
+        "type": "label",
+        "$doc_text": "",
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [
+            0,
+            0
+        ],
+        "size": [
+            "100%+0px",
+            "default"
+        ],
+        "color": [
+            0.72,
+            0.75,
+            0.78
+        ],
+        "font_scale_factor": 1.0,
+        "text_alignment": "left",
+        "text": "$doc_text"
+    },
+    "block_image": {
+        "type": "image",
+        "$doc_sprite": "textures/ui/doc_divider",
+        "anchor_from": "top_left",
+        "anchor_to": "top_left",
+        "offset": [
+            0,
+            0
+        ],
+        "size": [
+            "100%+0px",
+            120
+        ],
+        "texture": "$doc_sprite",
+        "keep_ratio": true,
+        "fill": false,
+        "nineslice_size": [
+            0,
+            0,
+            0,
+            0
+        ]
+    },
     "empty_hint": {
         "type": "label",
         "$doc_text": "",

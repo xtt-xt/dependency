@@ -5082,6 +5082,10 @@ _DOC_ORDERED_MARKS = (u".", u")")
 _DOC_INDENT_SPACES = 2      # 每级缩进 2 个空格（tab 先按 4 空格展开）
 _DOC_MAX_INDENT = 4         # 最多 4 级，再深折叠到第 4 级
 _DOC_FENCES = (u"```", u"~~~")
+_DOC_HR_CHARS = u"-*_"             # 分割线只认同一符号连写 3 个以上
+_DOC_QUOTE_MAX = 3                 # `>` 引用最多认 3 层，再深折叠到第 3 层
+_DOC_QUOTE_PREFIX = u"| "          # 引用行左边条（ASCII，任何字体都有这个字形）
+_DOC_IMAGE_PREFIX = u"textures/"   # 图片只接资源包贴图路径
 
 
 def _DocIsFenceClose(probe, fence):
@@ -5114,6 +5118,65 @@ def _DocIndentLevel(indent):
     return level
 
 
+def _DocIsHr(stripped):
+    """整行是否是分割线：同一符号（- * _）连写 3 个以上，符号之间允许空格。"""
+    if not stripped:
+        return False
+    ch = stripped[0]
+    if ch not in _DOC_HR_CHARS:
+        return False
+    count = 0
+    for c in stripped:
+        if c == ch:
+            count += 1
+        elif c != u" ":
+            return False
+    return count >= 3
+
+
+def _DocQuoteSpec(stripped):
+    """识别 `> ` 引用行，返回 (层级, 正文)；不是引用行返回 None。
+
+    每层剥掉一个 `>` 与紧跟的一个空格；多出 `_DOC_QUOTE_MAX` 的 `>` 也一并
+    吃掉、按第 3 层缩进（否则层层引用会把 `>` 漏进正文）。整行只有 `>` 时
+    正文是空串，渲染成一条空引用条、占一行高度。
+    """
+    level = 0
+    rest = stripped
+    while rest.startswith(u">"):
+        if level < _DOC_QUOTE_MAX:
+            level += 1
+        rest = rest[1:]
+        if rest.startswith(u" "):
+            rest = rest[1:]
+    if not level:
+        return None
+    return level, rest.lstrip()
+
+
+def _DocImageSpec(stripped):
+    """识别整行 `![说明](textures/路径)`，返回 (说明, 贴图路径)；不是图片行返回 None。
+
+    路径与 JSON UI 的 `texture` 同一口径（相对资源包 textures 目录），`.png`
+    后缀可写可不写；路径不以 `textures/` 开头时按普通文本处理，这样写错位置
+    的图片会原样露出源码，而不是变成一块「缺失贴图」。
+    """
+    if not stripped.startswith(u"!["):
+        return None
+    if not stripped.endswith(u")"):
+        return None
+    split = stripped.find(u"](")
+    if split < 0:
+        return None
+    alt = stripped[2:split]
+    path = stripped[split + 2:-1].strip()
+    if path.endswith(u".png"):
+        path = path[:-4]
+    if not path.startswith(_DOC_IMAGE_PREFIX):
+        return None
+    return alt.strip(), path
+
+
 def _DocMakeBlock(kind, content, style, indent, hang):
     """组装一个渲染块：text 去标记、styled 带 § 码、runs 保留旧字段。"""
     runs = _DocParseInline(content, style)
@@ -5122,6 +5185,14 @@ def _DocMakeBlock(kind, content, style, indent, hang):
             "styled": _DocStyledFromRuns(runs),
             "runs": [{"text": text, "color": None}],
             "indent": indent, "hang": hang}
+
+
+def _DocImageBlock(alt, sprite):
+    """图片块：text 存说明（界面上不显示），sprite 存贴图路径（渲染时换贴图）。"""
+    text = alt or u"图片"
+    return {"kind": "image", "text": text, "styled": u"",
+            "runs": [{"text": text, "color": None}],
+            "indent": 0, "hang": u"", "sprite": sprite}
 
 
 def _DocCodeBlocks(codeLines):
@@ -5146,6 +5217,9 @@ def build_doc_blocks(body):
       `- ` / `* ` / `+ `          → bullet（按缩进嵌套，2 空格一级、最多 4 级）
       `1. ` / `1) `              → ordered（同样按缩进嵌套）
       ``` 或 ~~~ 围栏            → code（原样保留行内容与缩进）
+      `---` / `***` / `___`      → hr（同一符号 3 个以上，符号间可有空格）
+      `> ` 引用                  → quote（灰字 + `| ` 左边条，最多叠 3 层）
+      `![说明](textures/路径)`   → image（按原比例缩放，说明文字不显示）
       空行                        → gap（连续空行只留一个、行尾裁掉）
       其余                        → text（保留行首缩进）
 
@@ -5190,6 +5264,20 @@ def build_doc_blocks(body):
         if opened is not None:
             fence = opened
             del codeLines[:]
+            continue
+        if _DocIsHr(stripped):
+            blocks.append(_DocMakeBlock("hr", u"", u"", 0, u""))
+            continue
+        quote = _DocQuoteSpec(stripped)
+        if quote is not None:
+            prefix = u"  " * (quote[0] - 1) + _DOC_QUOTE_PREFIX
+            blocks.append(_DocMakeBlock(
+                "quote", prefix + quote[1], u"", quote[0] - 1,
+                u" " * _DocTextWidth(prefix)))
+            continue
+        image = _DocImageSpec(stripped)
+        if image is not None:
+            blocks.append(_DocImageBlock(image[0], image[1]))
             continue
         indent = len(line) - len(stripped)
         level = _DocHeadingLevel(stripped)
@@ -5837,6 +5925,29 @@ class DocScreenNode(ScreenNode):
             self.mRightCtrls.append(ctrl)
         return ctrl
 
+    def _ApplyDocImage(self, ctrl, sprite):
+        """给图片块换贴图：image 控件不吃 SetText，改走 SetSprite。
+
+        `doc.block_image` 只有一个 image 控件，路径来自正文里的
+        `![说明](textures/…)`。SetSprite 失败（接口缺失）时退一步写 property
+        bag，两条都不通就只留模板默认贴图 —— 不抛异常打断整页渲染。
+        """
+        if not ctrl or not sprite:
+            return False
+        try:
+            img = ctrl.asImage()
+            if img is not None:
+                img.SetSprite(sprite)
+                return True
+        except Exception as e:
+            dlog.client_print("==== doc: image SetSprite error: %s ====" % str(e))
+        try:
+            ctrl.SetPropertyBag({"texture": sprite})
+            return True
+        except Exception as e:
+            dlog.client_print("==== doc: image texture bag error: %s ====" % str(e))
+        return False
+
     def _ShowRightHint(self, text):
         """右栏空态：清正文后写一行灰字。"""
         self._ClearRight()
@@ -5875,7 +5986,8 @@ class DocScreenNode(ScreenNode):
 
         正文直接从第一段内容开始，不再渲染「书 · 页」标题行（用户要求）。
         折行预算按正文栏实测宽度算（见 `_DocWrapUnits`），列表项带悬挂缩进，
-        代码块按行渲染、保留行首空白。
+        代码块按行渲染、保留行首空白；分割线/引用/图片各走自己的模板
+        （图片是换贴图，不是换文字）。
         """
         from DocRegistry import GetDocPage
         self._ClearRight()
@@ -5900,12 +6012,19 @@ class DocScreenNode(ScreenNode):
             if kind == "gap":
                 self._AddRightControl('doc.block_gap', 'docblk_%d' % i)
                 continue
+            if kind == "hr":
+                self._AddRightControl('doc.block_hr', 'docblk_%d' % i)
+                continue
             template = _DOC_BLOCK_TEMPLATES.get(kind, 'doc.block_text')
             ctrl = self._AddRightControl(template, 'docblk_%d' % i)
-            if ctrl:
-                lines = wrap_styled(blk.get("styled") or blk.get("text") or "",
-                                    units, blk.get("hang") or u"")
-                _SetLabelText(ctrl, u"\n".join(lines), "doc block %d" % i)
+            if not ctrl:
+                continue
+            if kind == "image":
+                self._ApplyDocImage(ctrl, blk.get("sprite"))
+                continue
+            lines = wrap_styled(blk.get("styled") or blk.get("text") or "",
+                                units, blk.get("hang") or u"")
+            _SetLabelText(ctrl, u"\n".join(lines), "doc block %d" % i)
         dlog.client_print("==== doc render: %s/%s -> %d block(s) ====" % (
             book_id, page_id, len(blocks)))
         return True
@@ -6050,6 +6169,9 @@ _DOC_BLOCK_TEMPLATES = {
     "bullet": 'doc.block_bullet',
     "ordered": 'doc.block_bullet',
     "code": 'doc.block_code',
+    "hr": 'doc.block_hr',
+    "quote": 'doc.block_quote',
+    "image": 'doc.block_image',
     "text": 'doc.block_text',
 }
 
