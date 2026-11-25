@@ -38,6 +38,26 @@
                     "texture": "textures/ui/top_bar",
                     "controls": [
                         {
+                            "text": {
+                                "type": "label",
+                                "anchor_from": "top_middle",
+                                "anchor_to": "top_middle",
+                                "offset": [
+                                    0.0,
+                                    "30%+0px"
+                                ],
+                                "layer": 101,
+                                "color": [
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ],
+                                "font_type": "default",
+                                "text": "文档",
+                                "text_alignment": "center"
+                            }
+                        },
+                        {
                             "back@common.button": {
                                 "type": "button",
                                 "$control_alpha": 1.0,

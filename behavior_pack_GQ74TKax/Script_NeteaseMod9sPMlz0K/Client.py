@@ -5644,18 +5644,16 @@ class DocScreenNode(ScreenNode):
         return ctrl
 
     def RenderPage(self, book_id, page_id):
-        """渲染某页正文：先清空右栏再逐块重建（重建即天然回到顶部）。"""
-        from DocRegistry import GetDocBook, GetDocPage
+        """渲染某页正文：先清空右栏再逐块重建（重建即天然回到顶部）。
+
+        正文直接从第一段内容开始，不再渲染「书 · 页」标题行（用户要求）。
+        """
+        from DocRegistry import GetDocPage
         self._ClearRight()
         if not self.mRightContent:
             dlog.client_print("==== doc: right content missing, skip render ====")
             return False
-        book = GetDocBook(book_id) or {}
         meta = GetDocPage(book_id, page_id)
-        pageName = (meta or {}).get("name") or page_id
-        headText = u"%s · %s" % (book.get("name") or book_id, pageName)
-        head = self._AddRightControl('doc.page_head', 'doc_page_head')
-        _SetLabelText(head, headText, "doc page head")
         if not meta:
             hint = self._AddRightControl('doc.empty_hint', 'doc_empty_hint')
             _SetLabelText(hint, u"（本页暂无内容）", "doc empty body")
